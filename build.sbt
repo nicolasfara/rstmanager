@@ -1,0 +1,45 @@
+import org.scalajs.linker.interface.ModuleSplitStyle
+
+lazy val scala3Version = "3.3.7"
+lazy val projectScalacOptions = Seq(
+  "-encoding",
+  "utf-8",
+  "-deprecation",
+  "-feature",
+  "-unchecked",
+)
+lazy val sharedDependencies = Seq(
+  "org.typelevel" %% "cats-core" % "2.13.0",
+  "io.circe" %% "circe-core" % "0.14.15",
+  "io.circe" %% "circe-generic" % "0.14.15",
+  "io.github.iltotore" %% "iron" % "3.2.2"
+)
+
+lazy val domain = project
+  .in(file("domain"))
+  .settings(
+    name := "rstmanager-domain",
+    scalaVersion := scala3Version,
+    scalacOptions ++= projectScalacOptions,
+    libraryDependencies ++= Seq() ++ sharedDependencies
+  )
+
+lazy val frontend = project
+  .in(file("frontend"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(domain)
+  .settings(
+    name := "rstmanager",
+    scalaVersion := scala3Version,
+    scalacOptions ++= projectScalacOptions,
+
+    scalaJSUseMainModuleInitializer := true,
+    scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+    },
+
+    libraryDependencies ++= Seq(
+      "org.scala-js" %%% "scalajs-dom" % "2.8.0",
+      "com.raquo" %%% "laminar" % "17.2.0",
+    ) ++ sharedDependencies,
+  )

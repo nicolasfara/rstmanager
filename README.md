@@ -71,3 +71,43 @@ To install new runtime JS dependency, run `npm i yourDependencyName`.
 If you only need the dependency at build time: `npm i --include=dev yourDependencyName`.
 
 Want to add backend, more code examples, etc.? Check out [Laminar full stack demo](https://github.com/raquo/laminar-full-stack-demo).
+
+
+## Development environment (direnv + Nix flake)
+
+This repository includes a Nix flake and a direnv `.envrc` to provide a reproducible development shell.
+
+Files added:
+- `flake.nix` — defines a devShell with OpenJDK 17, sbt, Node.js 18, yarn, and git.
+- `.envrc` — loads the flake with `use flake` for direnv.
+
+Supported platform: x86_64-linux (see `flake.nix`).
+
+Requirements on the host:
+- direnv (https://direnv.net/)
+- nix (with flakes enabled)
+
+Quick setup:
+
+1. Install Nix and direnv following their docs.
+2. Enable direnv for your shell (e.g., add `eval "$(direnv hook zsh)"` to your `~/.zshrc`).
+3. In the repo root run:
+
+```bash
+# Allow direnv to load the flake devShell
+direnv allow
+
+# Optional: update or generate flake.lock
+nix flake update
+
+# Or enter the dev shell manually
+nix develop
+```
+
+Verification (success criteria):
+- `direnv status` shows this repo's environment as loaded.
+- `java -version` prints the OpenJDK provided by the devShell.
+- `sbt --version`, `node -v`, and `yarn -v` return versions from the Nix environment.
+- `npm run dev` and `sbt ~fastLinkJS` work as described elsewhere in this README.
+
+If you want macOS support or pinned package versions (specific JDK/sbt/node), open an issue or send a PR — I kept the initial flake minimal and focused on x86_64-linux.

@@ -8,7 +8,6 @@ import java.util.UUID
 
 final case class Customer(
     id: CustomerId,
-    customerRegistry: CustomerRegistry,
     contactInfo: ContactInfo,
     address: Address,
     fiscalCode: FiscalCode,
@@ -24,8 +23,8 @@ private sealed trait CustomerValidator:
   private def validatePhone(phone: String): ValidationResult[PhoneNumber] = PhoneNumber(phone).toValidatedNec
   private def validateStreet(street: String): ValidationResult[Street] = Street(street).toValidatedNec
   private def validateCity(city: String): ValidationResult[City] = City(city).toValidatedNec
-  private def validateCAP(cap: String): ValidationResult[CAP] = CAP(cap).toValidatedNec
-  private def validateNation(nation: String): ValidationResult[Nation] = Nation(nation).toValidatedNec
+  private def validatePostalCode(cap: String): ValidationResult[PostalCode] = PostalCode(cap).toValidatedNec
+  private def validateCountry(nation: String): ValidationResult[Country] = Country(nation).toValidatedNec
   private def validateFiscalCode(fiscalCode: String): ValidationResult[FiscalCode] = FiscalCode(
     fiscalCode
   ).toValidatedNec
@@ -50,8 +49,8 @@ private sealed trait CustomerValidator:
       validatePhone(phone),
       validateStreet(street),
       validateCity(city),
-      validateCAP(cap),
-      validateNation(nation),
+      validatePostalCode(cap),
+      validateCountry(nation),
       validateFiscalCode(fiscalCode)
     ).mapN {
       (
@@ -67,8 +66,7 @@ private sealed trait CustomerValidator:
       ) =>
         Customer(
           id = id,
-          customerRegistry = CustomerRegistry(validName, validSurname),
-          contactInfo = ContactInfo(validEmail, validPhone),
+          contactInfo = ContactInfo(validName, validSurname, validEmail, validPhone),
           address = Address(validStreet, validCity, validCAP, validNation),
           fiscalCode = validFiscalCode,
           customerType = customerType

@@ -12,6 +12,10 @@ class AddressTest extends AnyFlatSpec:
   "A Street built from a valid value" must "return a valid Street" in:
     val result = Street("123 Main St")
     result.isValid shouldBe true
+  "A Street" should "be compared" in:
+    val street1 = Street("123 Main St").getOrElse(throw new Exception("Invalid Street"))
+    val street2 = Street("123 Main St").getOrElse(throw new Exception("Invalid Street"))
+    street1 shouldEqual street2
   "A City built from an empty value" must "return a validation error" in:
     val result = City("")
     result shouldBe a [Invalid[String]]

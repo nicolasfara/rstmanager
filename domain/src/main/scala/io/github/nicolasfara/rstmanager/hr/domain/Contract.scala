@@ -1,8 +1,8 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
-import java.time.LocalDate
+import com.github.nscala_time.time.Imports.*
 
 enum Contract:
-  case FullTime(startDate: LocalDate)
-  case FixedTerm(startDate: LocalDate, endDate: LocalDate)
-  case PartTime(startDate: LocalDate, weeklyHours: WeeklyHours)
+  case FullTime(startDate: DateTime)
+  case FixedTerm(startDate: DateTime, endDate: DateTime)
+  case PartTime(startDate: DateTime, weeklyHours: WeeklyHours)

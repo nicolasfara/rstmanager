@@ -4,12 +4,13 @@ import com.github.nscala_time.time.Imports.*
 
 final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract, budgetHours: BudgetHours):
   private given CanEqual[DateTime, DateTime] = CanEqual.derived
+  private given CanEqual[Interval, Interval] = CanEqual.derived
 
   /** Checks if the employee is currently active based on their contract type and dates. */
   def isActive: Boolean = contract match
     case Contract.FullTime(_)           => true
     case Contract.PartTime(_, _)        => true
-    case Contract.FixedTerm(_, endDate) => endDate.isAfter(java.time.LocalDate.now())
+    case Contract.FixedTerm(_, endDate) => endDate.isAfter(DateTime.now())
 
   def updateBudgetHours(newBudgetHours: BudgetHours): Either[String, Employee] =
     Either.cond(
@@ -20,17 +21,34 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
 
   def updateContract(newContract: Contract): Employee = copy(contract = newContract)
 
-  def setHoursOverride(hoursOverride: HoursOverride): Employee =
-    val updatedOverrides = budgetHours.overrides.filterNot {
-      case DayOfWeekHoursOverride(_, _, dayOfWeek) =>
-        hoursOverride match
-          case DayOfWeekHoursOverride(_, _, newDayOfWeek) => dayOfWeek == newDayOfWeek
-          case _                                          => false
-      case RangeHoursOverride(_, _, from, to) =>
-        hoursOverride match
-          case RangeHoursOverride(_, _, newFrom, newTo) => from == newFrom && to == newTo
-          case _                                        => false
+  def setHoursOverride(hoursOverride: HoursOverride): Either[String, Employee] = for
+    _ <- Either.cond(isActive, (), "Cannot set hours override for an inactive employee.")
+    _ <- alreadyContainsOverride(hoursOverride)
+  yield {
+    val updatedOverrides = budgetHours.overrides.filter {
+      case DayOfWeekHoursOverride(_, _, day) =>
+        hoursOverride match {
+          case DayOfWeekHoursOverride(_, _, newDay) => day != newDay
+          case _                                    => true
+        }
+      case _ => true
     } :+ hoursOverride
-
     val updatedBudgetHours = budgetHours.copy(overrides = updatedOverrides)
     copy(budgetHours = updatedBudgetHours)
+  }
+
+  private def alreadyContainsOverride(hoursOverride: HoursOverride): Either[String, Unit] =
+    val exists = hoursOverride match {
+      case VacationOverride(interval) =>
+        budgetHours.overrides.exists {
+          case VacationOverride(existingInterval) => existingInterval.overlaps(interval)
+          case DayOfWeekHoursOverride(_, _, day)  => interval.contains(day)
+        }
+      case DayOfWeekHoursOverride(hours, reason, day) =>
+        budgetHours.overrides.exists {
+          case VacationOverride(interval) => interval.contains(day)
+          case _                          => false
+        }
+    }
+    if exists then Left("An override for the specified day or interval already exists.")
+    else Right(())

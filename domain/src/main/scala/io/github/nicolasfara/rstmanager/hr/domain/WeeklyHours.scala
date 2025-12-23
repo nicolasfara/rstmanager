@@ -8,6 +8,7 @@ import io.github.iltotore.iron.cats.*
 opaque type WeeklyHours = Int :| (GreaterEqual[0] & LessEqual[168])
 
 object WeeklyHours:
+  given CanEqual[WeeklyHours, WeeklyHours] = CanEqual.derived
   def apply(value: Int): Validated[String, WeeklyHours] = value.refineValidated
 
   extension (wh: WeeklyHours) def value: Int = wh

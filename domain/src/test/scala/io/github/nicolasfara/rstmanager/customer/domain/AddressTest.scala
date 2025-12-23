@@ -1,10 +1,10 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
 import cats.data.Validated.Invalid
-import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.flatspec.{AnyFlatSpec, AnyFlatSpecLike}
 import org.scalatest.matchers.should.Matchers.*
 
-class AddressTest extends AnyFlatSpec:
+class AddressTest extends AnyFlatSpecLike:
   "A Street built from an empty value" must "return a validation error" in:
     val result = Street("")
     result shouldBe a [Invalid[String]]

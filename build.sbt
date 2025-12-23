@@ -10,13 +10,14 @@ lazy val projectScalacOptions = Seq(
   "-language:strictEquality"
 )
 lazy val sharedDependencies = Seq(
-  "org.typelevel" %% "cats-core" % "2.13.0",
+  "com.github.nscala-time" %% "nscala-time" % "3.0.0",
   "io.circe" %% "circe-core" % "0.14.15",
   "io.circe" %% "circe-generic" % "0.14.15",
   "io.github.iltotore" %% "iron" % "3.2.2",
   "io.github.iltotore" %% "iron-cats" % "3.2.2",
   "org.scalactic" %% "scalactic" % "3.2.19",
-  "org.scalatest" %% "scalatest" % "3.2.19" % "test"
+  "org.scalatest" %% "scalatest" % "3.2.19" % "test",
+  "org.typelevel" %% "cats-core" % "2.13.0",
 )
 
 lazy val domain = project

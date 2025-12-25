@@ -69,7 +69,7 @@ class EmployeeTest extends AnyFlatSpecLike:
       Contract.PartTime(DateTime.now().minusMonths(1), WeeklyHours(20).getOrElse(fail("Failed to create WeeklyHours")))
     val employee = createEmployee("Charlie", "Davis", contract, 20).getOrElse(fail("Failed to create employee"))
     val overrideDate = DateTime.now().withTimeAtStartOfDay()
-    val dailyOverride = DayOfWeekHoursOverride(
+    val dailyOverride = WorkingDayOverride(
       DailyHours(4).getOrElse(fail("Failed to create DailyHours")),
       Some("Reduced hours"),
       overrideDate
@@ -85,7 +85,7 @@ class EmployeeTest extends AnyFlatSpecLike:
     )
     val employee = createEmployee("Diana", "Evans", contract, 40).getOrElse(fail("Failed to create employee"))
     val overrideDate = DateTime.now().withTimeAtStartOfDay()
-    val dailyOverride = DayOfWeekHoursOverride(
+    val dailyOverride = WorkingDayOverride(
       DailyHours(4).getOrElse(fail("Failed to create DailyHours")),
       Some("Reduced hours"),
       overrideDate
@@ -102,11 +102,24 @@ class EmployeeTest extends AnyFlatSpecLike:
     val firstResult = employee.setHoursOverride(weeklyOverride)
     firstResult.isRight shouldBe true
     val updatedEmployee = firstResult.getOrElse(fail("Failed to set first hours override"))
-    val conflictingOverride = DayOfWeekHoursOverride(
+    val conflictingOverride = WorkingDayOverride(
       DailyHours(6).getOrElse(fail("Failed to create DailyHours")),
       Some("Another override"),
       overrideDate
     )
     val secondResult = updatedEmployee.setHoursOverride(conflictingOverride)
+    secondResult.isLeft shouldBe true
+    secondResult.left.getOrElse("") shouldBe "An override for the specified day or interval already exists."
+  it should "prevent setting conflicting vacation overrides" in:
+    val contract =
+      Contract.FullTime(DateTime.now().minusMonths(1))
+    val employee = createEmployee("Frank", "Green", contract, 40).getOrElse(fail("Failed to create employee"))
+    val overrideDate = DateTime.now().withTimeAtStartOfDay()
+    val firstVacationOverride = VacationOverride(overrideDate to overrideDate.plusDays(3))
+    val firstResult = employee.setHoursOverride(firstVacationOverride)
+    firstResult.isRight shouldBe true
+    val updatedEmployee = firstResult.getOrElse(fail("Failed to set first vacation override"))
+    val conflictingVacationOverride = VacationOverride(overrideDate.plusDays(2) to overrideDate.plusDays(5))
+    val secondResult = updatedEmployee.setHoursOverride(conflictingVacationOverride)
     secondResult.isLeft shouldBe true
     secondResult.left.getOrElse("") shouldBe "An override for the specified day or interval already exists."

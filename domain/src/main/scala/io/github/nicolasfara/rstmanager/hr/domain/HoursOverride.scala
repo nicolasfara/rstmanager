@@ -16,6 +16,6 @@ object DailyHours:
 
 sealed trait HoursOverride
 
-final case class DayOfWeekHoursOverride(hours: DailyHours, reason: Option[String], day: DateTime) extends HoursOverride
+final case class WorkingDayOverride(hours: DailyHours, reason: Option[String], day: DateTime) extends HoursOverride
 
 final case class VacationOverride(interval: Interval) extends HoursOverride

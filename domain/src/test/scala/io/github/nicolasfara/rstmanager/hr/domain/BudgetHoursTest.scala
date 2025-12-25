@@ -21,7 +21,7 @@ class BudgetHoursTest extends AnyFlatSpecLike:
     for
       default <- WeeklyHours(defaultHours)
       hoursOverride <- DailyHours(overrideHours)
-      dailyOverride = DayOfWeekHoursOverride(hoursOverride, Some("Special day"), overrideDate)
+      dailyOverride = WorkingDayOverride(hoursOverride, Some("Special day"), overrideDate)
     do {
       val budgetHours = BudgetHours(default, List(dailyOverride))
       val hours = budgetHours.getWorkingHoursForDay(overrideDate)
@@ -51,7 +51,7 @@ class BudgetHoursTest extends AnyFlatSpecLike:
     for
       default <- WeeklyHours(defaultHours)
       hoursOverride <- DailyHours(overrideHours)
-      dailyOverride = DayOfWeekHoursOverride(hoursOverride, Some("Special day"), overrideDate)
+      dailyOverride = WorkingDayOverride(hoursOverride, Some("Special day"), overrideDate)
     do {
       val budgetHours = BudgetHours(default, List(dailyOverride))
       val hours = budgetHours.getWorkingHoursForDay(overrideDate)

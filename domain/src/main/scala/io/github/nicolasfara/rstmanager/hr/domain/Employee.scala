@@ -26,9 +26,9 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
     _ <- alreadyContainsOverride(hoursOverride)
   yield {
     val updatedOverrides = budgetHours.overrides.filter {
-      case DayOfWeekHoursOverride(_, _, day) =>
+      case WorkingDayOverride(_, _, day) =>
         hoursOverride match {
-          case DayOfWeekHoursOverride(_, _, newDay) => day != newDay
+          case WorkingDayOverride(_, _, newDay) => day != newDay
           case _                                    => true
         }
       case _ => true
@@ -42,9 +42,9 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
       case VacationOverride(interval) =>
         budgetHours.overrides.exists {
           case VacationOverride(existingInterval) => existingInterval.overlaps(interval)
-          case DayOfWeekHoursOverride(_, _, day)  => interval.contains(day)
+          case WorkingDayOverride(_, _, day)  => interval.contains(day)
         }
-      case DayOfWeekHoursOverride(hours, reason, day) =>
+      case WorkingDayOverride(hours, reason, day) =>
         budgetHours.overrides.exists {
           case VacationOverride(interval) => interval.contains(day)
           case _                          => false

@@ -8,7 +8,7 @@ final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride
   def getWorkingHoursForDay(day: DateTime): DailyHours =
     overrides
       .collectFirst {
-        case DayOfWeekHoursOverride(hours, _, dayOfWeek) if dayOfWeek == day => hours
+        case WorkingDayOverride(hours, _, dayOfWeek) if dayOfWeek == day => hours
         case VacationOverride(interval) if interval.contains(day) =>
           DailyHours(0).getOrElse(
             throw new IllegalStateException("Vacation override results in invalid daily hours")

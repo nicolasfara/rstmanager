@@ -18,6 +18,7 @@ lazy val sharedDependencies = Seq(
   "org.scalactic" %% "scalactic" % "3.2.19",
   "org.scalatest" %% "scalatest" % "3.2.19" % "test",
   "org.typelevel" %% "cats-core" % "2.13.0",
+  "org.typelevel" %% "cats-kernel" % "2.13.0",
 )
 
 lazy val domain = project

@@ -9,3 +9,4 @@ opaque type ManufacturingDescription = String :| Not[Empty]
 object ManufacturingDescription:
   given CanEqual[ManufacturingDescription, ManufacturingDescription] = CanEqual.derived
   def apply(value: String): Validated[String, ManufacturingDescription] = value.refineValidated
+  def apply(value: String :| Not[Empty]): ManufacturingDescription = value

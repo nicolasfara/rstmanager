@@ -9,3 +9,4 @@ opaque type ManufacturingCode = String :| Not[Empty]
 object ManufacturingCode:
   given CanEqual[ManufacturingCode, ManufacturingCode] = CanEqual.derived
   def apply(value: String): Validated[String, ManufacturingCode] = value.refineValidated
+  def apply(value: String :| Not[Empty]): ManufacturingCode = value

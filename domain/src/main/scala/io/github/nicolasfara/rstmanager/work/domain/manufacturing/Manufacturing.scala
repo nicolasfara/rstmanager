@@ -1,6 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 
-import cats.syntax.all.*
+import io.github.nicolasfara.rstmanager.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{CompletableTask, CompletableTaskId, Hours}
 
 final case class Manufacturing(

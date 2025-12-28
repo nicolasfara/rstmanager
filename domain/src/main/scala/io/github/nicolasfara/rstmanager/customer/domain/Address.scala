@@ -1,9 +1,7 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
 import cats.data.Validated
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
-import io.github.iltotore.iron.cats.*
+import io.github.nicolasfara.rstmanager.*
 
 opaque type Street = String :| Not[Empty]
 opaque type City = String :| Not[Empty]

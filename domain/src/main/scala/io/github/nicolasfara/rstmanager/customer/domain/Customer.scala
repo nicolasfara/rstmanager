@@ -1,8 +1,7 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
 import cats.data.ValidatedNec
-import cats.implicits.catsSyntaxTuple9Semigroupal
-import cats.syntax.all.catsSyntaxEitherBinCompat0
+import io.github.nicolasfara.rstmanager.*
 
 import java.util.UUID
 

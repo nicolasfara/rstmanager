@@ -1,9 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.task
 
 import cats.data.Validated
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.cats.*
-import io.github.iltotore.iron.constraint.all.*
+import io.github.nicolasfara.rstmanager.*
 
 opaque type TaskDescription = String :| Not[Empty]
 object TaskDescription:

@@ -9,3 +9,4 @@ opaque type TaskName = String :| Not[Empty]
 object TaskName:
   given CanEqual[TaskName, TaskName] = CanEqual.derived
   def apply(value: String): Validated[String, TaskName] = value.refineValidated
+  def apply(value: String :| Not[Empty]): TaskName = value

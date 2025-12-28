@@ -1,7 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.task
 
 import cats.data.Validated
-import cats.Monoid
+import cats.{Monoid, Order}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.cats.*
@@ -12,7 +12,7 @@ object Hours:
   def apply(value: Int): Validated[String, Hours] = value.refineValidated
   def apply(value: Int :| GreaterEqual[0]): Hours = value
 
-  given Ordering[Hours] with
+  given Order[Hours] with
     def compare(x: Hours, y: Hours): Int = x.value.compare(y.value)
 
   given Monoid[Hours] with

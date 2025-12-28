@@ -19,7 +19,7 @@ class EmployeeTest extends AnyFlatSpecLike:
   ): Validated[String, Employee] =
     (Name(name), Surname(surname), WeeklyHours(weeklyHours)).mapN {
       case (employeeName, employeeSurname, weeklyHoursValue) =>
-        val employeeId = UUID.randomUUID()
+        val employeeId = EmployeeId(UUID.randomUUID())
         val employeeInfo = EmployeeInfo(employeeName, employeeSurname)
         val budgetHours = BudgetHours(weeklyHoursValue, overrides)
         Employee(employeeId, employeeInfo, contract, budgetHours)

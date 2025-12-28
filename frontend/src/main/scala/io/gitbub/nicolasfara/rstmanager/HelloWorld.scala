@@ -3,7 +3,7 @@ package io.gitbub.nicolasfara.rstmanager
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
 
-import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.api.L.*
 
 object HelloWorld {
 
@@ -25,7 +25,7 @@ object HelloWorld {
       div(
         cls("-greeting"),
         "Hello, ",
-        text <-- nameVar.signal.map(_.toUpperCase)
+        text <-- nameVar.signal.map(_.toUpperCase.nn)
       )
     )
   }

@@ -3,8 +3,8 @@ package io.github.nicolasfara.rstmanager.hr.domain
 import com.github.nscala_time.time.Imports.*
 
 final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract, budgetHours: BudgetHours):
-  private given CanEqual[DateTime, DateTime] = CanEqual.derived
-  private given CanEqual[Interval, Interval] = CanEqual.derived
+  given CanEqual[DateTime, DateTime] = CanEqual.derived
+  given CanEqual[Interval, Interval] = CanEqual.derived
 
   /** Checks if the employee is currently active based on their contract type and dates. */
   def isActive: Boolean = contract match

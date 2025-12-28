@@ -1,11 +1,10 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
 import cats.data.Validated
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
-import io.github.iltotore.iron.cats.*
-
 import com.github.nscala_time.time.Imports.*
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.cats.*
+import io.github.iltotore.iron.constraint.all.*
 
 opaque type DailyHours = Int :| (GreaterEqual[0] & LessEqual[24])
 

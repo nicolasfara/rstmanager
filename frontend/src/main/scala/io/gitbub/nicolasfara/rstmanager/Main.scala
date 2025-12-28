@@ -1,10 +1,10 @@
 package io.gitbub.nicolasfara.rstmanager
 
-import com.raquo.laminar.api.L.{*, given}
-import org.scalajs.dom
-
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
+
+import com.raquo.laminar.api.L.{*, given}
+import org.scalajs.dom
 
 @JSImport("@find/**/HelloWorld.less", JSImport.Namespace)
 @js.native private object Stylesheet extends js.Object

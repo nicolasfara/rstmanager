@@ -1,10 +1,11 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import io.github.iltotore.iron.*
-import com.github.nscala_time.time.Imports.*
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{Manufacturing, ManufacturingCode}
 import io.github.nicolasfara.rstmanager.work.domain.task.Hours
+
+import com.github.nscala_time.time.Imports.*
+import io.github.iltotore.iron.*
 import org.scalactic.anyvals.NonEmptySet
 
 final case class Order(

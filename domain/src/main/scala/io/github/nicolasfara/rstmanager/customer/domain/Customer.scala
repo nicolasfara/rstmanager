@@ -1,9 +1,10 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
-import cats.data.ValidatedNec
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.*
 
-import java.util.UUID
+import cats.data.ValidatedNec
 
 final case class Customer(
     id: CustomerId,

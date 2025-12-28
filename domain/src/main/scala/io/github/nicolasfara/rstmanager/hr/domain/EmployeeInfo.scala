@@ -1,7 +1,8 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
-import cats.data.Validated
 import io.github.nicolasfara.rstmanager.*
+
+import cats.data.Validated
 
 opaque type Name = String :| Not[Empty]
 opaque type Surname = String :| Not[Empty]

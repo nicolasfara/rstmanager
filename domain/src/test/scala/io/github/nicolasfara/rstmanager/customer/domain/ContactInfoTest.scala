@@ -1,5 +1,6 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
+import io.github.iltotore.iron.*
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers.*
 
@@ -20,15 +21,15 @@ class ContactInfoTest extends AnyFlatSpec:
     result.isValid shouldBe true
   "Two ContactInfo instances with the same values" must "be equal" in:
     val contactInfo1 = ContactInfo(
-      name = Name("John").getOrElse(throw new Exception("Invalid Name")),
-      surname = Surname("Doe").getOrElse(throw new Exception("Invalid Surname")),
-      email = Email("foo@bar.com").getOrElse(throw new Exception("Invalid Email")),
-      phone = PhoneNumber("+12345678901").getOrElse(throw new Exception("Invalid PhoneNumber"))
+      name = Name("John"),
+      surname = Surname("Doe"),
+      email = Email("foo@bar.com"),
+      phone = PhoneNumber("+12345678901")
     )
     val contactInfo2 = ContactInfo(
-      name = Name("John").getOrElse(throw new Exception("Invalid Name")),
-      surname = Surname("Doe").getOrElse(throw new Exception("Invalid Surname")),
-      email = Email("foo@bar.com").getOrElse(throw new Exception("Invalid Email")),
-      phone = PhoneNumber("+12345678901").getOrElse(throw new Exception("Invalid PhoneNumber"))
+      name = Name("John"),
+      surname = Surname("Doe"),
+      email = Email("foo@bar.com"),
+      phone = PhoneNumber("+12345678901")
     )
     contactInfo1 shouldEqual contactInfo2

@@ -1,7 +1,8 @@
 package io.github.nicolasfara.rstmanager.work.domain.task
 
-import cats.data.Validated
 import io.github.nicolasfara.rstmanager.*
+
+import cats.data.Validated
 
 opaque type TaskDescription = String :| Not[Empty]
 object TaskDescription:

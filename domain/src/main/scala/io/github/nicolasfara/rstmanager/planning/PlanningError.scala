@@ -1,7 +1,8 @@
 package io.github.nicolasfara.rstmanager.planning
 
-import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingCode
+
+import com.github.nscala_time.time.Imports.DateTime
 
 enum PlanningError:
   case InsufficientCapacity

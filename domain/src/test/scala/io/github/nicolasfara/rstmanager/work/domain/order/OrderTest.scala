@@ -93,7 +93,7 @@ class OrderTest extends AnyFlatSpecLike:
     val updatedOrderEither = order.removeManufacturing(manufacturingToRemove.code)
     updatedOrderEither match
       case Right(updatedOrder) =>
-        updatedOrder.setOfManufacturing.toSet should contain theSameElementsAs manufacturing.tail.toSeq
+        updatedOrder.setOfManufacturing.toSet should contain theSameElementsAs manufacturing.drop(1).toSeq
       case Left(_) => fail("Expected successful removal of manufacturing")
   it should "not remove the last manufacturing" in:
     val singleManufacturingSet = NonEmptySet(
@@ -131,6 +131,7 @@ class OrderTest extends AnyFlatSpecLike:
     val manufacturingToUpdate = manufacturing.head
     val updatedManufacturing = manufacturingToUpdate.copy(name = ManufacturingName("Updated Name"))
     val updatedOrder = order.updateManufacturing(updatedManufacturing)
-    updatedOrder.setOfManufacturing.find(_.code == updatedManufacturing.code).get.name shouldEqual (ManufacturingName(
-      "Updated Name"
-    ): ManufacturingName)
+    updatedOrder.setOfManufacturing
+      .find(_.code == updatedManufacturing.code)
+      .fold(fail("Unable to find code"))(identity)
+      .name shouldEqual (ManufacturingName("Updated Name"): ManufacturingName)

@@ -15,7 +15,7 @@ class EmployeeTest extends AnyFlatSpecLike:
       surname: String,
       contract: Contract,
       weeklyHours: Int,
-      overrides: List[HoursOverride] = Nil
+      overrides: List[HoursOverride]
   ): Validated[String, Employee] =
     (Name(name), Surname(surname), WeeklyHours(weeklyHours)).mapN {
       case (employeeName, employeeSurname, weeklyHoursValue) =>
@@ -30,20 +30,22 @@ class EmployeeTest extends AnyFlatSpecLike:
       DateTime.now().minusMonths(2),
       DateTime.now().minusDays(1)
     )
-    val employee = createEmployee("John", "Doe", contract, 40).getOrElse(fail("Failed to create employee"))
+    val employee = createEmployee("John", "Doe", contract, 40, Nil).getOrElse(fail("Failed to create employee"))
     employee.isActive shouldBe false
   it should "be active when the contract is ongoing" in:
     val contract = Contract.FixedTerm(
       DateTime.now().minusMonths(1),
       DateTime.now().plusMonths(1)
     )
-    val employee = createEmployee("Jane", "Smith", contract, 40).getOrElse(fail("Failed to create employee"))
+    val employee = createEmployee("Jane", "Smith", contract, 40, Nil).getOrElse(fail("Failed to create employee"))
     employee.isActive shouldBe true
   it should "allow updating budget hours when active" in:
     val startingWeeklyHours = 40
     val contract = Contract.FullTime(DateTime.now().minusMonths(1))
     val employee =
-      createEmployee("Alice", "Johnson", contract, startingWeeklyHours).getOrElse(fail("Failed to create employee"))
+      createEmployee("Alice", "Johnson", contract, startingWeeklyHours, Nil).getOrElse(
+        fail("Failed to create employee")
+      )
     employee.budgetHours.default shouldBe WeeklyHours(startingWeeklyHours).getOrElse(
       fail("Failed to create WeeklyHours")
     )
@@ -59,7 +61,7 @@ class EmployeeTest extends AnyFlatSpecLike:
       DateTime.now().minusMonths(2),
       DateTime.now().minusDays(1)
     )
-    val employee = createEmployee("Bob", "Brown", contract, 40).getOrElse(fail("Failed to create employee"))
+    val employee = createEmployee("Bob", "Brown", contract, 40, Nil).getOrElse(fail("Failed to create employee"))
     val newWeeklyHours = WeeklyHours(30).getOrElse(fail("Failed to create WeeklyHours"))
     val result = employee.updateBudgetHours(BudgetHours(newWeeklyHours, Nil))
     result.isLeft shouldBe true
@@ -67,7 +69,7 @@ class EmployeeTest extends AnyFlatSpecLike:
   it should "allow setting hours override when active and no conflict" in:
     val contract =
       Contract.PartTime(DateTime.now().minusMonths(1), WeeklyHours(20).getOrElse(fail("Failed to create WeeklyHours")))
-    val employee = createEmployee("Charlie", "Davis", contract, 20).getOrElse(fail("Failed to create employee"))
+    val employee = createEmployee("Charlie", "Davis", contract, 20, Nil).getOrElse(fail("Failed to create employee"))
     val overrideDate = DateTime.now().withTimeAtStartOfDay()
     val dailyOverride = WorkingDayOverride(
       DailyHours(4).getOrElse(fail("Failed to create DailyHours")),
@@ -83,7 +85,7 @@ class EmployeeTest extends AnyFlatSpecLike:
       DateTime.now().minusMonths(2),
       DateTime.now().minusDays(1)
     )
-    val employee = createEmployee("Diana", "Evans", contract, 40).getOrElse(fail("Failed to create employee"))
+    val employee = createEmployee("Diana", "Evans", contract, 40, Nil).getOrElse(fail("Failed to create employee"))
     val overrideDate = DateTime.now().withTimeAtStartOfDay()
     val dailyOverride = WorkingDayOverride(
       DailyHours(4).getOrElse(fail("Failed to create DailyHours")),
@@ -96,7 +98,7 @@ class EmployeeTest extends AnyFlatSpecLike:
   it should "prevent setting conflicting hours overrides when a vacation is set" in:
     val contract =
       Contract.FullTime(DateTime.now().minusMonths(1))
-    val employee = createEmployee("Eve", "Foster", contract, 40).getOrElse(fail("Failed to create employee"))
+    val employee = createEmployee("Eve", "Foster", contract, 40, Nil).getOrElse(fail("Failed to create employee"))
     val overrideDate = DateTime.now().withTimeAtStartOfDay()
     val weeklyOverride = VacationOverride(overrideDate to overrideDate.plusDays(2))
     val firstResult = employee.setHoursOverride(weeklyOverride)
@@ -113,7 +115,7 @@ class EmployeeTest extends AnyFlatSpecLike:
   it should "prevent setting conflicting vacation overrides" in:
     val contract =
       Contract.FullTime(DateTime.now().minusMonths(1))
-    val employee = createEmployee("Frank", "Green", contract, 40).getOrElse(fail("Failed to create employee"))
+    val employee = createEmployee("Frank", "Green", contract, 40, Nil).getOrElse(fail("Failed to create employee"))
     val overrideDate = DateTime.now().withTimeAtStartOfDay()
     val firstVacationOverride = VacationOverride(overrideDate to overrideDate.plusDays(3))
     val firstResult = employee.setHoursOverride(firstVacationOverride)

@@ -7,7 +7,8 @@ lazy val projectScalacOptions = Seq(
   "-deprecation",
   "-feature",
   "-unchecked",
-  "-language:strictEquality"
+  "-language:strictEquality",
+  "-Wunused:all"
 )
 lazy val sharedDependencies = Seq(
   "com.github.nscala-time" %% "nscala-time" % "3.0.0",
@@ -23,6 +24,14 @@ lazy val sharedDependencies = Seq(
 )
 
 ThisBuild / wartremoverErrors ++= Warts.unsafe
+
+inThisBuild(
+  List(
+    scalaVersion := scala3Version,
+    semanticdbEnabled := true,
+    semanticdbVersion := scalafixSemanticdb.revision
+  )
+)
 
 lazy val domain = project
   .in(file("domain"))
@@ -41,14 +50,12 @@ lazy val frontend = project
     name := "rstmanager",
     scalaVersion := scala3Version,
     scalacOptions ++= projectScalacOptions,
-
     scalaJSUseMainModuleInitializer := true,
     scalaJSLinkerConfig ~= {
       _.withModuleKind(ModuleKind.ESModule)
     },
-
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % "2.8.0",
-      "com.raquo" %%% "laminar" % "17.2.0",
-    ) ++ sharedDependencies,
+      "com.raquo" %%% "laminar" % "17.2.0"
+    ) ++ sharedDependencies
   )

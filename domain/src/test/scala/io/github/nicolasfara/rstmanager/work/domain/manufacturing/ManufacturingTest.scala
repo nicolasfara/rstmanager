@@ -51,9 +51,9 @@ class ManufacturingTest extends AnyFlatSpecLike:
       description = Some(ManufacturingDescription("This is a test manufacturing"): ManufacturingDescription),
       tasks = completableTasks
     )
-    val taskToRemove = completableTasks.head
+    val taskToRemove = completableTasks(0)
     val updatedManufacturing = manufacturing.removeTask(taskToRemove.completableTaskId)
-    updatedManufacturing.tasks should contain theSameElementsAs completableTasks.tail
+    updatedManufacturing.tasks should contain theSameElementsAs completableTasks.drop(1)
   it should "advance a task's completed hours" in:
     val manufacturing = Manufacturing(
       code = ManufacturingCode("MFG-001"),
@@ -61,12 +61,14 @@ class ManufacturingTest extends AnyFlatSpecLike:
       description = Some(ManufacturingDescription("This is a test manufacturing"): ManufacturingDescription),
       tasks = completableTasks
     )
-    val taskToAdvance = completableTasks.head
+    val taskToAdvance = completableTasks(0)
     val hoursToAdvance: Hours = Hours(3)
     val updatedManufacturingEither = manufacturing.advanceTask(taskToAdvance.completableTaskId, hoursToAdvance)
     updatedManufacturingEither match
       case Right(updatedManufacturing) =>
-        val updatedTask = updatedManufacturing.tasks.find(_.completableTaskId == taskToAdvance.completableTaskId).get
+        val updatedTask = updatedManufacturing.tasks
+          .find(_.completableTaskId == taskToAdvance.completableTaskId)
+          .fold(fail("Task not found after advancement"))(identity)
         updatedTask.completedHours shouldEqual (taskToAdvance.completedHours + hoursToAdvance)
       case Left(_) => fail("Failed to advance task")
   it should "de-advance a task's completed hours" in:
@@ -76,13 +78,15 @@ class ManufacturingTest extends AnyFlatSpecLike:
       description = Some(ManufacturingDescription("This is a test manufacturing"): ManufacturingDescription),
       tasks = completableTasks
     )
-    val taskToDeAdvance = completableTasks.head
+    val taskToDeAdvance = completableTasks(0)
     val hoursToDeAdvance: Hours = Hours(2)
     val updatedManufacturingEither = manufacturing.deAdvanceTask(taskToDeAdvance.completableTaskId, hoursToDeAdvance)
     updatedManufacturingEither match
       case Right(updatedManufacturing) =>
         val updatedTask =
-          updatedManufacturing.tasks.find(_.completableTaskId == taskToDeAdvance.completableTaskId).get
+          updatedManufacturing.tasks
+            .find(_.completableTaskId == taskToDeAdvance.completableTaskId)
+            .fold(fail("Task not found after de-advancement"))(identity)
         updatedTask.completedHours shouldEqual (taskToDeAdvance.completedHours - hoursToDeAdvance)
       case Left(_) => fail("Failed to de-advance task")
   it should "return an error when advancing a non-existent task" in:

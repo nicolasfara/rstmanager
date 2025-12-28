@@ -46,8 +46,6 @@ class BudgetHoursTest extends AnyFlatSpecLike:
   it should "return the override hours when a day has overrides" in:
     val overrideDate = DateTime.now().withTimeAtStartOfDay()
     val overrideHours = 2
-    val vacationFrom = overrideDate.minusDays(1)
-    val vacationInterval = vacationFrom to vacationFrom.plusDays(3)
     for
       default <- WeeklyHours(defaultHours)
       hoursOverride <- DailyHours(overrideHours)

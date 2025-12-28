@@ -1,9 +1,9 @@
 package io.gitbub.nicolasfara.rstmanager
 
-import com.raquo.laminar.api.L.{*, given}
-
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSImport
+
+import com.raquo.laminar.api.L.{*, given}
 
 object HelloWorld {
 

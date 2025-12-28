@@ -22,6 +22,8 @@ lazy val sharedDependencies = Seq(
   "org.typelevel" %% "kittens" % "3.5.0"
 )
 
+ThisBuild / wartremoverErrors ++= Warts.unsafe
+
 lazy val domain = project
   .in(file("domain"))
   .settings(

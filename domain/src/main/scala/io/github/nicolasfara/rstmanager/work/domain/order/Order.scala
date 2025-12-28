@@ -30,9 +30,11 @@ final case class Order(
     copy(setOfManufacturing = setOfManufacturing + manufacturing)
 
   def removeManufacturing(manufacturingCode: ManufacturingCode): Either[OrderError, Order] =
-    val updatedSet = setOfManufacturing.filterNot(_.code == manufacturingCode)
-    if updatedSet.isEmpty then Left(OrderError.OrderWithNoManufacturing)
-    else Right(copy(setOfManufacturing = NonEmptySet(updatedSet.head, updatedSet.tail.toSeq: _*)))
+    val updatedSet = setOfManufacturing.filterNot(_.code == manufacturingCode).toList
+    updatedSet match {
+      case head :: tail => Right(copy(setOfManufacturing = NonEmptySet(head, tail: _*)))
+      case Nil          => Left(OrderError.OrderWithNoManufacturing)
+    }
 
   def updateManufacturing(updatedManufacturing: Manufacturing): Order =
     val updatedSet = setOfManufacturing.map { manufacturing =>

@@ -28,6 +28,7 @@ lazy val sharedDependencies = Seq(
 )
 
 ThisBuild / wartremoverErrors ++= Warts.unsafe
+ThisBuild / autoAPIMappings := true
 
 inThisBuild(
   List(
@@ -62,4 +63,14 @@ lazy val frontend = project
       "org.scala-js" %%% "scalajs-dom" % "2.8.0",
       "com.raquo" %%% "laminar" % "17.2.0"
     ) ++ sharedDependencies
+  )
+
+lazy val root = project
+  .in(file("."))
+  .enablePlugins(ScalaUnidocPlugin)
+  .aggregate(domain, frontend)
+  .settings(
+    name := "rstmanager",
+    ScalaUnidoc / unidoc / unidocProjectFilter := inAnyProject -- inProjects(frontend),
+    publish / skip := true
   )

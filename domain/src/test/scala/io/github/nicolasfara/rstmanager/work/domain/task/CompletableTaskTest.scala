@@ -1,6 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.task
 
 import io.github.iltotore.iron.*
+import io.github.nicolasfara.rstmanager.work.domain.task.completable.{CompletableTask, CompletableTaskId}
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 

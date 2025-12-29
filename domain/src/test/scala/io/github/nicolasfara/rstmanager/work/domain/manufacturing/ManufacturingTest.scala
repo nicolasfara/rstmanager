@@ -2,7 +2,8 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 
 import io.github.iltotore.iron.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingError.TaskNotFound
-import io.github.nicolasfara.rstmanager.work.domain.task.{CompletableTask, CompletableTaskId, Hours, TaskId}
+import io.github.nicolasfara.rstmanager.work.domain.task.completable.{CompletableTask, CompletableTaskId}
+import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 

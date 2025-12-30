@@ -1,13 +1,12 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
+import java.util.UUID
+
 import cats.data.Validated
 import cats.syntax.all.*
+import com.github.nscala_time.time.Imports.*
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
-
-import com.github.nscala_time.time.Imports.*
-
-import java.util.UUID
 
 class EmployeeTest extends AnyFlatSpecLike:
   private def createEmployee(

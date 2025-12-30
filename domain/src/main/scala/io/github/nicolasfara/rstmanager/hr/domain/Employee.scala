@@ -29,7 +29,7 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
       case WorkingDayOverride(_, _, day) =>
         hoursOverride match {
           case WorkingDayOverride(_, _, newDay) => day != newDay
-          case _                                    => true
+          case _                                => true
         }
       case _ => true
     } :+ hoursOverride
@@ -42,7 +42,7 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
       case VacationOverride(interval) =>
         budgetHours.overrides.exists {
           case VacationOverride(existingInterval) => existingInterval.overlaps(interval)
-          case WorkingDayOverride(_, _, day)  => interval.contains(day)
+          case WorkingDayOverride(_, _, day)      => interval.contains(day)
         }
       case WorkingDayOverride(hours, reason, day) =>
         budgetHours.overrides.exists {

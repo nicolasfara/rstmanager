@@ -1,8 +1,8 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
+import com.github.nscala_time.time.Imports.*
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
-import com.github.nscala_time.time.Imports.*
 
 class BudgetHoursTest extends AnyFlatSpecLike:
   private val defaultHours = 40

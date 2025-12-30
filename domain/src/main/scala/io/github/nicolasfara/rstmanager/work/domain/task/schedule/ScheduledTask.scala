@@ -1,10 +1,11 @@
 package io.github.nicolasfara.rstmanager.work.domain.task.schedule
 
-import io.github.iltotore.iron.*
-import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority
 import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, Task, TaskId}
 import io.github.nicolasfara.rstmanager.work.domain.task.schedule.Percentage.*
+
+import com.github.nscala_time.time.Imports.DateTime
+import io.github.iltotore.iron.*
 
 final case class ScheduledTask(
     id: SchedulableTaskId,

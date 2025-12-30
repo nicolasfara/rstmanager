@@ -1,13 +1,14 @@
 package io.github.nicolasfara.rstmanager.work.domain.task.schedule
 
-import com.github.nscala_time.time.Imports.*
-import io.github.iltotore.iron.*
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority.Normal
 import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
+
+import com.github.nscala_time.time.Imports.*
+import io.github.iltotore.iron.*
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
-
-import java.util.UUID
 
 class SchedulableTaskTest extends AnyFlatSpecLike:
   "A SchedulableTask" should "return the remaining hours" in:

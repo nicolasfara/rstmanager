@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
 import cats.data.Validated
-
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*

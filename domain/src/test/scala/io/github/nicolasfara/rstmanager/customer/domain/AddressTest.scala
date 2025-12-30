@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.customer.domain
 
 import cats.data.Validated.Invalid
 import io.github.iltotore.iron.*
-import org.scalatest.flatspec.{AnyFlatSpec, AnyFlatSpecLike}
+import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class AddressTest extends AnyFlatSpecLike:

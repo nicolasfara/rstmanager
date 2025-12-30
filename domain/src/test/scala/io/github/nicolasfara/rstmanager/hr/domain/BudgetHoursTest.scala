@@ -16,7 +16,7 @@ class BudgetHoursTest extends AnyFlatSpecLike:
       hours shouldEqual expectHours
     }
   it should "return the hours according to the daily override" in:
-    val overrideDate = DateTime.now().withTimeAtStartOfDay()
+    val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
     val overrideHours = 4
     for
       default <- WeeklyHours(defaultHours)
@@ -28,8 +28,8 @@ class BudgetHoursTest extends AnyFlatSpecLike:
       hours shouldEqual hoursOverride
     }
   it should "return 0 hours for any day within the vacation interval" in:
-    val overrideFrom = DateTime.now().withTimeAtStartOfDay()
-    val vacationInterval = overrideFrom to overrideFrom.plusDays(4)
+    val overrideFrom = DateTime.now().withTimeAtStartOfDay().nn
+    val vacationInterval = overrideFrom to overrideFrom.plusDays(4).nn
     val overrideWeeklyHours = 0
     for
       default <- WeeklyHours(defaultHours)
@@ -38,13 +38,13 @@ class BudgetHoursTest extends AnyFlatSpecLike:
     do {
       val budgetHours = BudgetHours(default, List(rangeOverride))
       for dayOffset <- 0 until 4 do {
-        val day = overrideFrom.plusDays(dayOffset)
+        val day = overrideFrom.plusDays(dayOffset).nn
         val hours = budgetHours.getWorkingHoursForDay(day)
         hours shouldEqual weeklyOverride
       }
     }
   it should "return the override hours when a day has overrides" in:
-    val overrideDate = DateTime.now().withTimeAtStartOfDay()
+    val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
     val overrideHours = 2
     for
       default <- WeeklyHours(defaultHours)

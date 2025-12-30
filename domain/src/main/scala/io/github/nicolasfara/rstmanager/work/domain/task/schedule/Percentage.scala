@@ -19,4 +19,4 @@ object Percentage:
   extension (value: Int)
     def toPercentage(max: Int): Percentage =
       if value <= 0 then Percentage(0)
-      else Percentage(value / max * 100).valueOr(_ => Percentage(0))
+      else Percentage(value.toDouble / max.toDouble * 100).valueOr(_ => Percentage(0))

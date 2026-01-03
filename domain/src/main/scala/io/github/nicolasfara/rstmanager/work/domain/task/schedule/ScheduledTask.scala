@@ -55,6 +55,8 @@ final case class ScheduledTask(
 
   def isCompleted: Boolean = status == TaskStatus.Done
 
+  def isInProgress: Boolean = status == TaskStatus.InProgress
+
 object ScheduledTask:
   extension (task: Task)
     def toSchedulable(

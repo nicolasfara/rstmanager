@@ -1,69 +1,81 @@
 package io.github.nicolasfara.rstmanager.work.domain.task.schedule
 
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority
-import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, Task, TaskId}
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.Percentage.*
-
+import cats.syntax.all.*
+import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskError.TaskMustBeInProgress
 
-final case class ScheduledTask(
-    id: SchedulableTaskId,
-    taskId: TaskId,
-    priority: OrderPriority,
-    expectedHours: Hours,
-    completedHours: Hours,
-    deadline: DateTime,
-    status: TaskStatus
-):
-  def remainingHours: Hours = expectedHours - completedHours
+/** A scheduled task in the system.
+  *
+  * It can be in one of three states: [[InProgressTask]] - The task is currently being worked on. [[CompletedTask]] - The task has been completed.
+  * [[PendingTask]] - The task is scheduled but not yet started.
+  *
+  * The transitions between states are managed through methods that ensure valid state changes. A [[InProgressTask]] can be advanced or completed, a
+  * [[PendingTask]] can be marked as in progress, and a [[CompletedTask]] can be reverted to in progress. Any invalid transitions will return a
+  * [[ScheduledTaskError]].
+  */
+enum ScheduledTask:
+  case InProgressTask(id: ScheduledTaskId, taskId: TaskId, expectedHours: Hours, completedHours: Hours)
+  case CompletedTask(
+      id: ScheduledTaskId,
+      taskId: TaskId,
+      expectedHours: Hours,
+      completedHours: Hours,
+      completionDate: DateTime
+  )
+  case PendingTask(id: ScheduledTaskId, taskId: TaskId, expectedHours: Hours)
 
-  def completedPercentage: Percentage = completedHours.value.toPercentage(expectedHours.value)
+  def id: ScheduledTaskId = this match
+    case InProgressTask(id, _, _, _)   => id
+    case CompletedTask(id, _, _, _, _) => id
+    case PendingTask(id, _, _)         => id
 
-  /** Mark the task as completed with the given hours worked. This method overrides any previous completed hours and
-    * considers [[hoursWorked]] as the total hours worked to complete the task.
-    * @param hoursWorked
-    *   the total hours worked to complete the task.
+  def taskId: TaskId = this match
+    case InProgressTask(_, taskId, _, _)   => taskId
+    case CompletedTask(_, taskId, _, _, _) => taskId
+    case PendingTask(_, taskId, _)         => taskId
+
+  /** Calculate the remaining hours for the task based on its current state.
     * @return
-    *   a new SchedulableTask instance marked as done with the specified completed hours.
+    *   The number of hours remaining to complete the task if it is in progress or pending; zero if completed.
     */
-  def completeTaskWithHours(hoursWorked: Hours): ScheduledTask =
-    copy(completedHours = hoursWorked, status = TaskStatus.Done)
+  def remainingHours: Hours = this match
+    case InProgressTask(_, _, expectedHours, completedHours) => expectedHours - completedHours
+    case CompletedTask(_, _, _, _, _)                        => Hours(0)
+    case PendingTask(_, _, expectedHours)                    => expectedHours
 
-  /** Only marks the task as completed, without altering the completed hours.
-    * @return
-    *   a new SchedulableTask instance marked as done.
-    */
-  def completeTask: ScheduledTask = setState(TaskStatus.Done)
+  def expectedHours: Hours = this match
+    case InProgressTask(_, _, expectedHours, _)   => expectedHours
+    case CompletedTask(_, _, expectedHours, _, _) => expectedHours
+    case PendingTask(_, _, expectedHours)         => expectedHours
 
-  /** Sets the state of the task to the given status.
-    * @param status
-    *   the new status of the task.
-    * @return
-    *   a new SchedulableTask instance with the updated status.
-    */
-  def setState(status: TaskStatus): ScheduledTask = copy(status = status)
+  def completedHours: Hours = this match
+    case InProgressTask(_, _, _, completedHours)   => completedHours
+    case CompletedTask(_, _, _, completedHours, _) => completedHours
+    case PendingTask(_, _, _)                      => Hours(0)
 
-  /** Changes the priority of the task to the new priority.
-    * @param newPriority
-    *   the new priority to set.
-    * @return
-    *   a new SchedulableTask instance with the updated priority.
-    */
-  def changePriority(newPriority: OrderPriority): ScheduledTask =
-    copy(priority = newPriority)
+  def revertToInProgress: Either[ScheduledTaskError, ScheduledTask] = this match
+    case CompletedTask(id, taskId, _, completedHours, _) =>
+      InProgressTask(id, taskId, completedHours, completedHours).asRight[ScheduledTaskError]
+    case InProgressTask(_, _, _, _) => ScheduledTaskError.TaskAlreadyInProgress.asLeft
+    case PendingTask(_, _, _)       => ScheduledTaskError.TaskMustBeInProgress.asLeft
 
-  def isCompleted: Boolean = status == TaskStatus.Done
+  def markAsInProgress: Either[ScheduledTaskError, ScheduledTask] = this match
+    case PendingTask(id, taskId, expectedHours) =>
+      InProgressTask(id, taskId, expectedHours, Hours(0)).asRight[ScheduledTaskError]
+    case InProgressTask(_, _, _, _)   => ScheduledTaskError.TaskAlreadyInProgress.asLeft
+    case CompletedTask(_, _, _, _, _) => ScheduledTaskError.TaskAlreadyCompleted.asLeft
 
-  def isInProgress: Boolean = status == TaskStatus.InProgress
+  def advanceInProgressTask(withHours: Hours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress
+    .map { task => task.copy(completedHours = task.completedHours + withHours) }
 
-object ScheduledTask:
-  extension (task: Task)
-    def toSchedulable(
-        id: SchedulableTaskId,
-        deadline: DateTime,
-        priority: OrderPriority,
-        expectedHours: Hours,
-        status: TaskStatus
-    ): ScheduledTask =
-      ScheduledTask(id, task.id, priority, expectedHours, Hours(0): Hours, deadline, status)
+  def completeTask(withHours: Hours): Either[ScheduledTaskError, ScheduledTask] = this match
+    case InProgressTask(id, taskId, expectedHours, completedHours) =>
+      Right(CompletedTask(id, taskId, expectedHours, completedHours + withHours, DateTime.now()))
+    case CompletedTask(_, _, _, _, _) => Left(ScheduledTaskError.TaskAlreadyCompleted)
+    case PendingTask(_, _, _)         => Left(ScheduledTaskError.TaskMustBeInProgress)
+
+  private def mustBeInProgress: Either[ScheduledTaskError, InProgressTask] = this match
+    case task @ InProgressTask(_, _, _, _) => task.asRight
+    case _                                 => TaskMustBeInProgress.asLeft

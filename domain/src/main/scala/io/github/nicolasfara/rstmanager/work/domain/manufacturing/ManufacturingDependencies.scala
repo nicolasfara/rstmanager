@@ -33,7 +33,7 @@ object ManufacturingDependencies:
       Right(sortedList.reverse)
 
   extension (md: ManufacturingDependencies)
-    def addTaskDependency(task: TaskId, dependsOn: Set[TaskId]): ManufacturingDependencies =
+    def setDependency(task: TaskId, dependsOn: Set[TaskId]): ManufacturingDependencies =
       val updated = md.get(task) match
         case Some(existing) => existing ++ dependsOn
         case None           => dependsOn

@@ -15,7 +15,7 @@ class SchedulableTaskTest extends AnyFlatSpecLike:
     val taskId = TaskId(UUID.randomUUID().nn)
     val requiredHours: Hours = Hours(10)
     val schedulableTask = ScheduledTask(
-      id = SchedulableTaskId(UUID.randomUUID().nn),
+      id = ScheduledTaskId(UUID.randomUUID().nn),
       taskId = taskId,
       priority = Normal,
       expectedHours = requiredHours,
@@ -31,7 +31,7 @@ class SchedulableTaskTest extends AnyFlatSpecLike:
     val requiredHours: Hours = Hours(20)
     val completedHours: Hours = Hours(5)
     val schedulableTask = ScheduledTask(
-      id = SchedulableTaskId(UUID.randomUUID().nn),
+      id = ScheduledTaskId(UUID.randomUUID().nn),
       taskId = taskId,
       priority = Normal,
       expectedHours = requiredHours,
@@ -44,7 +44,7 @@ class SchedulableTaskTest extends AnyFlatSpecLike:
   it should "mark the task as completed with given hours" in:
     val taskId = TaskId(UUID.randomUUID().nn)
     val schedulableTask = ScheduledTask(
-      id = SchedulableTaskId(UUID.randomUUID().nn),
+      id = ScheduledTaskId(UUID.randomUUID().nn),
       taskId = taskId,
       priority = Normal,
       expectedHours = Hours(15),

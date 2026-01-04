@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.even
 
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.{ScheduledTask, TaskStatus}
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTask
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.ScheduledManufacturingId
 
 /** Events representing state changes to ScheduledManufacturing entities within the Order aggregate.

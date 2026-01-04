@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority
 import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.{SchedulableTaskId, ScheduledTask, TaskStatus}
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.{ScheduledTaskId, ScheduledTask}
 import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.*
 import org.scalatest.flatspec.AnyFlatSpecLike
@@ -20,7 +20,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike:
       status: TaskStatus
   ): ScheduledTask =
     ScheduledTask(
-      id = SchedulableTaskId(UUID.randomUUID().nn),
+      id = ScheduledTaskId(UUID.randomUUID().nn),
       taskId = taskId,
       priority = OrderPriority.Normal,
       expectedHours = Hours(expectedHours).getOrElse(fail("Invalid hours")),

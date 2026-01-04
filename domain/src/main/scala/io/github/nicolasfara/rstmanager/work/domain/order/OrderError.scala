@@ -1,6 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.SchedulableTaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskId
 
 /** Errors that can occur during Order aggregate operations */
 enum OrderError derives CanEqual:
@@ -8,7 +8,7 @@ enum OrderError derives CanEqual:
   case OrderWithNoManufacturing
 
   /** Task not found in the order's manufacturings */
-  case TaskNotFound(id: SchedulableTaskId)
+  case TaskNotFound(id: ScheduledTaskId)
 
   /** Invalid state transition attempted */
   case InvalidStateTransition(message: String)

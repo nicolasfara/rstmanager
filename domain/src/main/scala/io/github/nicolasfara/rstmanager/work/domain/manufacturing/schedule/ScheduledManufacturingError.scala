@@ -10,3 +10,4 @@ enum ScheduledManufacturingError derives CanEqual:
   case TaskRemovedFromCompletedManufacturing
   case ManufacturingWithNoTasks
   case ManufacturingCompleted
+  case ManufacturingNotStarted

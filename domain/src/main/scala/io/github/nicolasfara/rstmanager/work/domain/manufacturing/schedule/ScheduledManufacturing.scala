@@ -1,19 +1,19 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule
 
 import cats.syntax.all.*
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority
-import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.{ScheduledTask, ScheduledTaskId}
 import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
+import io.github.nicolasfara.rstmanager.work.domain.task.Hours
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.{ScheduledTask, ScheduledTaskError, ScheduledTaskId}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.ScheduledManufacturingError.{
   ManufacturingNotStarted,
-  TaskAddedToCompletedManufacturing,
+  ManufacturingWithNoTasks,
   TaskError,
   TaskIdNotFound
 }
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTask.CompletedTask
 
 enum ScheduledManufacturing(
     val id: ScheduledManufacturingId,
@@ -61,76 +61,140 @@ enum ScheduledManufacturing(
     * @return
     *   Total expected hours.
     */
-  def expectedHours: Hours = tasks.foldLeft(Hours(0): Hours)(_ + _.expectedHours)
+  def expectedHours: Hours = tasks.foldMap(_.expectedHours)
 
   /** Calculate the total remaining hours for all tasks in the manufacturing.
     * @return
     *   Total remaining hours.
     */
-  def remainingHours: Hours = tasks.foldLeft(Hours(0): Hours)(_ + _.remainingHours)
+  def remainingHours: Hours = tasks.foldMap(_.remainingHours)
 
   /** Calculate the total completed hours for all tasks in the manufacturing.
     * @return
     *   Total completed hours.
     */
-  def completedHours: Hours = tasks.foldLeft(Hours(0): Hours)(_ + _.completedHours)
+  def completedHours: Hours = tasks.foldMap(_.completedHours)
 
-  def addTask(
-      task: ScheduledTask,
-      dependsOn: Set[TaskId]
-  ): Either[ScheduledManufacturingError, ScheduledManufacturing] = this match
-    case NotStartedManufacturing(id, code, cd, tasks, deps) =>
-      NotStartedManufacturing(id, code, cd, tasks :+ task, deps.setDependency(task.taskId, dependsOn)).asRight
-    case InProgressManufacturing(id, code, cd, tasks, deps, startedAt) =>
-      InProgressManufacturing(id, code, cd, tasks :+ task, deps.setDependency(task.taskId, dependsOn), startedAt).asRight
-    case CompletedManufacturing(_, _, _, _, _, _, _) =>
-      TaskAddedToCompletedManufacturing.asLeft
-    case PausedManufacturing(id, code, cd, tasks, deps, reason, startedAt, pausedAt) =>
-      PausedManufacturing(id, code, cd, tasks :+ task, deps.setDependency(task.taskId, dependsOn), reason, startedAt, pausedAt).asRight
+  /** Add a new task to the manufacturing with specified dependencies.
+    * @param task
+    *   the task to add.
+    * @param dependsOn
+    *   the set of task IDs that the new task depends on.
+    * @return
+    *   the updated [[ScheduledManufacturing]] with the new task added.
+    */
+  def addTask(task: ScheduledTask, dependsOn: Set[ScheduledTaskId]): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    updateTasks(tasks :+ task, dependencies.setDependency(task.id, dependsOn))
 
-  def removeTask(id: TaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    ???
+  /** Remove a task from the manufacturing. If removing the task results in no remaining tasks, an error is returned.
+    * @param id
+    *   the ID of the task to remove.
+    * @return
+    *   A [[TaskIdNotFound]] error if the task ID does not exist, a [[ManufacturingWithNoTasks]] error if removing the task would leave no tasks,
+    *   otherwise the updated [[ScheduledManufacturing]] without the specified task.
+    */
+  def removeTask(id: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    for
+      _ <- ensureTaskExists(id)
+      updatedTasks <- tasks.filterNot(_.id == id) match {
+        case Nil          => ManufacturingWithNoTasks.asLeft
+        case head :: tail => Right(NonEmptyList(head, tail))
+      }
+      updatedDependencies = dependencies.removeTaskDependency(id)
+      newManufacturing <- updateTasks(updatedTasks, updatedDependencies)
+    yield newManufacturing
 
+  /** Advance the progress of a task by a specified number of hours. If the task is not found, an error is returned.
+    * @param taskId
+    *   the ID of the task to advance.
+    * @param hours
+    *   the number of hours to advance the task's progress.
+    * @return
+    *   an error if the task ID does not exist, otherwise the updated ScheduledManufacturing with the task's progress advanced.
+    */
   def advanceTask(taskId: ScheduledTaskId, hours: Hours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    ???
+    changeTaskState(taskId, _.advanceInProgressTask(hours))
 
+  /** Rollback the progress of a task by a specified number of hours. If the task is not found, an error is returned.
+    * @param taskId
+    *   the ID of the task to rollback.
+    * @param hours
+    *   the number of hours to roll back the task's progress.
+    * @return
+    *   an error if the task ID does not exist, otherwise the updated ScheduledManufacturing with the task's progress rolled back.
+    */
   def rollbackTask(taskId: ScheduledTaskId, hours: Hours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    ???
+    changeTaskState(taskId, _.rollbackInProgressTask(hours))
 
-  /** Mark a task as completed.
+  /** Mark a task as completed. If all tasks are completed, the manufacturing transitions to CompletedManufacturing.
     * @param taskId
     *   the ID of the task to complete.
     * @return
     *   A [[TaskIdNotFound]] error if the task ID does not exist, or the updated ScheduledManufacturing with the task marked as completed.
     */
-  def completeTask(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    ???
+  def completeTask(taskId: ScheduledTaskId, hours: Hours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, _.completeTask(hours)).flatMap { updatedManufacturing =>
+      if areAllTasksCompleted(updatedManufacturing) then transitionToCompleted(updatedManufacturing)
+      else Right(updatedManufacturing)
+    }
 
-  /** Revert a completed task back to in-progress state. If the manufacturing is completed, an error is returned.
+  /** Revert a completed task back to in-progress state. If the manufacturing was marked as completed, it will transition back to in-progress.
     * @param taskId
     *   The ID of the task to revert.
     * @return
-    *   Either an error or the updated ScheduledManufacturing with the task reverted.
+    *   An error if the task ID does not exist or cannot be reverted, otherwise the updated ScheduledManufacturing.
     */
-  def revertTaskToInProgress(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] = {
-    val newTasks = this match
-      case NotStartedManufacturing(_, _, _, _, _) => ManufacturingNotStarted.asLeft
-      case _ =>
-        for
-          _ <- ensureTaskExists(taskId)
-          updatedTasks <- tasks.map { task =>
-            if task.id == taskId then task.revertToInProgress.leftMap(TaskError.apply)
-            else Right(task)
-          }.sequence
-        yield updatedTasks
+  def revertTaskToInProgress(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, _.revertToInProgress)
+
+  private def changeTaskState(
+      taskId: ScheduledTaskId,
+      f: ScheduledTask => Either[ScheduledTaskError, ScheduledTask]
+  ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     for
-      tasks <- newTasks
-      newManufacturing <- updateTasks(tasks, dependencies)
-    yield newManufacturing
-  }
+      _ <- ensureTaskExists(taskId)
+      updatedTasks <- tasks.traverse { task =>
+        if task.id == taskId then f(task).leftMap(TaskError.apply)
+        else Right(task)
+      }
+      newManufacturing <- updateTasks(updatedTasks, dependencies)
+    yield transitionToInProgressIfNeeded(newManufacturing)
+
+  private def transitionToInProgressIfNeeded(manufacturing: ScheduledManufacturing): ScheduledManufacturing =
+    manufacturing match
+      case NotStartedManufacturing(id, code, cd, tasks, deps) =>
+        InProgressManufacturing(id, code, cd, tasks, deps, DateTime.now())
+      case other => other
+
+  private def areAllTasksCompleted(manufacturing: ScheduledManufacturing): Boolean =
+    manufacturing.tasks.forall {
+      case CompletedTask(_, _, _, _, _) => true
+      case _                            => false
+    }
+
+  private def getStartedAt(manufacturing: ScheduledManufacturing): DateTime =
+    manufacturing match
+      case InProgressManufacturing(_, _, _, _, _, startedAt)   => startedAt
+      case PausedManufacturing(_, _, _, _, _, _, startedAt, _) => startedAt
+      case _                                                   => DateTime.now()
+
+  private def transitionToCompleted(manufacturing: ScheduledManufacturing): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    val completedAt = DateTime.now()
+    val completedTasks = NonEmptyList.fromListUnsafe(manufacturing.tasks.collect { case ct: CompletedTask => ct })
+    Right(
+      CompletedManufacturing(
+        manufacturing.id,
+        manufacturing.code,
+        manufacturing.completionDate,
+        completedTasks,
+        manufacturing.dependencies,
+        getStartedAt(manufacturing),
+        completedAt
+      )
+    )
 
   private def ensureTaskExists(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, Unit] =
-    Either.cond(tasks.map(_.id).contains_(taskId), (), TaskIdNotFound(taskId))
+    Either.cond(tasks.exists(_.id == taskId), (), TaskIdNotFound(taskId))
 
   private def updateTasks(
       tasks: NonEmptyList[ScheduledTask],
@@ -142,5 +206,6 @@ enum ScheduledManufacturing(
       Right(InProgressManufacturing(id, code, cd, tasks, deps, startedAt))
     case PausedManufacturing(id, code, cd, _, _, reason, startedAt, pausedAt) =>
       Right(PausedManufacturing(id, code, cd, tasks, deps, reason, startedAt, pausedAt))
-    case CompletedManufacturing(_, _, _, _, _, _, _) =>
-      Left(ScheduledManufacturingError.ManufacturingCompleted)
+    case CompletedManufacturing(id, code, cd, _, _, startedAt, _) =>
+      // Allow updates when reverting tasks - transition back to InProgressManufacturing
+      Right(InProgressManufacturing(id, code, cd, tasks, deps, startedAt))

@@ -4,3 +4,4 @@ enum ScheduledTaskError:
   case TaskMustBeInProgress
   case TaskAlreadyCompleted
   case TaskAlreadyInProgress
+  case TaskWithNegativeProgress

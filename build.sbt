@@ -25,7 +25,8 @@ lazy val sharedDependencies = Seq(
   "org.typelevel" %% "cats-core" % "2.13.0",
   "org.typelevel" %% "cats-kernel" % "2.13.0",
   "org.typelevel" %% "kittens" % "3.5.0",
-  "dev.hnaderi" %% "edomata-core" % "0.12.8"
+  "dev.hnaderi" %% "edomata-core" % "0.12.8",
+  "org.scala-graph" %% "graph-core" % "2.0.3"
 )
 
 ThisBuild / wartremoverErrors ++= Warts.unsafe

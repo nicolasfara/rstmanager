@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskError.TaskMustBeInProgress
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskError.{TaskMustBeInProgress, TaskWithNegativeProgress}
 
 /** A scheduled task in the system.
   *
@@ -69,6 +69,13 @@ enum ScheduledTask:
 
   def advanceInProgressTask(withHours: Hours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress
     .map { task => task.copy(completedHours = task.completedHours + withHours) }
+
+  def rollbackInProgressTask(withHours: Hours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress
+    .flatMap { task =>
+      val newCompletedHours = task.completedHours - withHours
+      if newCompletedHours < Hours(0) then TaskWithNegativeProgress.asLeft
+      else task.copy(completedHours = newCompletedHours).asRight
+    }
 
   def completeTask(withHours: Hours): Either[ScheduledTaskError, ScheduledTask] = this match
     case InProgressTask(id, taskId, expectedHours, completedHours) =>

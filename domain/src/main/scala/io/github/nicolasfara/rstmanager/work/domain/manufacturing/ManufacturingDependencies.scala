@@ -1,13 +1,13 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskId
 
-opaque type ManufacturingDependencies = Map[TaskId, Set[TaskId]]
+opaque type ManufacturingDependencies = Map[ScheduledTaskId, Set[ScheduledTaskId]]
 
 object ManufacturingDependencies:
-  def apply(value: Map[TaskId, Set[TaskId]]): ManufacturingDependencies = value
-  def containsCycles(dependencies: Map[TaskId, Set[TaskId]]): Boolean =
-    def visit(node: TaskId, visited: Set[TaskId], recStack: Set[TaskId]): Boolean =
+  def apply(value: Map[ScheduledTaskId, Set[ScheduledTaskId]]): ManufacturingDependencies = value
+  def containsCycles(dependencies: Map[ScheduledTaskId, Set[ScheduledTaskId]]): Boolean =
+    def visit(node: ScheduledTaskId, visited: Set[ScheduledTaskId], recStack: Set[ScheduledTaskId]): Boolean =
       if recStack.contains(node) then true
       else if visited.contains(node) then false
       else
@@ -16,27 +16,31 @@ object ManufacturingDependencies:
         dependencies.getOrElse(node, Set()).exists(neighbor => visit(neighbor, newVisited, newRecStack))
     dependencies.keys.exists(node => visit(node, Set(), Set()))
 
-  def topologicalSort(dependencies: ManufacturingDependencies): Either[String, List[TaskId]] =
+  def topologicalSort(dependencies: ManufacturingDependencies): Either[String, List[ScheduledTaskId]] =
     if containsCycles(dependencies) then Left("The dependency graph contains cycles.")
     else
-      def visit(node: TaskId, visited: Set[TaskId], stack: List[TaskId]): (Set[TaskId], List[TaskId]) =
+      def visit(
+          node: ScheduledTaskId,
+          visited: Set[ScheduledTaskId],
+          stack: List[ScheduledTaskId]
+      ): (Set[ScheduledTaskId], List[ScheduledTaskId]) =
         if visited.contains(node) then (visited, stack)
         else
           val newVisited = visited + node
-          val (finalVisited, finalStack) = dependencies.getOrElse(node, Set()).foldLeft((newVisited, stack)) {
-            case ((v, s), neighbor) => visit(neighbor, v, s)
+          val (finalVisited, finalStack) = dependencies.getOrElse(node, Set()).foldLeft((newVisited, stack)) { case ((v, s), neighbor) =>
+            visit(neighbor, v, s)
           }
           (finalVisited, node :: finalStack)
-      val (_, sortedList) = dependencies.keys.foldLeft((Set.empty[TaskId], List.empty[TaskId])) { case ((v, s), node) =>
+      val (_, sortedList) = dependencies.keys.foldLeft((Set.empty[ScheduledTaskId], List.empty[ScheduledTaskId])) { case ((v, s), node) =>
         visit(node, v, s)
       }
       Right(sortedList.reverse)
 
   extension (md: ManufacturingDependencies)
-    def setDependency(task: TaskId, dependsOn: Set[TaskId]): ManufacturingDependencies =
+    def setDependency(task: ScheduledTaskId, dependsOn: Set[ScheduledTaskId]): ManufacturingDependencies =
       val updated = md.get(task) match
         case Some(existing) => existing ++ dependsOn
         case None           => dependsOn
       ManufacturingDependencies(md + (task -> updated))
-    def removeTaskDependency(task: TaskId): ManufacturingDependencies =
+    def removeTaskDependency(task: ScheduledTaskId): ManufacturingDependencies =
       ManufacturingDependencies(md - task)

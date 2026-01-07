@@ -4,7 +4,9 @@ import cats.data.ValidatedNec
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.*
 import edomata.core.DomainModel
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.{InvalidTransition, OrderAlreadyCreated}
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
+import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.OrderCreated
 
 /** Aggregate root representing an order in different states.
   *
@@ -29,15 +31,13 @@ enum Order derives CanEqual:
 object Order extends DomainModel[Order, OrderEvent, OrderError]:
   override def initial: Order = NewOrder
 
-  override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = ???
-//    event => state =>
-//    (event, state) match
-//      // Order Creation
-//      case (OrderEvent.OrderCreated(orderData, _), NewOrder) =>
-//        InProgressOrder(orderData, orderData.deliveryDate).validNec
-//
-//      case (OrderEvent.OrderCreated(_, _), _) =>
-//        OrderError.InvalidStateTransition("Order already exists").invalidNec
+  override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = event =>
+    state =>
+      (event, state) match
+        case (OrderCreated(data, timestamp), NewOrder) => InProgressOrder(data, data.deliveryDate).validNec
+        case (_, NewOrder)                             => InvalidTransition("Order created event expected").invalidNec
+        case (OrderCreated(_, _), _)                   => OrderAlreadyCreated.invalidNec
+        case _                                         => InvalidTransition("TODO").invalidNec
 //
 //      // Order Cancellation
 //      case (OrderEvent.OrderCancelled(_, cancelledOn, reason), InProgressOrder(data, _)) =>

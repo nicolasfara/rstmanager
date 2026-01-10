@@ -5,8 +5,4 @@ import io.github.nicolasfara.rstmanager.work.domain.task.schedule.{ScheduledTask
 enum ScheduledManufacturingError derives CanEqual:
   case TaskError(error: ScheduledTaskError)
   case TaskIdNotFound(id: ScheduledTaskId)
-  case TaskAddedToCompletedManufacturing
-  case TaskRemovedFromCompletedManufacturing
   case ManufacturingWithNoTasks
-  case ManufacturingCompleted
-  case ManufacturingNotStarted

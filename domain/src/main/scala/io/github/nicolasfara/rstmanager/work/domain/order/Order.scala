@@ -3,10 +3,11 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 import cats.data.ValidatedNec
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.*
-import edomata.core.DomainModel
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.{InvalidTransition, OrderAlreadyCreated}
+import edomata.core.*
+import edomata.syntax.all.*
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
-import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.OrderCreated
+import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
 
 /** Aggregate root representing an order in different states.
   *
@@ -28,98 +29,103 @@ enum Order derives CanEqual:
   case DeliveredOrder(data: OrderData, completionDate: DateTime, deliveredOn: DateTime)
   case CancelledOrder(data: OrderData, cancelledOn: DateTime, reason: Option[String])
 
+  /** Create a new order with the given [[data]] and [[plannedDelivery]]. The operation succeeds only if the current state is [[NewOrder]]. If trying
+    * to create an order from any other state, it will fail with [[OrderAlreadyCreated]] error.
+    */
+  def create(data: OrderData, plannedDelivery: DateTime): Decision[OrderError, OrderEvent, Order] = this
+    .decide {
+      case NewOrder => Decision.accept(OrderCreated(data, plannedDelivery))
+      case _        => Decision.reject(OrderAlreadyCreated)
+    }
+    .validate(_.mustBeInProgress)
+
+  /** Suspend the order for an optional [[reason]]. The operation succeeds only if the current state is [[InProgressOrder]]. If the order is not in
+    * progress, it will fail with [[OrderMustBeInProgress]] error.
+    */
+  def suspend(reason: Option[SuspensionReason]): Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeInProgress.toDecision *> OrderSuspended(reason, DateTime.now()).accept).validate(_.mustBeSuspended)
+
+  /** Reactivate a previously suspended order. The operation succeeds only if the current state is [[SuspendedOrder]]. If the order is not suspended,
+    * it will fail with [[OrderMustBeSuspended]] error.
+    */
+  def reactivate: Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeSuspended.toDecision *> OrderReactivated(DateTime.now()).accept).validate(_.mustBeInProgress)
+
+  /** Complete the order. The operation succeeds only if the current state is [[InProgressOrder]] or [[SuspendedOrder]]. If the order is not in
+    * progress or paused, it will fail with [[OrderMustBeInProgress]] error.
+    */
+  def complete: Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeInProgressOrPaused.toDecision *> OrderCompleted(DateTime.now()).accept).validate(_.mustBeCompleted)
+
+  /** Deliver the order. The operation succeeds only if the current state is [[CompletedOrder]]. If the order is not completed, it will fail with
+    * [[OrderMustBeCompleted]] error.
+    */
+  def deliver: Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeCompleted.toDecision *> OrderDelivered(DateTime.now()).accept).validate(_.mustBeDelivered)
+
+  /** Cancel the order with an optional [[reason]]. The operation fails if the current state is [[NewOrder]] (no such order) or [[CancelledOrder]]
+    * (already canceled). In all other states, the cancellation will succeed.
+    */
+  def cancel(reason: Option[String]): Decision[OrderError, OrderEvent, Order] =
+    this
+      .decide {
+        case NewOrder                => Decision.reject(NoSuchOrder)
+        case CancelledOrder(_, _, _) => Decision.reject(OrderAlreadyCancelled)
+        case _                       => Decision.accept(OrderCancelled(DateTime.now(), reason))
+      }
+      .validate(_.mustBeCancelled)
+
+  /** Update the planned delivery date to [[newDeliveryDate]]. The operation succeeds only if the current state is [[InProgressOrder]] or
+    * [[SuspendedOrder]]. If the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
+    */
+  def updateDeliveryDate(newDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] =
+    this
+      .decide {
+        case _: InProgressOrder | _: SuspendedOrder =>
+          Decision.accept(OrderDeliveryDateChanged(newDeliveryDate, DateTime.now()))
+        case _ =>
+          Decision.reject(OrderMustBeInProgressOrPaused)
+      }
+      .validate(_.mustBeInProgressOrPaused)
+
+  /** Reopen a previously canceled order. The operation succeeds only if the current state is [[CancelledOrder]]. If the order is not canceled, it
+    * will fail with [[OnlyCancelledOrdersCanBeReactivated]] error.
+    */
+  def reopen: Decision[OrderError, OrderEvent, Order] =
+    this
+      .decide {
+        case CancelledOrder(data, _, _) => Decision.accept(OrderReactivated(DateTime.now()))
+        case _                          => Decision.reject(OnlyCancelledOrdersCanBeReactivated)
+      }
+      .validate(_.mustBeInProgress)
+
+  def changePriority(newPriority: OrderPriority): Decision[OrderError, OrderEvent, Order] =
+    this
+      .decide {
+        case _: InProgressOrder | _: SuspendedOrder =>
+          Decision.accept(OrderPriorityChanged(newPriority, DateTime.now()))
+        case _ => Decision.reject(OrderMustBeInProgressOrPaused)
+      }
+      .validate(_.mustBeInProgressOrPaused)
+
+  private transparent inline def mustBe[O <: Order](onFail: OrderError): ValidatedNec[OrderError, O] = this match
+    case o: O => o.validNec
+    case _    => onFail.invalidNec
+
+  private def mustBeDelivered: ValidatedNec[OrderError, DeliveredOrder] = mustBe[DeliveredOrder](OrderMustBeDelivered)
+
+  private def mustBeCompleted: ValidatedNec[OrderError, CompletedOrder] = mustBe[CompletedOrder](OrderMustBeCompleted)
+
+  private def mustBeSuspended: ValidatedNec[OrderError, SuspendedOrder] = mustBe[SuspendedOrder](OrderMustBeSuspended)
+
+  private def mustBeCancelled: ValidatedNec[OrderError, CancelledOrder] = mustBe[CancelledOrder](OrderMustBeCancelled)
+
+  private def mustBeInProgressOrPaused: ValidatedNec[OrderError, InProgressOrder | SuspendedOrder] =
+    mustBe[InProgressOrder | SuspendedOrder](OrderMustBeInProgressOrPaused)
+
+  private def mustBeInProgress: ValidatedNec[OrderError, InProgressOrder] = mustBe[InProgressOrder](OrderMustBeInProgress)
+
 object Order extends DomainModel[Order, OrderEvent, OrderError]:
   override def initial: Order = NewOrder
 
-  override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = event =>
-    state =>
-      (event, state) match
-        case (OrderCreated(data, timestamp), NewOrder) => InProgressOrder(data, data.deliveryDate).validNec
-        case (_, NewOrder)                             => InvalidTransition("Order created event expected").invalidNec
-        case (OrderCreated(_, _), _)                   => OrderAlreadyCreated.invalidNec
-        case _                                         => InvalidTransition("TODO").invalidNec
-//
-//      // Order Cancellation
-//      case (OrderEvent.OrderCancelled(_, cancelledOn, reason), InProgressOrder(data, _)) =>
-//        CancelledOrder(data, cancelledOn, reason).validNec
-//
-//      case (OrderEvent.OrderCancelled(_, cancelledOn, reason), SuspendedOrder(data, _, _, _)) =>
-//        CancelledOrder(data, cancelledOn, reason).validNec
-//
-//      case (OrderEvent.OrderCancelled(_, _, _), _) =>
-//        OrderError.CannotCancelInCurrentState.invalidNec
-//
-//      // Order Update
-//      case (OrderEvent.OrderUpdated(updatedData, _), InProgressOrder(_, plannedDelivery)) =>
-//        InProgressOrder(updatedData, updatedData.deliveryDate).validNec
-//
-//      case (OrderEvent.OrderUpdated(updatedData, _), SuspendedOrder(_, plannedDelivery, pausedOn, reason)) =>
-//        SuspendedOrder(updatedData, updatedData.deliveryDate, pausedOn, reason).validNec
-//
-//      case (OrderEvent.OrderUpdated(_, _), _) =>
-//        OrderError.CannotUpdateInCurrentState.invalidNec
-//
-//      // Order Suspension
-//      case (OrderEvent.OrderSuspended(reason, suspendedOn), InProgressOrder(data, plannedDelivery)) =>
-//        SuspendedOrder(data, plannedDelivery, suspendedOn, reason).validNec
-//
-//      case (OrderEvent.OrderSuspended(_, _), _) =>
-//        OrderError.CannotSuspendInCurrentState.invalidNec
-//
-//      // Order Reactivation
-//      case (OrderEvent.OrderReactivated(_), SuspendedOrder(data, plannedDelivery, _, _)) =>
-//        InProgressOrder(data, plannedDelivery).validNec
-//
-//      case (OrderEvent.OrderReactivated(_), _) =>
-//        OrderError.CannotReactivateInCurrentState.invalidNec
-//
-//      // Order Completion
-//      case (OrderEvent.OrderCompleted(completionDate), InProgressOrder(data, _)) =>
-//        // Validate all manufacturings are completed
-//        if data.setOfManufacturing.forall(_.isCompleted) then
-//          CompletedOrder(data, completionDate).validNec
-//        else
-//          OrderError.CannotCompleteWithPendingManufacturing.invalidNec
-//
-//      case (OrderEvent.OrderCompleted(_), _) =>
-//        OrderError.CannotCompleteInCurrentState.invalidNec
-//
-//      // Order Delivery
-//      case (OrderEvent.OrderDelivered(deliveredOn), CompletedOrder(data, completionDate)) =>
-//        DeliveredOrder(data, completionDate, deliveredOn).validNec
-//
-//      case (OrderEvent.OrderDelivered(_), _) =>
-//        OrderError.CannotDeliverInCurrentState.invalidNec
-//
-//      // Priority Change
-//      case (OrderEvent.OrderPriorityChanged(newPriority, _), InProgressOrder(data, plannedDelivery)) =>
-//        val updatedData = data.copy(priority = newPriority)
-//        InProgressOrder(updatedData, plannedDelivery).validNec
-//
-//      case (OrderEvent.OrderPriorityChanged(newPriority, _), SuspendedOrder(data, plannedDelivery, pausedOn, reason)) =>
-//        val updatedData = data.copy(priority = newPriority)
-//        SuspendedOrder(updatedData, plannedDelivery, pausedOn, reason).validNec
-//
-//      case (OrderEvent.OrderPriorityChanged(_, _), _) =>
-//        OrderError.CannotChangePriorityInCurrentState.invalidNec
-//
-//      // Manufacturing Management
-//      case (OrderEvent.ManufacturingAdded(manufacturing, _), InProgressOrder(data, plannedDelivery)) =>
-//        val updatedManufacturings = data.setOfManufacturing.append(manufacturing)
-//        val updatedData = data.copy(setOfManufacturing = updatedManufacturings)
-//        InProgressOrder(updatedData, plannedDelivery).validNec
-//
-//      case (OrderEvent.ManufacturingAdded(_, _), _) =>
-//        OrderError.CannotAddManufacturingInCurrentState.invalidNec
-//
-//      case (OrderEvent.ManufacturingRemoved(manufacturingId, _), InProgressOrder(data, plannedDelivery)) =>
-//        val filtered = data.setOfManufacturing.filterNot(_.id == manufacturingId)
-//        filtered match
-//          case head :: tail =>
-//            val updatedData = data.copy(setOfManufacturing = cats.data.NonEmptyList(head, tail))
-//            InProgressOrder(updatedData, plannedDelivery).validNec
-//          case Nil =>
-//            OrderError.OrderWithNoManufacturing.invalidNec
-//
-//      case (OrderEvent.ManufacturingRemoved(_, _), _) =>
-//        OrderError.CannotRemoveManufacturingInCurrentState.invalidNec
+  override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = ???

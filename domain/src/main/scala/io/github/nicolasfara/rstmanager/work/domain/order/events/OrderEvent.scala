@@ -1,8 +1,10 @@
 package io.github.nicolasfara.rstmanager.work.domain.order.events
 
 import com.github.nscala_time.time.Imports.DateTime
-import io.github.nicolasfara.rstmanager.work.domain.order.{OrderData, OrderId, OrderPriority, SuspensionReason}
+import io.github.nicolasfara.rstmanager.work.domain.order.{OrderData, OrderPriority, SuspensionReason}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturing, ScheduledManufacturingId}
+import io.github.nicolasfara.rstmanager.work.domain.task.Hours
+import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskId
 
 /** Events representing state changes at the Order level within the Order aggregate.
   *
@@ -14,13 +16,13 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{Sche
   */
 enum OrderEvent:
   /** Order has been created with initial data */
-  case OrderCreated(orderData: OrderData, timestamp: DateTime)
+  case OrderCreated(orderData: OrderData, deliveryDate: DateTime)
 
-  /** Order has been cancelled */
+  /** Order has been canceled */
   case OrderCancelled(cancelledOn: DateTime, reason: Option[String])
 
   /** Order has been temporarily suspended */
-  case OrderSuspended(reason: Option[SuspensionReason], suspendedOn: DateTime)
+  case OrderSuspended(suspendedOn: DateTime, reason: Option[SuspensionReason])
 
   /** Previously suspended order has been reactivated */
   case OrderReactivated(reactivatedOn: DateTime)
@@ -42,3 +44,15 @@ enum OrderEvent:
 
   /** A manufacturing has been removed from the order */
   case ManufacturingRemoved(manufacturingId: ScheduledManufacturingId, removedOn: DateTime)
+
+  /** A task within a manufacturing has been advanced by a certain number of hours */
+  case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: Hours)
+
+  /** A task within a manufacturing has been de-advanced by a certain number of hours */
+  case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: Hours)
+
+  /** A task within a manufacturing has been completed */
+  case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: Hours)
+
+  /** A task within a manufacturing has been reverted to in-progress */
+  case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)

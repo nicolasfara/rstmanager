@@ -1,5 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturingError, ScheduledManufacturingId}
+
 /** Errors that can occur during Order aggregate operations */
 enum OrderError derives CanEqual:
   case OrderAlreadyCreated
@@ -12,4 +14,5 @@ enum OrderError derives CanEqual:
   case OrderAlreadyCancelled
   case NoSuchOrder
   case OnlyCancelledOrdersCanBeReactivated
-  case InvalidTransition(cause: String)
+  case ManufacturingNotFound(manufacturingId: ScheduledManufacturingId)
+  case ManufacturingError(error: ScheduledManufacturingError)

@@ -14,7 +14,7 @@ class ManufacturingDependenciesTest extends AnyFlatSpecLike:
 
     val dependencyWithSimpleCycle = Map(
       taskA -> Set(taskB),
-      taskB -> Set(taskA),
+      taskB -> Set(taskA)
     )
 
     val dependenciesWithCycle = Map(
@@ -56,4 +56,3 @@ class ManufacturingDependenciesTest extends AnyFlatSpecLike:
     val sortedResult = ManufacturingDependencies.topologicalSort(ManufacturingDependencies(dependenciesWithoutCycle))
     sortedResult.isRight shouldBe true
     sortedResult shouldBe Right(List(taskD, taskB, taskC, taskA))
-

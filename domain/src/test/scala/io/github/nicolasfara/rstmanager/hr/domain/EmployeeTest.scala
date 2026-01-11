@@ -16,12 +16,11 @@ class EmployeeTest extends AnyFlatSpecLike:
       weeklyHours: Int,
       overrides: List[HoursOverride]
   ): Validated[String, Employee] =
-    (Name(name), Surname(surname), WeeklyHours(weeklyHours)).mapN {
-      case (employeeName, employeeSurname, weeklyHoursValue) =>
-        val employeeId = EmployeeId(UUID.randomUUID().nn)
-        val employeeInfo = EmployeeInfo(employeeName, employeeSurname)
-        val budgetHours = BudgetHours(weeklyHoursValue, overrides)
-        Employee(employeeId, employeeInfo, contract, budgetHours)
+    (Name(name), Surname(surname), WeeklyHours(weeklyHours)).mapN { case (employeeName, employeeSurname, weeklyHoursValue) =>
+      val employeeId = EmployeeId(UUID.randomUUID().nn)
+      val employeeInfo = EmployeeInfo(employeeName, employeeSurname)
+      val budgetHours = BudgetHours(weeklyHoursValue, overrides)
+      Employee(employeeId, employeeInfo, contract, budgetHours)
     }
 
   "An Employee" should "be inactive when the contract is terminated" in:

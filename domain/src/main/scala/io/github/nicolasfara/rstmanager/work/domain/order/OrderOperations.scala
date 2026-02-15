@@ -5,8 +5,8 @@ import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturing, ScheduledManufacturingId}
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
-import io.github.nicolasfara.rstmanager.work.domain.task.Hours
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 object OrderOperations:
   protected[order] def addManufacturing(order: InProgressOrder | SuspendedOrder, manufacturing: ScheduledManufacturing): Order =
@@ -27,7 +27,7 @@ object OrderOperations:
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      advancedBy: Hours
+      advancedBy: TaskHours
   ): Either[OrderError, InProgressOrder] = {
     def advance(data: OrderData): Either[OrderError, InProgressOrder] =
       for
@@ -45,7 +45,7 @@ object OrderOperations:
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      rollbackBy: Hours
+      rollbackBy: TaskHours
   ): Either[OrderError, InProgressOrder] = {
     def rollback(data: OrderData): Either[OrderError, InProgressOrder] =
       for
@@ -69,7 +69,7 @@ object OrderOperations:
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      withHours: Hours
+      withHours: TaskHours
   ): Either[OrderError, Order] = {
     def complete(data: OrderData): Either[OrderError, Order] =
       for

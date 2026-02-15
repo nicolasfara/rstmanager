@@ -10,8 +10,8 @@ import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
-import io.github.nicolasfara.rstmanager.work.domain.task.Hours
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 /** Aggregate root representing an order in different states.
   *
@@ -130,7 +130,7 @@ enum Order derives CanEqual:
   /** Advance a task within a manufacturing by [[advancedBy]] hours. The operation succeeds only if the current state is [[InProgressOrder]] or
     * [[SuspendedOrder]]. If the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
     */
-  def completeTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: Hours): Decision[OrderError, OrderEvent, Order] =
+  def completeTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskCompleted(manufacturingId, taskId, withHours).accept)
       .validate(_.mustBeInProgressOrSuspended)
@@ -164,8 +164,7 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
   override def initial: Order = NewOrder
 
   override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = {
-    case OrderCreated(orderData, deliveryDate) =>
-      _ => InProgressOrder(orderData, deliveryDate).validNec
+    case OrderCreated(orderData, deliveryDate) => _ => InProgressOrder(orderData, deliveryDate).validNec
     case OrderCancelled(date, reason) =>
       _.mustBeInProgressOrSuspended.map {
         case InProgressOrder(data, _)      => CancelledOrder(data, date, reason)
@@ -193,10 +192,8 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
         case SuspendedOrder(data, plannedDelivery, pausedOn, reason) =>
           SuspendedOrder(data.copy(priority = newPriority), plannedDelivery, pausedOn, reason)
       }
-    case ManufacturingAdded(manufacturing, _) =>
-      _.mustBeInProgressOrSuspended.map(addManufacturing(_, manufacturing))
-    case ManufacturingRemoved(manufacturingId, _) =>
-      _.mustBeInProgressOrSuspended.map(removeManufacturing(_, manufacturingId))
+    case ManufacturingAdded(manufacturing, _)     => _.mustBeInProgressOrSuspended.map(addManufacturing(_, manufacturing))
+    case ManufacturingRemoved(manufacturingId, _) => _.mustBeInProgressOrSuspended.map(removeManufacturing(_, manufacturingId))
     case ManufacturingTaskAdvanced(manufacturingId, taskId, advancedBy) =>
       _.mustBeInProgressOrSuspended.andThen(advanceTask(_, manufacturingId, taskId, advancedBy).toValidatedNec)
     case ManufacturingTaskRolledBack(manufacturingId, taskId, deAdvancedBy) =>

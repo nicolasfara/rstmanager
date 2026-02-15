@@ -1,4 +1,4 @@
-package io.github.nicolasfara.rstmanager.work.domain.task.schedule
+package io.github.nicolasfara.rstmanager.work.domain.task.scheduled
 
 enum ScheduledTaskError:
   case TaskMustBeInProgress

@@ -1,6 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturingError, ScheduledManufacturingId}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturingError, ScheduledManufacturingId}
 
 /** Errors that can occur during Order aggregate operations */
 enum OrderError derives CanEqual:

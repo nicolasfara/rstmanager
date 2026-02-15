@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.*
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturing, ScheduledManufacturingId}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
 
 final case class OrderData(
     id: OrderId,

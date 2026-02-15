@@ -11,8 +11,8 @@ lazy val projectScalacOptions = Seq(
   "-Werror",
   "-Wunused:all",
   "-Yexplicit-nulls",
-  "-Ysafe-init",
-  "-explain"
+  "-Ysafe-init"
+//  "-explain"
 )
 lazy val sharedDependencies = Seq(
   "com.github.nscala-time" %% "nscala-time" % "3.0.0",

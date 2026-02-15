@@ -1,46 +1,46 @@
-package io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule
+package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
 import cats.syntax.all.*
-import cats.data.NonEmptyList
+import cats.data.*
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
-import io.github.nicolasfara.rstmanager.work.domain.task.{Hours, TaskId}
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.{CompletedTask, ScheduledTask, ScheduledTaskError, ScheduledTaskId}
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.ScheduledManufacturingError.{
+import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours, TaskId}
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ScheduledTask, ScheduledTaskError, ScheduledTaskId}
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.{
   ManufacturingWithNoTasks,
   TaskError,
   TaskIdNotFound
 }
 
 enum ScheduledManufacturing(val info: ScheduledManufacturingInfo):
-  case NotStartedManufacturing(override val info: ScheduledManufacturingInfo) extends ScheduledManufacturing(info)
-  case InProgressManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime) extends ScheduledManufacturing(info)
-  case CompletedManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime, completedAt: DateTime)
-      extends ScheduledManufacturing(info)
-  case PausedManufacturing(
-      override val info: ScheduledManufacturingInfo,
-      reason: Option[String],
-      startedAt: DateTime,
-      pausedAt: DateTime
-  ) extends ScheduledManufacturing(info)
+  case NotStartedManufacturing(info: ScheduledManufacturingInfo)
+    extends ScheduledManufacturing(info)
+  case InProgressManufacturing(info: ScheduledManufacturingInfo, startedAt: DateTime)
+    extends ScheduledManufacturing(info)
+  case CompletedManufacturing(info: ScheduledManufacturingInfo, startedAt: DateTime, completedAt: DateTime)
+    extends ScheduledManufacturing(info)
+  case PausedManufacturing(info: ScheduledManufacturingInfo, reason: Option[String], startedAt: DateTime, pausedAt: DateTime)
+    extends ScheduledManufacturing(info)
 
   /** Calculate the total expected hours for all tasks in the manufacturing.
     * @return
     *   Total expected hours.
     */
-  def expectedHours: Hours = info.tasks.foldMap(_.expectedHours)
+  def expectedHours: TaskHours = info.tasks.foldMap(_.expectedHours)
 
   /** Calculate the total remaining hours for all tasks in the manufacturing.
     * @return
     *   Total remaining hours.
     */
-  def remainingHours: Hours = info.tasks.foldMap(_.remainingHours)
+  def remainingHours: TaskHours = info.tasks.foldMap(_.remainingHours)
 
   /** Calculate the total completed hours for all tasks in the manufacturing.
     * @return
     *   Total completed hours.
     */
-  def completedHours: Hours = info.tasks.foldMap(_.completedHours)
+  def completedHours: TaskHours = info.tasks.foldMap(_.completedHours)
 
   /** Add a new task to the manufacturing with specified dependencies.
     * @param task
@@ -79,7 +79,7 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo):
     * @return
     *   an error if the task ID does not exist, otherwise the updated ScheduledManufacturing with the task's progress advanced.
     */
-  def advanceTask(taskId: ScheduledTaskId, hours: Hours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+  def advanceTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     changeTaskState(taskId, _.advanceInProgressTask(hours))
 
   /** Rollback the progress of a task by a specified number of hours. If the task is not found, an error is returned.
@@ -90,7 +90,7 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo):
     * @return
     *   an error if the task ID does not exist, otherwise the updated ScheduledManufacturing with the task's progress rolled back.
     */
-  def rollbackTask(taskId: ScheduledTaskId, hours: Hours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+  def rollbackTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     changeTaskState(taskId, _.rollbackInProgressTask(hours))
 
   /** Mark a task as completed. If all tasks are completed, the manufacturing transitions to CompletedManufacturing.
@@ -99,7 +99,7 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo):
     * @return
     *   A [[TaskIdNotFound]] error if the task ID does not exist, or the updated ScheduledManufacturing with the task marked as completed.
     */
-  def completeTask(taskId: ScheduledTaskId, hours: Hours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+  def completeTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     changeTaskState(taskId, _.completeTask(hours)).flatMap { updatedManufacturing =>
       if areAllTasksCompleted(updatedManufacturing) then transitionToCompleted(updatedManufacturing)
       else Right(updatedManufacturing)

@@ -3,8 +3,8 @@ package io.github.nicolasfara.rstmanager.work.domain.order.events
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.order.{OrderData, OrderPriority, SuspensionReason}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturing, ScheduledManufacturingId}
-import io.github.nicolasfara.rstmanager.work.domain.task.Hours
-import io.github.nicolasfara.rstmanager.work.domain.task.schedule.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 /** Events representing state changes at the Order level within the Order aggregate.
   *
@@ -46,13 +46,13 @@ enum OrderEvent:
   case ManufacturingRemoved(manufacturingId: ScheduledManufacturingId, removedOn: DateTime)
 
   /** A task within a manufacturing has been advanced by a certain number of hours */
-  case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: Hours)
+  case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: TaskHours)
 
   /** A task within a manufacturing has been de-advanced by a certain number of hours */
-  case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: Hours)
+  case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: TaskHours)
 
   /** A task within a manufacturing has been completed */
-  case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: Hours)
+  case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
 
   /** A task within a manufacturing has been reverted to in-progress */
   case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)

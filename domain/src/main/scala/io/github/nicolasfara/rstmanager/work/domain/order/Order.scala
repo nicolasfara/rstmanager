@@ -7,6 +7,7 @@ import edomata.core.*
 import edomata.syntax.all.*
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
+import monocle.syntax.all.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
@@ -16,6 +17,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 type CancellationReason = DescribedAs[Not[Empty], "The reason, if provided, cannot be empty"]
+type SuspensionReason = DescribedAs[Not[Empty], "The suspension reason, if provided, cannot be empty"]
 
 /** Aggregate root representing an order in different states.
   *
@@ -32,7 +34,7 @@ type CancellationReason = DescribedAs[Not[Empty], "The reason, if provided, cann
 enum Order derives CanEqual:
   case NewOrder
   case InProgressOrder(data: OrderData, plannedDelivery: DateTime)
-  case SuspendedOrder(data: OrderData, plannedDelivery: DateTime, pausedOn: DateTime, reason: Option[SuspensionReason])
+  case SuspendedOrder(data: OrderData, plannedDelivery: DateTime, pausedOn: DateTime, reason: Option[String :| SuspensionReason])
   case CompletedOrder(data: OrderData, completionDate: DateTime)
   case DeliveredOrder(data: OrderData, completionDate: DateTime, deliveredOn: DateTime)
   case CancelledOrder(data: OrderData, cancelledOn: DateTime, reason: Option[String :| CancellationReason])
@@ -50,7 +52,7 @@ enum Order derives CanEqual:
   /** Suspend the order for an optional [[reason]]. The operation succeeds only if the current state is [[InProgressOrder]]. If the order is not in
     * progress, it will fail with [[OrderMustBeInProgress]] error.
     */
-  def suspend(reason: Option[SuspensionReason]): Decision[OrderError, OrderEvent, Order] =
+  def suspend(reason: Option[String :| SuspensionReason]): Decision[OrderError, OrderEvent, Order] =
     this.perform(mustBeInProgress.toDecision *> OrderSuspended(DateTime.now(), reason).accept).validate(_.mustBeSuspended)
 
   /** Reactivate a previously suspended order. The operation succeeds only if the current state is [[SuspendedOrder]]. If the order is not suspended,
@@ -74,7 +76,7 @@ enum Order derives CanEqual:
   /** Cancel the order with an optional [[reason]]. The operation fails if the current state is [[NewOrder]] (no such order) or [[CancelledOrder]]
     * (already canceled). In all other states, the cancellation will succeed.
     */
-  def cancel(reason: Option[String]): Decision[OrderError, OrderEvent, Order] =
+  def cancel(reason: Option[String :| CancellationReason]): Decision[OrderError, OrderEvent, Order] =
     this
       .decide {
         case NewOrder                => Decision.reject(NoSuchOrder)
@@ -173,15 +175,18 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
 
   override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = {
     case OrderCreated(orderData, deliveryDate) => _ => InProgressOrder(orderData, deliveryDate).validNec
-    case OrderCancelled(_, reason) =>
+    case OrderCancelled(date, reason) =>
       _.mustBeInProgressOrSuspended.map {
-        case InProgressOrder(data, _)      => ??? //CancelledOrder(data, date, reason)
-        case SuspendedOrder(data, _, _, _) => ??? // CancelledOrder(data, date, reason)
+        case InProgressOrder(data, _)      => CancelledOrder(data, date, reason)
+        case SuspendedOrder(data, _, _, _) => CancelledOrder(data, date, reason)
       }
     case OrderSuspended(date, reason) =>
       _.mustBeInProgress.map { case InProgressOrder(orderData, plannedDelivery) => SuspendedOrder(orderData, plannedDelivery, date, reason) }
-    case OrderReactivated(_) =>
-      _.mustBeSuspended.map { case SuspendedOrder(orderData, plannedDelivery, _, _) => InProgressOrder(orderData, plannedDelivery) }
+    case OrderReactivated(_) => {
+      case SuspendedOrder(orderData, plannedDelivery, _, _) => InProgressOrder(orderData, plannedDelivery).validNec
+      case CancelledOrder(data, _, _)                       => InProgressOrder(data, data.deliveryDate).validNec
+      case _                                                => OrderMustBeSuspended.invalidNec
+    }
     case OrderCompleted(date) =>
       _.mustBeInProgressOrSuspended.map {
         case InProgressOrder(data, _)      => CompletedOrder(data, date)
@@ -191,14 +196,13 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
       _.mustBeCompleted.map { case CompletedOrder(data, completionDate) => DeliveredOrder(data, completionDate, date) }
     case OrderDeliveryDateChanged(newDate, _) =>
       _.mustBeInProgressOrSuspended.map {
-        case InProgressOrder(data, _)                  => InProgressOrder(data, newDate)
-        case SuspendedOrder(data, _, pausedOn, reason) => SuspendedOrder(data, newDate, pausedOn, reason)
+        case order: InProgressOrder => order.focus(_.plannedDelivery).replace(newDate)
+        case order: SuspendedOrder  => order.focus(_.plannedDelivery).replace(newDate)
       }
     case OrderPriorityChanged(newPriority, _) =>
       _.mustBeInProgressOrSuspended.map {
-        case InProgressOrder(data, plannedDelivery) => InProgressOrder(data.copy(priority = newPriority), plannedDelivery)
-        case SuspendedOrder(data, plannedDelivery, pausedOn, reason) =>
-          SuspendedOrder(data.copy(priority = newPriority), plannedDelivery, pausedOn, reason)
+        case order: InProgressOrder => order.focus(_.data.priority).replace(newPriority)
+        case order: SuspendedOrder  => order.focus(_.data.priority).replace(newPriority)
       }
     case ManufacturingAdded(manufacturing, _)     => _.mustBeInProgressOrSuspended.map(addManufacturing(_, manufacturing))
     case ManufacturingRemoved(manufacturingId, _) => _.mustBeInProgressOrSuspended.map(removeManufacturing(_, manufacturingId))

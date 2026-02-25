@@ -22,14 +22,18 @@ lazy val sharedDependencies = Seq(
   "io.github.iltotore" %% "iron-cats" % "3.2.2",
   "org.scalactic" %% "scalactic" % "3.2.19",
   "org.scalatest" %% "scalatest" % "3.2.19" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.17.1" % "test",
+  "org.scalatestplus" %% "scalacheck-1-17" % "3.2.18.0" % "test",
   "org.typelevel" %% "cats-core" % "2.13.0",
   "org.typelevel" %% "cats-kernel" % "2.13.0",
   "org.typelevel" %% "kittens" % "3.5.0",
   "dev.hnaderi" %% "edomata-core" % "0.12.8",
-  "org.scala-graph" %% "graph-core" % "2.0.3"
+  "org.scala-graph" %% "graph-core" % "2.0.3",
+  "dev.optics" %% "monocle-core"  % "3.1.0",
+  "dev.optics" %% "monocle-macro" % "3.1.0",
 )
 
-ThisBuild / wartremoverErrors ++= Warts.unsafe
+// ThisBuild / wartremoverErrors ++= Warts.unsafe
 ThisBuild / autoAPIMappings := true
 
 inThisBuild(

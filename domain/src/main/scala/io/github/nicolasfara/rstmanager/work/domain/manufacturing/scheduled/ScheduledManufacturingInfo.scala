@@ -8,6 +8,9 @@ import java.util.UUID
 
 type ScheduledManufacturingId = UUID
 
+object ScheduledManufacturingId:
+  given CanEqual[ScheduledManufacturingId, ScheduledManufacturingId] = CanEqual.derived
+
 final case class ScheduledManufacturingInfo(
     id: ScheduledManufacturingId,
     code: ManufacturingCode,

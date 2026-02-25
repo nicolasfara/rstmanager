@@ -1,10 +1,12 @@
 package io.github.nicolasfara.rstmanager.work.domain.order.events
 
+import io.github.iltotore.iron.*
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.order.{OrderData, OrderPriority, SuspensionReason}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.order.CancellationReason
 
 /** Events representing state changes at the Order level within the Order aggregate.
   *
@@ -19,10 +21,10 @@ enum OrderEvent:
   case OrderCreated(orderData: OrderData, deliveryDate: DateTime)
 
   /** Order has been canceled */
-  case OrderCancelled(cancelledOn: DateTime, reason: Option[String])
+  case OrderCancelled(cancelledOn: DateTime, reason: Option[String :| CancellationReason])
 
   /** Order has been temporarily suspended */
-  case OrderSuspended(suspendedOn: DateTime, reason: Option[SuspensionReason])
+  case OrderSuspended(suspendedOn: DateTime, reason: Option[String :| SuspensionReason])
 
   /** Previously suspended order has been reactivated */
   case OrderReactivated(reactivatedOn: DateTime)

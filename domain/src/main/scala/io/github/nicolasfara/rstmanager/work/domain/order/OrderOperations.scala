@@ -1,101 +1,92 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
+import cats.syntax.all.*
+import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+import monocle.syntax.all.*
 
 object OrderOperations:
-  protected[order] def addManufacturing(order: InProgressOrder | SuspendedOrder, manufacturing: ScheduledManufacturing): Order =
+  def addManufacturing(order: InProgressOrder | SuspendedOrder, manufacturing: ScheduledManufacturing): Order =
     order match
-      case InProgressOrder(data, plannedDelivery) =>
-        InProgressOrder(data.addManufacturing(manufacturing), plannedDelivery)
-      case SuspendedOrder(data, plannedDelivery, pausedOn, reason) =>
-        SuspendedOrder(data.addManufacturing(manufacturing), plannedDelivery, pausedOn, reason)
+      case order: InProgressOrder => order.focus(_.data).modify(_.addManufacturing(manufacturing))
+      case order: SuspendedOrder  => order.focus(_.data).modify(_.addManufacturing(manufacturing))
 
-  protected[order] def removeManufacturing(order: InProgressOrder | SuspendedOrder, manufacturingId: ScheduledManufacturingId): Order =
+  def removeManufacturing(order: InProgressOrder | SuspendedOrder, manufacturingId: ScheduledManufacturingId): Order =
     order match
-      case InProgressOrder(data, plannedDelivery) =>
-        InProgressOrder(data.removeManufacturing(manufacturingId), plannedDelivery)
-      case SuspendedOrder(data, plannedDelivery, pausedOn, reason) =>
-        SuspendedOrder(data.removeManufacturing(manufacturingId), plannedDelivery, pausedOn, reason)
+      case order: InProgressOrder => order.focus(_.data).modify(_.removeManufacturing(manufacturingId))
+      case order: SuspendedOrder  => order.focus(_.data).modify(_.removeManufacturing(manufacturingId))
 
-  protected[order] def advanceTask(
+  def advanceTask(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
       advancedBy: TaskHours
-  ): Either[OrderError, InProgressOrder] = ??? //{
-  //   def advance(data: OrderData): Either[OrderError, InProgressOrder] =
-  //     for
-  //       manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
-  //       updatedManufacturing <- manufacturing.advanceTask(taskId, advancedBy).leftMap(ManufacturingError.apply)
-  //       updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
-  //     yield InProgressOrder(updatedData, data.deliveryDate)
-  //   order match {
-  //     case InProgressOrder(data, _)      => advance(data)
-  //     case SuspendedOrder(data, _, _, _) => advance(data)
-  //   }
-  // }
+  ): Either[OrderError, InProgressOrder] =
+    def advance(data: OrderData, plannedDelivery: DateTime): Either[OrderError, InProgressOrder] =
+      for
+        manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
+        updatedManufacturing <- manufacturing.advanceTask(taskId, advancedBy).leftMap(OrderError.ManufacturingError.apply)
+        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+      yield InProgressOrder(updatedData, plannedDelivery)
+    order match
+      case InProgressOrder(data, plannedDelivery)      => advance(data, plannedDelivery)
+      case SuspendedOrder(data, plannedDelivery, _, _) => advance(data, plannedDelivery)
 
-  protected[order] def rollbackTask(
+  def rollbackTask(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
       rollbackBy: TaskHours
-  ): Either[OrderError, InProgressOrder] = ??? //{
-  //   def rollback(data: OrderData): Either[OrderError, InProgressOrder] =
-  //     for
-  //       manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
-  //       updatedManufacturing <- manufacturing.rollbackTask(taskId, rollbackBy).leftMap(ManufacturingError.apply)
-  //       updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
-  //     yield InProgressOrder(updatedData, data.deliveryDate)
-  //   order match {
-  //     case InProgressOrder(data, _)      => rollback(data)
-  //     case SuspendedOrder(data, _, _, _) => rollback(data)
-  //   }
-  // }
+  ): Either[OrderError, InProgressOrder] =
+    def rollback(data: OrderData, plannedDelivery: DateTime): Either[OrderError, InProgressOrder] =
+      for
+        manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
+        updatedManufacturing <- manufacturing.rollbackTask(taskId, rollbackBy).leftMap(OrderError.ManufacturingError.apply)
+        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+      yield InProgressOrder(updatedData, plannedDelivery)
+    order match
+      case InProgressOrder(data, plannedDelivery)      => rollback(data, plannedDelivery)
+      case SuspendedOrder(data, plannedDelivery, _, _) => rollback(data, plannedDelivery)
 
-  // private def areAllManufacturingsCompleted(data: OrderData): Boolean =
-  //   data.setOfManufacturing.forall {
-  //     case _: ScheduledManufacturing.CompletedManufacturing => true
-  //     case _                                                => false
-  //   }
-
-  protected[order] def completeTask(
+  def completeTask(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
       withHours: TaskHours
-  ): Either[OrderError, Order] = ??? // {
-  //   def complete(data: OrderData): Either[OrderError, Order] =
-  //     for
-  //       manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
-  //       updatedManufacturing <- manufacturing.completeTask(taskId, withHours).leftMap(ManufacturingError.apply)
-  //       updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
-  //     yield
-  //       if areAllManufacturingsCompleted(updatedData) then CompletedOrder(updatedData, DateTime.now())
-  //       else InProgressOrder(updatedData, data.deliveryDate)
-  //   order match {
-  //     case InProgressOrder(data, _)      => complete(data)
-  //     case SuspendedOrder(data, _, _, _) => complete(data)
-  //   }
-  // }
+  ): Either[OrderError, Order] =
+    def complete(data: OrderData, plannedDelivery: DateTime): Either[OrderError, Order] =
+      for
+        manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
+        updatedManufacturing <- manufacturing.completeTask(taskId, withHours).leftMap(OrderError.ManufacturingError.apply)
+        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+      yield
+        if areAllManufacturingsCompleted(updatedData) then CompletedOrder(updatedData, DateTime.now())
+        else InProgressOrder(updatedData, plannedDelivery)
+    order match
+      case InProgressOrder(data, plannedDelivery)      => complete(data, plannedDelivery)
+      case SuspendedOrder(data, plannedDelivery, _, _) => complete(data, plannedDelivery)
 
-  protected[order] def revertTaskToInProgress(
+  def revertTaskToInProgress(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId
-  ): Either[OrderError, InProgressOrder] = ??? //{
-  //   def revert(data: OrderData): Either[OrderError, InProgressOrder] =
-  //     for
-  //       manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
-  //       updatedManufacturing <- manufacturing.revertTaskToInProgress(taskId).leftMap(ManufacturingError.apply)
-  //       updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
-  //     yield InProgressOrder(updatedData, data.deliveryDate)
+  ): Either[OrderError, InProgressOrder] =
+    def revert(data: OrderData, plannedDelivery: DateTime): Either[OrderError, InProgressOrder] =
+      for
+        manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
+        updatedManufacturing <- manufacturing.revertTaskToInProgress(taskId).leftMap(OrderError.ManufacturingError.apply)
+        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+      yield InProgressOrder(updatedData, plannedDelivery)
+    order match
+      case InProgressOrder(data, plannedDelivery)      => revert(data, plannedDelivery)
+      case SuspendedOrder(data, plannedDelivery, _, _) => revert(data, plannedDelivery)
 
-  //   order match {
-  //     case InProgressOrder(data, _)      => revert(data)
-  //     case SuspendedOrder(data, _, _, _) => revert(data)
-  //   }
-  // }
+  private def areAllManufacturingsCompleted(data: OrderData): Boolean =
+    data.setOfManufacturing.forall {
+      case _: ScheduledManufacturing.CompletedManufacturing => true
+      case _                                                => false
+    }

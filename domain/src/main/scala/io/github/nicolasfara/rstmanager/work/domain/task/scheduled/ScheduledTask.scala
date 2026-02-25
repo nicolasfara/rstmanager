@@ -5,17 +5,17 @@ import cats.syntax.all.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours, TaskId}
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric.Interval.*
 import io.github.iltotore.iron.cats.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.{TaskMustBeInProgress, TaskWithNegativeProgress}
+import monocle.syntax.all.*
 
 import java.util.UUID
 
 type ScheduledTaskId = UUID
 object ScheduledTaskId:
   given CanEqual[ScheduledTaskId, ScheduledTaskId] = CanEqual.derived
-  
+
 type Percentage = DescribedAs[Closed[0, 100], "Percentage must be between 0 and 100"]
 
 /** A scheduled task in the system.
@@ -28,11 +28,11 @@ type Percentage = DescribedAs[Closed[0, 100], "Percentage must be between 0 and 
   * [[ScheduledTaskError]].
   */
 enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedHours: TaskHours):
-  case InProgressTask(id: ScheduledTaskId, taskId: TaskId, expectedHours: TaskHours, completedHours: TaskHours)
+  case InProgressTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours, override val completedHours: TaskHours)
       extends ScheduledTask(id, taskId, expectedHours)
-  case CompletedTask(id: ScheduledTaskId, taskId: TaskId, expectedHours: TaskHours, completedHours: TaskHours, completionDate: DateTime)
+  case CompletedTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours, override val completedHours: TaskHours, completionDate: DateTime)
       extends ScheduledTask(id, taskId, expectedHours)
-  case PendingTask(id: ScheduledTaskId, taskId: TaskId, expectedHours: TaskHours) extends ScheduledTask(id, taskId, expectedHours)
+  case PendingTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours) extends ScheduledTask(id, taskId, expectedHours)
 
   def remainingHours: TaskHours = this match
     case InProgressTask(_, _, expectedHours, completedHours) => TaskHours.option(expectedHours - completedHours).getOrElse(TaskHours(0))
@@ -57,13 +57,13 @@ enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedHour
     case CompletedTask(_, _, _, _, _) => ScheduledTaskError.TaskAlreadyCompleted.asLeft
 
   def advanceInProgressTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress
-    .map { task => task.copy(completedHours = task.completedHours + withHours) }
+    .map(_.focus(_.completedHours).modify(_ + withHours))
 
   def rollbackInProgressTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress
     .flatMap { task =>
       val newCompletedHours = task.completedHours - withHours
       if newCompletedHours < 0 then TaskWithNegativeProgress.asLeft
-      else task.copy(completedHours = TaskHours.applyUnsafe(newCompletedHours)).asRight
+      else task.focus(_.completedHours).replace(TaskHours.applyUnsafe(newCompletedHours)).asRight
     }
 
   def completeTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = this match

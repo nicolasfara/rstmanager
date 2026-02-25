@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.order.events
 
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.order.{OrderData, OrderPriority, SuspensionReason}
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturing, ScheduledManufacturingId}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 

@@ -27,11 +27,11 @@ final case class Manufacturing(
 
 object Manufacturing:
   def createManufacturing(
-    code: String,
-    name: String,
-    description: Option[String],
-    tasks: List[Task],
-    dependencies: ManufacturingDependencies
+      code: String,
+      name: String,
+      description: Option[String],
+      tasks: List[Task],
+      dependencies: ManufacturingDependencies
   ): ValidatedNec[String, Manufacturing] =
     (
       code.refineValidatedNec[ManufacturingCode],

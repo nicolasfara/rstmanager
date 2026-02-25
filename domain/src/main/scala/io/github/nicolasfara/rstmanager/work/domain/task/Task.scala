@@ -13,8 +13,9 @@ type TaskId = UUID
 type TaskName = DescribedAs[Not[Empty], "The task name must be alphanumeric"]
 type TaskDescription = DescribedAs[Not[Empty], "The task description must be alphanumeric"]
 type TaskHours = TaskHours.T
-object TaskHours extends RefinedType[Int, Positive]:
+object TaskHours extends RefinedType[Int, Positive0]:
   given Monoid[TaskHours] with
+    def empty: TaskHours = TaskHours(0)
     def combine(x: TaskHours, y: TaskHours): TaskHours = x + y
   extension (value: TaskHours)
     def +(other: TaskHours): TaskHours = TaskHours.applyUnsafe(value.value + other.value)
@@ -26,8 +27,8 @@ final case class Task(id: TaskId, name: String :| TaskName, taskDescription: Opt
 
 object Task:
   /** Smart constructor for a [[Task]] providing the [[id]], [[name]], an optional [[description]], and the [[requiredHours]] to complete the task.
-   * The creation may fail if an empty name, an empty description if provided or a negative value for required hours are provided.  
-   */
+    * The creation may fail if an empty name, an empty description if provided or a negative value for required hours are provided.
+    */
   def createTask(id: UUID, name: String, description: Option[String], requiredHours: Int): ValidatedNec[String, Task] =
     (
       Validated.validNec(id),

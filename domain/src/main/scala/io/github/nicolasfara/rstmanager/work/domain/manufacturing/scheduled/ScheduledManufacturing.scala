@@ -15,14 +15,11 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.Sche
 }
 
 enum ScheduledManufacturing(val info: ScheduledManufacturingInfo):
-  case NotStartedManufacturing(info: ScheduledManufacturingInfo)
-    extends ScheduledManufacturing(info)
-  case InProgressManufacturing(info: ScheduledManufacturingInfo, startedAt: DateTime)
-    extends ScheduledManufacturing(info)
-  case CompletedManufacturing(info: ScheduledManufacturingInfo, startedAt: DateTime, completedAt: DateTime)
-    extends ScheduledManufacturing(info)
-  case PausedManufacturing(info: ScheduledManufacturingInfo, reason: Option[String], startedAt: DateTime, pausedAt: DateTime)
-    extends ScheduledManufacturing(info)
+  case NotStartedManufacturing(override val info: ScheduledManufacturingInfo) extends ScheduledManufacturing(info)
+  case InProgressManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime) extends ScheduledManufacturing(info)
+  case CompletedManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime, completedAt: DateTime) extends ScheduledManufacturing(info)
+  case PausedManufacturing(override val info: ScheduledManufacturingInfo, reason: Option[String], startedAt: DateTime, pausedAt: DateTime)
+      extends ScheduledManufacturing(info)
 
   /** Calculate the total expected hours for all tasks in the manufacturing.
     * @return

@@ -5,13 +5,17 @@ import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.*
 import edomata.core.*
 import edomata.syntax.all.*
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.schedule.{ScheduledManufacturing, ScheduledManufacturingId}
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+
+type CancellationReason = DescribedAs[Not[Empty], "The reason, if provided, cannot be empty"]
 
 /** Aggregate root representing an order in different states.
   *
@@ -31,7 +35,7 @@ enum Order derives CanEqual:
   case SuspendedOrder(data: OrderData, plannedDelivery: DateTime, pausedOn: DateTime, reason: Option[SuspensionReason])
   case CompletedOrder(data: OrderData, completionDate: DateTime)
   case DeliveredOrder(data: OrderData, completionDate: DateTime, deliveredOn: DateTime)
-  case CancelledOrder(data: OrderData, cancelledOn: DateTime, reason: Option[String])
+  case CancelledOrder(data: OrderData, cancelledOn: DateTime, reason: Option[String :| CancellationReason])
 
   /** Create a new order with the given [[data]] and [[plannedDelivery]]. The operation succeeds only if the current state is [[NewOrder]]. If trying
     * to create an order from any other state, it will fail with [[OrderAlreadyCreated]] error.
@@ -130,7 +134,11 @@ enum Order derives CanEqual:
   /** Advance a task within a manufacturing by [[advancedBy]] hours. The operation succeeds only if the current state is [[InProgressOrder]] or
     * [[SuspendedOrder]]. If the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
     */
-  def completeTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours): Decision[OrderError, OrderEvent, Order] =
+  def completeTask(
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      withHours: TaskHours
+  ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskCompleted(manufacturingId, taskId, withHours).accept)
       .validate(_.mustBeInProgressOrSuspended)
@@ -165,10 +173,10 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
 
   override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = {
     case OrderCreated(orderData, deliveryDate) => _ => InProgressOrder(orderData, deliveryDate).validNec
-    case OrderCancelled(date, reason) =>
+    case OrderCancelled(_, reason) =>
       _.mustBeInProgressOrSuspended.map {
-        case InProgressOrder(data, _)      => CancelledOrder(data, date, reason)
-        case SuspendedOrder(data, _, _, _) => CancelledOrder(data, date, reason)
+        case InProgressOrder(data, _)      => ??? //CancelledOrder(data, date, reason)
+        case SuspendedOrder(data, _, _, _) => ??? // CancelledOrder(data, date, reason)
       }
     case OrderSuspended(date, reason) =>
       _.mustBeInProgress.map { case InProgressOrder(orderData, plannedDelivery) => SuspendedOrder(orderData, plannedDelivery, date, reason) }

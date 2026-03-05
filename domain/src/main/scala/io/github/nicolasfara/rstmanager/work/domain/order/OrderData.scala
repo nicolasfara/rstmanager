@@ -7,6 +7,7 @@ import com.github.nscala_time.time.Imports.*
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
+import monocle.syntax.all.*
 import java.util.UUID
 
 type OrderId = UUID
@@ -22,9 +23,11 @@ final case class OrderData(
     setOfManufacturing: NonEmptyList[ScheduledManufacturing]
 ):
   def addManufacturing(manufacturing: ScheduledManufacturing): OrderData =
-    copy(setOfManufacturing = setOfManufacturing.append(manufacturing))
+    this.focus(_.setOfManufacturing).modify(_.append(manufacturing))
 
   def removeManufacturing(manufacturingId: ScheduledManufacturingId): OrderData =
-    setOfManufacturing.filterNot(_.info.id == manufacturingId) match
-      case Nil          => this
-      case head :: tail => copy(setOfManufacturing = NonEmptyList(head, tail))
+    this.focus(_.setOfManufacturing).modify { nel =>
+      nel.filterNot(_.info.id == manufacturingId) match
+        case Nil          => nel
+        case head :: tail => NonEmptyList(head, tail)
+    }

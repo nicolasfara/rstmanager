@@ -28,11 +28,21 @@ type Percentage = DescribedAs[Closed[0, 100], "Percentage must be between 0 and 
   * [[ScheduledTaskError]].
   */
 enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedHours: TaskHours):
-  case InProgressTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours, override val completedHours: TaskHours)
+  case InProgressTask(
+      override val id: ScheduledTaskId,
+      override val taskId: TaskId,
+      override val expectedHours: TaskHours,
+      override val completedHours: TaskHours
+  ) extends ScheduledTask(id, taskId, expectedHours)
+  case CompletedTask(
+      override val id: ScheduledTaskId,
+      override val taskId: TaskId,
+      override val expectedHours: TaskHours,
+      override val completedHours: TaskHours,
+      completionDate: DateTime
+  ) extends ScheduledTask(id, taskId, expectedHours)
+  case PendingTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours)
       extends ScheduledTask(id, taskId, expectedHours)
-  case CompletedTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours, override val completedHours: TaskHours, completionDate: DateTime)
-      extends ScheduledTask(id, taskId, expectedHours)
-  case PendingTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours) extends ScheduledTask(id, taskId, expectedHours)
 
   def remainingHours: TaskHours = this match
     case InProgressTask(_, _, expectedHours, completedHours) => TaskHours.option(expectedHours - completedHours).getOrElse(TaskHours(0))

@@ -28,11 +28,13 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   it should "preserve all field values when creation succeeds" in:
     forAll(genUUID, genNonEmptyString, Gen.option(genNonEmptyString), genNonNegativeInt): (id, name, desc, hours) =>
-      Task.createTask(id, name, desc, hours).foreach: task =>
-        task.id shouldEqual id
-        task.name.toString shouldEqual name
-        task.taskDescription.map(_.toString) shouldEqual desc
-        task.requiredHours.value shouldEqual hours
+      Task
+        .createTask(id, name, desc, hours)
+        .foreach: task =>
+          task.id shouldEqual id
+          task.name.toString shouldEqual name
+          task.taskDescription.map(_.toString) shouldEqual desc
+          task.requiredHours.value shouldEqual hours
 
   it should "allow zero as a valid requiredHours value" in:
     forAll(genUUID, genNonEmptyString): (id, name) =>

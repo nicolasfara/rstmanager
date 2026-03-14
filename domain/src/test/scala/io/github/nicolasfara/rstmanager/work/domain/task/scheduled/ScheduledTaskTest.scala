@@ -20,42 +20,41 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   private val genUUID: Gen[UUID] = Gen.delay(UUID.randomUUID().nn)
   private val genHours: Gen[TaskHours] = Gen.posNum[Int].map(TaskHours.applyUnsafe)
 
-  /** Two hour values where `completed <= expected`, modelling a task still in
-    * progress but not yet over budget.
+  /** Two hour values where `completed <= expected`, modelling a task still in progress but not yet over budget.
     */
   private val genBoundedHours: Gen[(TaskHours, TaskHours)] =
     for
-      expected  <- genHours
+      expected <- genHours
       completed <- Gen.chooseNum(1, expected.value).map(TaskHours.applyUnsafe)
     yield (expected, completed)
 
   private val genPendingTask: Gen[PendingTask] =
     for
-      id      <- genUUID
-      taskId  <- genUUID
-      hours   <- genHours
+      id <- genUUID
+      taskId <- genUUID
+      hours <- genHours
     yield PendingTask(id, taskId, hours)
 
   private val genInProgressTask: Gen[InProgressTask] =
     for
-      id             <- genUUID
-      taskId         <- genUUID
-      expectedHours  <- genHours
+      id <- genUUID
+      taskId <- genUUID
+      expectedHours <- genHours
       completedHours <- genHours
     yield InProgressTask(id, taskId, expectedHours, completedHours)
 
   private val genBoundedInProgressTask: Gen[InProgressTask] =
     for
-      id                      <- genUUID
-      taskId                  <- genUUID
-      (expected, completed)   <- genBoundedHours
+      id <- genUUID
+      taskId <- genUUID
+      (expected, completed) <- genBoundedHours
     yield InProgressTask(id, taskId, expected, completed)
 
   private val genCompletedTask: Gen[CompletedTask] =
     for
-      id             <- genUUID
-      taskId         <- genUUID
-      expectedHours  <- genHours
+      id <- genUUID
+      taskId <- genUUID
+      expectedHours <- genHours
       completedHours <- genHours
     yield CompletedTask(id, taskId, expectedHours, completedHours, DateTime.now())
 
@@ -138,8 +137,7 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   it should "return zero remainingHours when completedHours exceeds expectedHours" in:
     forAll(genInProgressTask): task =>
-      if task.completedHours.value >= task.expectedHours.value then
-        task.remainingHours shouldEqual zeroHours
+      if task.completedHours.value >= task.expectedHours.value then task.remainingHours shouldEqual zeroHours
 
   it should "be unchanged after advance then rollback by the same hours (roundtrip)" in:
     forAll(genInProgressTask, genHours): (task, hours) =>

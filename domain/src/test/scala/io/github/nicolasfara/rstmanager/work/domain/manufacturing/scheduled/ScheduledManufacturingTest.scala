@@ -31,16 +31,16 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
 
   private val genPendingTask: Gen[PendingTask] =
     for
-      id     <- genUUID
+      id <- genUUID
       taskId <- genUUID
-      hours  <- genHours
+      hours <- genHours
     yield PendingTask(id, taskId, hours)
 
   private val genInProgressTask: Gen[InProgressTask] =
     for
-      id             <- genUUID
-      taskId         <- genUUID
-      expectedHours  <- genHours
+      id <- genUUID
+      taskId <- genUUID
+      expectedHours <- genHours
       completedHours <- genHours
     yield InProgressTask(id, taskId, expectedHours, completedHours)
 
@@ -65,16 +65,16 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   private val genNotStartedWithInProgressAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskHours)] =
     for
       focus <- genInProgressTask
-      rest  <- Gen.listOf(genScheduledTask)
-      info  <- genInfo(NonEmptyList(focus, rest))
+      rest <- Gen.listOf(genScheduledTask)
+      info <- genInfo(NonEmptyList(focus, rest))
       hours <- genHours
     yield (NotStartedManufacturing(info), focus.id, hours)
 
   // Flat triple for single-task complete/revert forAll lambdas.
   private val genNotStartedSingleAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskHours)] =
     for
-      task  <- genInProgressTask
-      info  <- genInfo(NonEmptyList.one(task))
+      task <- genInProgressTask
+      info <- genInfo(NonEmptyList.one(task))
       hours <- genHours
     yield (NotStartedManufacturing(info), task.id, hours)
 
@@ -113,7 +113,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   it should "preserve the IDs of all pre-existing tasks" in:
     forAll(genNotStarted, genPendingTask): (mfg, task) =>
       val originalIds = mfg.info.tasks.map(_.id).toList.toSet
-      val updatedIds  = mfg.addTask(task, Set.empty).info.tasks.map(_.id).toList.toSet
+      val updatedIds = mfg.addTask(task, Set.empty).info.tasks.map(_.id).toList.toSet
       originalIds.subsetOf(updatedIds) shouldEqual true
 
   // ---------------------------------------------------------------------------
@@ -134,15 +134,17 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
     // At least two tasks are needed to allow removal
     forAll(genNotStarted.suchThat(_.info.tasks.size >= 2)): mfg =>
       val targetId = mfg.info.tasks.head.id
-      val result   = mfg.removeTask(targetId)
+      val result = mfg.removeTask(targetId)
       result.isRight shouldEqual true
       result.foreach(_.info.tasks.size shouldEqual mfg.info.tasks.size - 1)
 
   it should "make the removed task's ID absent from the updated task list" in:
     forAll(genNotStarted.suchThat(_.info.tasks.size >= 2)): mfg =>
       val targetId = mfg.info.tasks.head.id
-      mfg.removeTask(targetId).foreach: updated =>
-        updated.info.tasks.exists(_.id == targetId) shouldEqual false
+      mfg
+        .removeTask(targetId)
+        .foreach: updated =>
+          updated.info.tasks.exists(_.id == targetId) shouldEqual false
 
   it should "be consistent with addTask: add then remove yields the original task count" in:
     forAll(genNotStarted, genPendingTask): (mfg, newTask) =>
@@ -201,10 +203,10 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   it should "stay in InProgressManufacturing when there are still incomplete tasks" in:
     val genTwoInProgressAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskHours)] =
       for
-        t1    <- genInProgressTask
-        t2    <- genInProgressTask
-        rest  <- Gen.listOf(genScheduledTask)
-        info  <- genInfo(NonEmptyList(t1, t2 :: rest))
+        t1 <- genInProgressTask
+        t2 <- genInProgressTask
+        rest <- Gen.listOf(genScheduledTask)
+        info <- genInfo(NonEmptyList(t1, t2 :: rest))
         hours <- genHours
       yield (NotStartedManufacturing(info), t1.id, hours)
     forAll(genTwoInProgressAndHours): t =>
@@ -226,7 +228,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       val result =
         for
           completed <- mfg.completeTask(taskId, hours)
-          reverted  <- completed.revertTaskToInProgress(completed.info.tasks.head.id)
+          reverted <- completed.revertTaskToInProgress(completed.info.tasks.head.id)
         yield reverted
       result.isRight shouldEqual true
       result.foreach(_ shouldBe a[InProgressManufacturing])

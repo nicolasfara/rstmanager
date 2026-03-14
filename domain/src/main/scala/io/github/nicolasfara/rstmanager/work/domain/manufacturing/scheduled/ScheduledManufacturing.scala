@@ -11,10 +11,8 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
 
 enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqual:
-  case NotStartedManufacturing(override val info: ScheduledManufacturingInfo)
-      extends ScheduledManufacturing(info)
-  case InProgressManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime)
-      extends ScheduledManufacturing(info)
+  case NotStartedManufacturing(override val info: ScheduledManufacturingInfo) extends ScheduledManufacturing(info)
+  case InProgressManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime) extends ScheduledManufacturing(info)
   case CompletedManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime, completedAt: DateTime)
       extends ScheduledManufacturing(info)
   case PausedManufacturing(override val info: ScheduledManufacturingInfo, reason: Option[String], startedAt: DateTime, pausedAt: DateTime)

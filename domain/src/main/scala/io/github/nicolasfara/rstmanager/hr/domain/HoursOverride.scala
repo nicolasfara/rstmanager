@@ -1,6 +1,6 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
-import cats.data.{Validated, ValidatedNec}
+import cats.data.{ Validated, ValidatedNec }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.*
 import io.github.iltotore.iron.*

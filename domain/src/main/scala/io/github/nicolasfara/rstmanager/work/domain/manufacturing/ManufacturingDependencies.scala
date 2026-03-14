@@ -2,6 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencyError.CycleDetected
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
+
 import scalax.collection.edges.{DiEdge, DiEdgeImplicits}
 import scalax.collection.immutable.Graph
 

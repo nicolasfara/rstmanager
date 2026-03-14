@@ -1,24 +1,24 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
+import java.util.UUID
+
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.*
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ScheduledTask, ScheduledTaskId}
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
+
 import cats.data.NonEmptyList
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.constraint.any.{DescribedAs, Not}
 import io.github.iltotore.iron.constraint.collection.Empty
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.*
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
 import org.scalacheck.Gen
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
-
-import java.util.UUID
 
 class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 

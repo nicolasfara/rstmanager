@@ -1,14 +1,15 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
-import cats.syntax.all.*
-import cats.data.*
-import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours, TaskId}
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ScheduledTask, ScheduledTaskError, ScheduledTaskId}
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
+
+import cats.data.*
+import cats.syntax.all.*
+import com.github.nscala_time.time.Imports.DateTime
 
 enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqual:
   case NotStartedManufacturing(override val info: ScheduledManufacturingInfo) extends ScheduledManufacturing(info)

@@ -1,5 +1,13 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
+import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
+import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+
 import cats.data.ValidatedNec
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.*
@@ -8,13 +16,6 @@ import edomata.syntax.all.*
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import monocle.syntax.all.*
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
-import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
-import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 type CancellationReason = DescribedAs[Not[Empty], "The reason, if provided, cannot be empty"]
 type SuspensionReason = DescribedAs[Not[Empty], "The suspension reason, if provided, cannot be empty"]

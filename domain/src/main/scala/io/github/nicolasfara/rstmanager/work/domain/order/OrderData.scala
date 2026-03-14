@@ -1,14 +1,16 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import cats.data.NonEmptyList
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
-import com.github.nscala_time.time.Imports.*
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
+
+import cats.data.NonEmptyList
+import com.github.nscala_time.time.Imports.*
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 import monocle.syntax.all.*
-import java.util.UUID
 
 type OrderId = UUID
 type OrderNumber = DescribedAs[Not[Empty], "The order number cannot be empty"]

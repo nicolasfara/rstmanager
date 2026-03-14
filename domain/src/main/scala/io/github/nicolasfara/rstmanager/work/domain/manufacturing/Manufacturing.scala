@@ -1,11 +1,12 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 
+import io.github.nicolasfara.rstmanager.work.domain.task.{Task, TaskHours}
+
 import cats.data.*
 import cats.syntax.all.*
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
-import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours, Task}
 import io.github.iltotore.iron.constraint.any.DescribedAs
 
 type ManufacturingCode = DescribedAs[Not[Empty], "The code manufacturing should be not empty"]

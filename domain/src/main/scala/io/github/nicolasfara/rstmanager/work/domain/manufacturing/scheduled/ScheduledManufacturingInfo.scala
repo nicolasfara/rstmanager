@@ -1,10 +1,12 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
-import cats.data.NonEmptyList
-import com.github.nscala_time.time.Imports.DateTime
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
-import java.util.UUID
+
+import cats.data.NonEmptyList
+import com.github.nscala_time.time.Imports.DateTime
 
 type ScheduledManufacturingId = UUID
 

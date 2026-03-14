@@ -1,16 +1,17 @@
 package io.github.nicolasfara.rstmanager.work.domain.task.scheduled
 
+import java.util.UUID
+
+import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours, TaskId}
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.{TaskMustBeInProgress, TaskWithNegativeProgress}
+
 import cats.data.*
 import cats.syntax.all.*
-import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours, TaskId}
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.numeric.Interval.*
 import io.github.iltotore.iron.cats.*
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.{TaskMustBeInProgress, TaskWithNegativeProgress}
+import io.github.iltotore.iron.constraint.numeric.Interval.*
 import monocle.syntax.all.*
-
-import java.util.UUID
 
 type ScheduledTaskId = UUID
 object ScheduledTaskId:

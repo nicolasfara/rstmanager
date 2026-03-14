@@ -1,12 +1,13 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.DateTime
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+
+import cats.syntax.all.*
+import com.github.nscala_time.time.Imports.DateTime
 import monocle.syntax.all.*
 
 object OrderOperations:

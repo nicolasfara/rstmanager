@@ -1,12 +1,12 @@
 package io.github.nicolasfara.rstmanager.work.domain.order.events
 
-import io.github.iltotore.iron.*
-import com.github.nscala_time.time.Imports.DateTime
-import io.github.nicolasfara.rstmanager.work.domain.order.{OrderData, OrderPriority, SuspensionReason}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
+import io.github.nicolasfara.rstmanager.work.domain.order.{CancellationReason, OrderData, OrderPriority, SuspensionReason}
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
-import io.github.nicolasfara.rstmanager.work.domain.order.CancellationReason
+
+import com.github.nscala_time.time.Imports.DateTime
+import io.github.iltotore.iron.*
 
 /** Events representing state changes at the Order level within the Order aggregate.
   *

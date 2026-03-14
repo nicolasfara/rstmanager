@@ -1,13 +1,13 @@
 package io.github.nicolasfara.rstmanager.work.domain.task
 
-import cats.syntax.all.*
-import cats.data.*
+import java.util.UUID
+
 import cats.Monoid
+import cats.data.*
+import cats.syntax.all.*
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
-
-import java.util.UUID
 
 type TaskId = UUID
 type TaskName = DescribedAs[Not[Empty], "The task name must be alphanumeric"]

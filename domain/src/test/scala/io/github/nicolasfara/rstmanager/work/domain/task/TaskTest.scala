@@ -1,11 +1,11 @@
 package io.github.nicolasfara.rstmanager.work.domain.task
 
+import java.util.UUID
+
 import org.scalacheck.Gen
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
-
-import java.util.UUID
 
 class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 

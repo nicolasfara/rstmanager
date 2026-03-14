@@ -1,15 +1,16 @@
 package io.github.nicolasfara.rstmanager.work.domain.task.scheduled
 
-import com.github.nscala_time.time.Imports.DateTime
-import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours}
+import java.util.UUID
+
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.*
+
+import com.github.nscala_time.time.Imports.DateTime
 import org.scalacheck.Gen
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
-
-import java.util.UUID
 
 class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 

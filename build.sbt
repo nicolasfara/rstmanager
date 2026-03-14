@@ -1,6 +1,6 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 
-lazy val scala3Version = "3.3.7"
+lazy val scala3Version = "3.8.2"
 lazy val projectScalacOptions = Seq(
   "-encoding",
   "utf-8",

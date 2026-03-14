@@ -1,16 +1,24 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
-import io.github.nicolasfara.rstmanager.*
+import cats.data.ValidatedNec
+import cats.syntax.all.*
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.cats.*
+import io.github.iltotore.iron.constraint.all.*
+import io.github.iltotore.iron.constraint.any.DescribedAs
+import monocle.syntax.all.*
 
-import cats.data.Validated
+type Name = DescribedAs[Not[Empty], "The employee name cannot be empty"]
+type Surname = DescribedAs[Not[Empty], "The employee surname cannot be empty"]
 
-opaque type Name = String :| Not[Empty]
-opaque type Surname = String :| Not[Empty]
+final case class EmployeeInfo(name: String :| Name, surname: String :| Surname) derives CanEqual:
+  def updateName(name: String :| Name): EmployeeInfo = this.focus(_.name).replace(name)
 
-object Name:
-  def apply(value: String): Validated[String, Name] = value.refineValidated
+  def updateSurname(surname: String :| Surname): EmployeeInfo = this.focus(_.surname).replace(surname)
 
-object Surname:
-  def apply(value: String): Validated[String, Surname] = value.refineValidated
-
-final case class EmployeeInfo(name: Name, surname: Surname) derives CanEqual
+object EmployeeInfo:
+  def createEmployeeInfo(name: String, surname: String): ValidatedNec[String, EmployeeInfo] =
+    (
+      name.refineValidatedNec[Name],
+      surname.refineValidatedNec[Surname],
+    ).mapN(EmployeeInfo.apply)

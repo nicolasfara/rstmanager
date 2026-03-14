@@ -20,19 +20,18 @@ import monocle.syntax.all.*
 type CancellationReason = DescribedAs[Not[Empty], "The reason, if provided, cannot be empty"]
 type SuspensionReason = DescribedAs[Not[Empty], "The suspension reason, if provided, cannot be empty"]
 
-/**
- * Aggregate root representing an order in different states.
- *
- * An order can be in one of the following states:
- *   - [[NewOrder]]: Initial state, order not yet created
- *   - [[InProgressOrder]]: The order is currently being processed and has a delivery date
- *   - [[SuspendedOrder]]: The order is temporarily on hold with a reason
- *   - [[CompletedOrder]]: The order has been completed, with completion date
- *   - [[DeliveredOrder]]: The order has been delivered to the customer
- *   - [[CancelledOrder]]: The order has been cancelled
- *
- * State transitions are driven by OrderEvents and validated to ensure business rules are respected.
- */
+/** Event-sourced aggregate root representing an order lifecycle.
+  *
+  * State model:
+  *  - `NewOrder`: initial empty state.
+  *  - `InProgressOrder`: active order being executed.
+  *  - `SuspendedOrder`: temporarily paused order.
+  *  - `CompletedOrder`: work is complete.
+  *  - `DeliveredOrder`: completed order already delivered.
+  *  - `CancelledOrder`: order cancelled before delivery.
+  *
+  * Commands on the aggregate emit `OrderEvent` values and validate the resulting state.
+  */
 enum Order derives CanEqual:
   case NewOrder
   case InProgressOrder(data: OrderData, plannedDelivery: DateTime)
@@ -41,48 +40,33 @@ enum Order derives CanEqual:
   case DeliveredOrder(data: OrderData, completionDate: DateTime, deliveredOn: DateTime)
   case CancelledOrder(data: OrderData, cancelledOn: DateTime, reason: Option[String :| CancellationReason])
 
-  /**
-   * Create a new order with the given [[data]] and [[plannedDelivery]]. The operation succeeds only if the current state is [[NewOrder]]. If trying
-   * to create an order from any other state, it will fail with [[OrderAlreadyCreated]] error.
-   */
+  /** Creates an order from `NewOrder`.
+    *
+    * Fails with `OrderAlreadyCreated` for every other state.
+    */
   def create(data: OrderData, plannedDelivery: DateTime): Decision[OrderError, OrderEvent, Order] = this.decide {
     case NewOrder => Decision.accept(OrderCreated(data, plannedDelivery))
     case _ => Decision.reject(OrderAlreadyCreated)
   }
     .validate(_.mustBeInProgress)
 
-  /**
-   * Suspend the order for an optional [[reason]]. The operation succeeds only if the current state is [[InProgressOrder]]. If the order is not in
-   * progress, it will fail with [[OrderMustBeInProgress]] error.
-   */
+  /** Suspends an in-progress order. */
   def suspend(reason: Option[String :| SuspensionReason]): Decision[OrderError, OrderEvent, Order] =
     this.perform(mustBeInProgress.toDecision *> OrderSuspended(DateTime.now(), reason).accept).validate(_.mustBeSuspended)
 
-  /**
-   * Reactivate a previously suspended order. The operation succeeds only if the current state is [[SuspendedOrder]]. If the order is not suspended,
-   * it will fail with [[OrderMustBeSuspended]] error.
-   */
+  /** Reactivates a suspended order. */
   def reactivate: Decision[OrderError, OrderEvent, Order] =
     this.perform(mustBeSuspended.toDecision *> OrderReactivated(DateTime.now()).accept).validate(_.mustBeInProgress)
 
-  /**
-   * Complete the order. The operation succeeds only if the current state is [[InProgressOrder]] or [[SuspendedOrder]]. If the order is not in
-   * progress or paused, it will fail with [[OrderMustBeInProgress]] error.
-   */
+  /** Completes an active or suspended order. */
   def complete: Decision[OrderError, OrderEvent, Order] =
     this.perform(mustBeInProgressOrSuspended.toDecision *> OrderCompleted(DateTime.now()).accept).validate(_.mustBeCompleted)
 
-  /**
-   * Deliver the order. The operation succeeds only if the current state is [[CompletedOrder]]. If the order is not completed, it will fail with
-   * [[OrderMustBeCompleted]] error.
-   */
+  /** Delivers a completed order. */
   def deliver: Decision[OrderError, OrderEvent, Order] =
     this.perform(mustBeCompleted.toDecision *> OrderDelivered(DateTime.now()).accept).validate(_.mustBeDelivered)
 
-  /**
-   * Cancel the order with an optional [[reason]]. The operation fails if the current state is [[NewOrder]] (no such order) or [[CancelledOrder]]
-   * (already canceled). In all other states, the cancellation will succeed.
-   */
+  /** Cancels the order unless it has not been created yet or is already cancelled. */
   def cancel(reason: Option[String :| CancellationReason]): Decision[OrderError, OrderEvent, Order] =
     this.decide {
       case NewOrder => Decision.reject(NoSuchOrder)
@@ -91,10 +75,7 @@ enum Order derives CanEqual:
     }
       .validate(_.mustBeCancelled)
 
-  /**
-   * Update the planned delivery date to [[newDeliveryDate]]. The operation succeeds only if the current state is [[InProgressOrder]] or
-   * [[SuspendedOrder]]. If the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
-   */
+  /** Changes the planned delivery date for an active or suspended order. */
   def updateDeliveryDate(newDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] =
     this.decide {
       case _: InProgressOrder | _: SuspendedOrder =>
@@ -104,10 +85,7 @@ enum Order derives CanEqual:
     }
       .validate(_.mustBeInProgressOrSuspended)
 
-  /**
-   * Reopen a previously canceled order. The operation succeeds only if the current state is [[CancelledOrder]]. If the order is not canceled, it will
-   * fail with [[OnlyCancelledOrdersCanBeReactivated]] error.
-   */
+  /** Reopens a cancelled order, returning it to the in-progress state. */
   def reopen: Decision[OrderError, OrderEvent, Order] =
     this.decide {
       case CancelledOrder(_, _, _) => Decision.accept(OrderReactivated(DateTime.now()))
@@ -115,37 +93,25 @@ enum Order derives CanEqual:
     }
       .validate(_.mustBeInProgress)
 
-  /**
-   * Change the order priority to [[newPriority]]. The operation succeeds only if the current state is [[InProgressOrder]] or [[SuspendedOrder]]. If
-   * the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
-   */
+  /** Changes the priority of an active or suspended order. */
   def changePriority(newPriority: OrderPriority): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> OrderPriorityChanged(newPriority, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /**
-   * Add a new [[manufacturing]] to the order. The operation succeeds only if the current state is [[InProgressOrder]] or [[SuspendedOrder]]. If the
-   * order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
-   */
+  /** Adds a manufacturing to an active or suspended order. */
   def addManufacturing(manufacturing: ScheduledManufacturing): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingAdded(manufacturing, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /**
-   * Remove a manufacturing with the given [[manufacturingId]] from the order. The operation succeeds only if the current state is [[InProgressOrder]]
-   * or [[SuspendedOrder]]. If the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
-   */
+  /** Removes a manufacturing from an active or suspended order. */
   def removeManufacturing(manufacturingId: ScheduledManufacturingId): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingRemoved(manufacturingId, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /**
-   * Advance a task within a manufacturing by [[advancedBy]] hours. The operation succeeds only if the current state is [[InProgressOrder]] or
-   * [[SuspendedOrder]]. If the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
-   */
+  /** Completes a task inside one of the order manufacturings. */
   def completeTask(
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
@@ -155,10 +121,7 @@ enum Order derives CanEqual:
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskCompleted(manufacturingId, taskId, withHours).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /**
-   * Revert a task within a manufacturing to in-progress state. The operation succeeds only if the current state is [[InProgressOrder]] or
-   * [[SuspendedOrder]]. If the order is not in progress or paused, it will fail with [[OrderMustBeInProgressOrPaused]] error.
-   */
+  /** Reopens a completed task inside one of the order manufacturings. */
   def revertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskReverted(manufacturingId, taskId).accept)
@@ -182,6 +145,7 @@ enum Order derives CanEqual:
   private def mustBeInProgress: ValidatedNec[OrderError, InProgressOrder] = mustBe[InProgressOrder](OrderMustBeInProgress)
 end Order
 
+/** `DomainModel` instance for the event-sourced `Order` aggregate. */
 object Order extends DomainModel[Order, OrderEvent, OrderError]:
   override def initial: Order = NewOrder
 

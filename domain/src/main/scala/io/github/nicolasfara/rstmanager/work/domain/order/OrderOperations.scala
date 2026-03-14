@@ -10,17 +10,21 @@ import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import monocle.syntax.all.*
 
+/** Pure helpers used by `Order.transition` to update nested manufacturings and tasks. */
 object OrderOperations:
+  /** Adds a manufacturing to an active or suspended order. */
   def addManufacturing(order: InProgressOrder | SuspendedOrder, manufacturing: ScheduledManufacturing): Order =
     order match
       case order: InProgressOrder => order.focus(_.data).modify(_.addManufacturing(manufacturing))
       case order: SuspendedOrder => order.focus(_.data).modify(_.addManufacturing(manufacturing))
 
+  /** Removes a manufacturing from an active or suspended order. */
   def removeManufacturing(order: InProgressOrder | SuspendedOrder, manufacturingId: ScheduledManufacturingId): Order =
     order match
       case order: InProgressOrder => order.focus(_.data).modify(_.removeManufacturing(manufacturingId))
       case order: SuspendedOrder => order.focus(_.data).modify(_.removeManufacturing(manufacturingId))
 
+  /** Advances a task inside one of the order manufacturings. */
   def advanceTask(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
@@ -37,6 +41,7 @@ object OrderOperations:
       case InProgressOrder(data, plannedDelivery) => advance(data, plannedDelivery)
       case SuspendedOrder(data, plannedDelivery, _, _) => advance(data, plannedDelivery)
 
+  /** Rolls back task progress inside one of the order manufacturings. */
   def rollbackTask(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
@@ -53,6 +58,7 @@ object OrderOperations:
       case InProgressOrder(data, plannedDelivery) => rollback(data, plannedDelivery)
       case SuspendedOrder(data, plannedDelivery, _, _) => rollback(data, plannedDelivery)
 
+  /** Completes a task and completes the whole order when every manufacturing is done. */
   def completeTask(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
@@ -71,6 +77,7 @@ object OrderOperations:
       case InProgressOrder(data, plannedDelivery) => complete(data, plannedDelivery)
       case SuspendedOrder(data, plannedDelivery, _, _) => complete(data, plannedDelivery)
 
+  /** Reopens a task inside one of the order manufacturings. */
   def revertTaskToInProgress(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,

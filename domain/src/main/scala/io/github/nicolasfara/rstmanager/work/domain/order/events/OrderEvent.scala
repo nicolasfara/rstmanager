@@ -8,55 +8,51 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
 
-/**
- * Events representing state changes at the Order level within the Order aggregate.
- *
- * These events capture changes to the Order entity itself, including adding/removing manufacturings from the order. Events affecting the
- * ScheduledManufacturing entities within the aggregate are defined in ManufacturingEvent.
- *
- * Note: ScheduledManufacturing is an entity within the Order aggregate boundary. Both OrderEvent and ManufacturingEvent are emitted through the Order
- * aggregate root, but are separated for clarity and organization.
- */
+/** Domain events emitted by the `Order` aggregate.
+  *
+  * The enum includes both order-level lifecycle events and task/manufacturing events that are
+  * persisted through the aggregate root.
+  */
 enum OrderEvent:
-  /** Order has been created with initial data */
+  /** The order has been created with its initial data. */
   case OrderCreated(orderData: OrderData, deliveryDate: DateTime)
 
-  /** Order has been canceled */
+  /** The order has been cancelled. */
   case OrderCancelled(cancelledOn: DateTime, reason: Option[String :| CancellationReason])
 
-  /** Order has been temporarily suspended */
+  /** The order has been temporarily suspended. */
   case OrderSuspended(suspendedOn: DateTime, reason: Option[String :| SuspensionReason])
 
-  /** Previously suspended order has been reactivated */
+  /** A suspended or cancelled order has been reactivated. */
   case OrderReactivated(reactivatedOn: DateTime)
 
-  /** Order has been completed (all work done) */
+  /** The order has been completed. */
   case OrderCompleted(completionDate: DateTime)
 
-  /** Order has been delivered to customer */
+  /** The order has been delivered to the customer. */
   case OrderDelivered(deliveredOn: DateTime)
 
-  /** Order delivery date has been changed */
+  /** The planned delivery date has changed. */
   case OrderDeliveryDateChanged(newDeliveryDate: DateTime, changedOn: DateTime)
 
-  /** Order priority has been changed */
+  /** The order priority has changed. */
   case OrderPriorityChanged(newPriority: OrderPriority, changedOn: DateTime)
 
-  /** A manufacturing has been added to the order */
+  /** A manufacturing has been added to the order. */
   case ManufacturingAdded(manufacturing: ScheduledManufacturing, addedOn: DateTime)
 
-  /** A manufacturing has been removed from the order */
+  /** A manufacturing has been removed from the order. */
   case ManufacturingRemoved(manufacturingId: ScheduledManufacturingId, removedOn: DateTime)
 
-  /** A task within a manufacturing has been advanced by a certain number of hours */
+  /** Progress on a task within a manufacturing has been advanced. */
   case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: TaskHours)
 
-  /** A task within a manufacturing has been de-advanced by a certain number of hours */
+  /** Progress on a task within a manufacturing has been rolled back. */
   case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: TaskHours)
 
-  /** A task within a manufacturing has been completed */
+  /** A task within a manufacturing has been completed. */
   case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
 
-  /** A task within a manufacturing has been reverted to in-progress */
+  /** A completed task within a manufacturing has been reopened. */
   case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
 end OrderEvent

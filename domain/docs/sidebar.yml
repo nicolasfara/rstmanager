@@ -1,0 +1,10 @@
+index: index.md
+subsection:
+  - title: Overview
+    page: index.md
+  - title: Bounded Contexts
+    page: bounded-contexts.md
+  - title: Tactical Design
+    page: tactical-design.md
+  - title: Lifecycles And Events
+    page: lifecycles.md

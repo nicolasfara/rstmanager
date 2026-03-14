@@ -50,6 +50,12 @@ lazy val domain = project
     name := "rstmanager-domain",
     scalaVersion := scala3Version,
     scalacOptions ++= projectScalacOptions,
+    Compile / doc / scalacOptions ++= Seq(
+      "-project-version",
+      version.value,
+      "-siteroot",
+      (baseDirectory.value / "docs").getAbsolutePath,
+    ),
     libraryDependencies ++= Seq() ++ sharedDependencies
   )
 
@@ -78,5 +84,11 @@ lazy val root = project
   .settings(
     name := "rstmanager",
     ScalaUnidoc / unidoc / unidocProjectFilter := inAnyProject -- inProjects(frontend),
+    ScalaUnidoc / unidoc / scalacOptions ++= Seq(
+      "-project-version",
+      version.value,
+      "-siteroot",
+      (baseDirectory.value / "domain" / "docs").getAbsolutePath,
+    ),
     publish / skip := true
   )

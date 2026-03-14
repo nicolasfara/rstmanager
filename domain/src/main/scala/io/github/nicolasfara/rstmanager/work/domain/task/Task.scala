@@ -9,10 +9,19 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
 
+/** Unique identifier for a task. */
 type TaskId = UUID
+
+/** Refined constraint for a non-empty task name. */
 type TaskName = DescribedAs[Not[Empty], "The task name must be alphanumeric"]
+
+/** Refined constraint for a non-empty task description. */
 type TaskDescription = DescribedAs[Not[Empty], "The task description must be alphanumeric"]
+
+/** Estimated duration of a task in hours. */
 type TaskHours = TaskHours.T
+
+/** Refined type companion for `TaskHours`, including arithmetic helpers and a `Monoid` instance. */
 object TaskHours extends RefinedType[Int, Positive0]:
   given Monoid[TaskHours] with
     def empty: TaskHours = TaskHours(0)
@@ -21,16 +30,31 @@ object TaskHours extends RefinedType[Int, Positive0]:
     def +(other: TaskHours): TaskHours = TaskHours.applyUnsafe(value.value + other.value)
     def -(other: TaskHours): Int = value.value - other.value
 
-/**
- * Entity that represents a Task in the system.
- */
+/** Immutable task definition used inside manufacturings.
+  *
+  * @param id
+  *   Stable task identifier.
+  * @param name
+  *   Human-readable task name.
+  * @param taskDescription
+  *   Optional task description.
+  * @param requiredHours
+  *   Estimated effort required to complete the task.
+  */
 final case class Task(id: TaskId, name: String :| TaskName, taskDescription: Option[String :| TaskDescription], requiredHours: TaskHours)
 
 object Task:
-  /**
-   * Smart constructor for a [[Task]] providing the [[id]], [[name]], an optional [[description]], and the [[requiredHours]] to complete the task. The
-   * creation may fail if an empty name, an empty description if provided or a negative value for required hours are provided.
-   */
+  /** Creates a `Task` from raw values after applying refined validation.
+    *
+    * @param id
+    *   Task identifier.
+    * @param name
+    *   Raw task name.
+    * @param description
+    *   Optional raw description.
+    * @param requiredHours
+    *   Raw task effort in hours.
+    */
   def createTask(id: UUID, name: String, description: Option[String], requiredHours: Int): ValidatedNec[String, Task] =
     (
       Validated.validNec(id),

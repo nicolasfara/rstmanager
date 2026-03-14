@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturingError, ScheduledManufacturingId }
 
-/** Errors that can occur during Order aggregate operations */
+/** Errors raised while deciding or applying `Order` operations. */
 enum OrderError derives CanEqual:
   case OrderAlreadyCreated
   case OrderMustBeInProgress

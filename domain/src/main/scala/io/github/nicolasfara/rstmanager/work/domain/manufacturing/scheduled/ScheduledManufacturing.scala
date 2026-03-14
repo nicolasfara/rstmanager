@@ -11,6 +11,14 @@ import cats.data.*
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 
+/** Scheduled execution of a manufacturing.
+  *
+  * State model:
+  *  - `NotStartedManufacturing`: no task activity has happened yet.
+  *  - `InProgressManufacturing`: at least one task has started.
+  *  - `PausedManufacturing`: execution is temporarily halted.
+  *  - `CompletedManufacturing`: every task is completed.
+  */
 enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqual:
   case NotStartedManufacturing(override val info: ScheduledManufacturingInfo) extends ScheduledManufacturing(info)
   case InProgressManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime) extends ScheduledManufacturing(info)
@@ -19,47 +27,20 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   case PausedManufacturing(override val info: ScheduledManufacturingInfo, reason: Option[String], startedAt: DateTime, pausedAt: DateTime)
       extends ScheduledManufacturing(info)
 
-  /**
-   * Calculate the total expected hours for all tasks in the manufacturing.
-   * @return
-   *   Total expected hours.
-   */
+  /** Returns the sum of expected hours across all tasks. */
   def expectedHours: TaskHours = info.tasks.foldMap(_.expectedHours)
 
-  /**
-   * Calculate the total remaining hours for all tasks in the manufacturing.
-   * @return
-   *   Total remaining hours.
-   */
+  /** Returns the remaining work across all tasks. */
   def remainingHours: TaskHours = info.tasks.foldMap(_.remainingHours)
 
-  /**
-   * Calculate the total completed hours for all tasks in the manufacturing.
-   * @return
-   *   Total completed hours.
-   */
+  /** Returns the total completed work across all tasks. */
   def completedHours: TaskHours = info.tasks.foldMap(_.completedHours)
 
-  /**
-   * Add a new task to the manufacturing with specified dependencies.
-   * @param task
-   *   the task to add.
-   * @param dependsOn
-   *   the set of task IDs that the new task depends on.
-   * @return
-   *   the updated [[ScheduledManufacturing]] with the new task added.
-   */
+  /** Adds a scheduled task and registers its dependency edges. */
   def addTask(task: ScheduledTask, dependsOn: Set[TaskId]): ScheduledManufacturing =
     updateTasks(info.tasks :+ task, info.dependencies.addTaskDependencies(task.taskId, dependsOn))
 
-  /**
-   * Remove a task from the manufacturing. If removing the task results in no remaining tasks, an error is returned.
-   * @param id
-   *   the ID of the task to remove.
-   * @return
-   *   A [[TaskIdNotFound]] error if the task ID does not exist, a [[ManufacturingWithNoTasks]] error if removing the task would leave no tasks,
-   *   otherwise the updated [[ScheduledManufacturing]] without the specified task.
-   */
+  /** Removes a scheduled task if doing so would not leave the manufacturing empty. */
   def removeTask(id: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     for
       task <- ensureTaskExists(id)
@@ -70,50 +51,22 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
       newManufacturing = updateTasks(updatedTasks, updatedDependencies)
     yield newManufacturing
 
-  /**
-   * Advance the progress of a task by a specified number of hours. If the task is not found, an error is returned.
-   * @param taskId
-   *   the ID of the task to advance.
-   * @param hours
-   *   the number of hours to advance the task's progress.
-   * @return
-   *   an error if the task ID does not exist, otherwise the updated ScheduledManufacturing with the task's progress advanced.
-   */
+  /** Advances an in-progress task by the given amount of hours. */
   def advanceTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     changeTaskState(taskId, _.advanceInProgressTask(hours))
 
-  /**
-   * Rollback the progress of a task by a specified number of hours. If the task is not found, an error is returned.
-   * @param taskId
-   *   the ID of the task to rollback.
-   * @param hours
-   *   the number of hours to roll back the task's progress.
-   * @return
-   *   an error if the task ID does not exist, otherwise the updated ScheduledManufacturing with the task's progress rolled back.
-   */
+  /** Rolls back progress on an in-progress task. */
   def rollbackTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     changeTaskState(taskId, _.rollbackInProgressTask(hours))
 
-  /**
-   * Mark a task as completed. If all tasks are completed, the manufacturing transitions to CompletedManufacturing.
-   * @param taskId
-   *   the ID of the task to complete.
-   * @return
-   *   A [[TaskIdNotFound]] error if the task ID does not exist, or the updated ScheduledManufacturing with the task marked as completed.
-   */
+  /** Completes a task and promotes the manufacturing to completed when all tasks are done. */
   def completeTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     changeTaskState(taskId, _.completeTask(hours)).flatMap { updatedManufacturing =>
       if areAllTasksCompleted(updatedManufacturing) then transitionToCompleted(updatedManufacturing)
       else Right(updatedManufacturing)
     }
 
-  /**
-   * Revert a completed task back to in-progress state. If the manufacturing was marked as completed, it will transition back to in-progress.
-   * @param taskId
-   *   The ID of the task to revert.
-   * @return
-   *   An error if the task ID does not exist or cannot be reverted, otherwise the updated ScheduledManufacturing.
-   */
+  /** Reopens a completed task and, if necessary, reopens the manufacturing itself. */
   def revertTaskToInProgress(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     changeTaskState(taskId, _.revertToInProgress)
 

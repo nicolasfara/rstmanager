@@ -1,4 +1,4 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
-enum CustomerType:
+enum CustomerType derives CanEqual:
   case Individual, Company

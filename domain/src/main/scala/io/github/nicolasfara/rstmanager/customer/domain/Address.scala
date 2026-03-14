@@ -1,29 +1,37 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
-import cats.data.Validated
+import cats.data.ValidatedNec
+import cats.syntax.all.*
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
+import io.github.iltotore.iron.constraint.any.DescribedAs
+import monocle.syntax.all.*
 
-opaque type Street = String :| Not[Empty]
-opaque type City = String :| Not[Empty]
-opaque type PostalCode = String :| Match["[0-9]{5}"]
-opaque type Country = String :| Not[Empty]
+type Street = DescribedAs[Not[Empty], "The street cannot be empty"]
+type City = DescribedAs[Not[Empty], "The city cannot be empty"]
+type PostalCode = DescribedAs[Match["[0-9]{5}"], "The postal code must contain exactly 5 digits"]
+type Country = DescribedAs[Not[Empty], "The country cannot be empty"]
 
-object Street:
-  def apply(value: String :| Not[Empty]): Street = value
-  def apply(value: String): Validated[String, Street] = value.refineValidated
+final case class Address(
+    street: String :| Street,
+    city: String :| City,
+    postalCode: String :| PostalCode,
+    country: String :| Country,
+) derives CanEqual:
+  def updateStreet(street: String :| Street): Address = this.focus(_.street).replace(street)
 
-object City:
-  def apply(value: String :| Not[Empty]): City = value
-  def apply(value: String): Validated[String, City] = value.refineValidated
+  def updateCity(city: String :| City): Address = this.focus(_.city).replace(city)
 
-object PostalCode:
-  def apply(value: String :| Match["[0-9]{5}"]): PostalCode = value
-  def apply(value: String): Validated[String, PostalCode] = value.refineValidated
+  def updatePostalCode(postalCode: String :| PostalCode): Address = this.focus(_.postalCode).replace(postalCode)
 
-object Country:
-  def apply(value: String :| Not[Empty]): Country = value
-  def apply(value: String): Validated[String, Country] = value.refineValidated
+  def updateCountry(country: String :| Country): Address = this.focus(_.country).replace(country)
 
-final case class Address(street: Street, city: City, cap: PostalCode, nation: Country) derives CanEqual
+object Address:
+  def createAddress(street: String, city: String, postalCode: String, country: String): ValidatedNec[String, Address] =
+    (
+      street.refineValidatedNec[Street],
+      city.refineValidatedNec[City],
+      postalCode.refineValidatedNec[PostalCode],
+      country.refineValidatedNec[Country],
+    ).mapN(Address.apply)

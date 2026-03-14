@@ -1,32 +1,40 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
-import cats.data.Validated
+import cats.data.ValidatedNec
+import cats.syntax.all.*
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
+import io.github.iltotore.iron.constraint.any.DescribedAs
+import monocle.syntax.all.*
 
-opaque type Name = String :| Not[Empty]
+type Name = DescribedAs[Not[Empty], "The customer name cannot be empty"]
+type Surname = DescribedAs[Not[Empty], "The customer surname cannot be empty"]
+type Email = DescribedAs[Match["^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$"], "The customer email must be a valid email address"]
+type PhoneNumber = DescribedAs[
+  Match["\\+?[0-9]{8,15}"],
+  "The customer phone number must contain 8 to 15 digits with an optional leading +",
+]
 
-object Name:
-  def apply(value: String :| Not[Empty]): Name = value
-  def apply(value: String): Validated[String, Name] = value.refineValidated
+final case class ContactInfo(
+    name: String :| Name,
+    surname: String :| Surname,
+    email: String :| Email,
+    phone: String :| PhoneNumber,
+) derives CanEqual:
+  def updateName(name: String :| Name): ContactInfo = this.focus(_.name).replace(name)
 
-opaque type Surname = String :| Not[Empty]
+  def updateSurname(surname: String :| Surname): ContactInfo = this.focus(_.surname).replace(surname)
 
-object Surname:
-  def apply(surname: String :| Not[Empty]): Surname = surname
-  def apply(surname: String): Validated[String, Surname] = surname.refineValidated
+  def updateEmail(email: String :| Email): ContactInfo = this.focus(_.email).replace(email)
 
-opaque type Email = String :| Match["^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$"]
+  def updatePhone(phone: String :| PhoneNumber): ContactInfo = this.focus(_.phone).replace(phone)
 
-object Email:
-  def apply(email: String :| Match["^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$"]): Email = email
-  def apply(email: String): Validated[String, Email] = email.refineValidated
-
-opaque type PhoneNumber = String :| Match["\\+?[0-9]{8,15}"]
-
-object PhoneNumber:
-  def apply(value: String :| Match["\\+?[0-9]{8,15}"]): PhoneNumber = value
-  def apply(value: String): Validated[String, PhoneNumber] = value.refineValidated
-
-final case class ContactInfo(name: Name, surname: Surname, email: Email, phone: PhoneNumber) derives CanEqual
+object ContactInfo:
+  def createContactInfo(name: String, surname: String, email: String, phone: String): ValidatedNec[String, ContactInfo] =
+    (
+      name.refineValidatedNec[Name],
+      surname.refineValidatedNec[Surname],
+      email.refineValidatedNec[Email],
+      phone.refineValidatedNec[PhoneNumber],
+    ).mapN(ContactInfo.apply)

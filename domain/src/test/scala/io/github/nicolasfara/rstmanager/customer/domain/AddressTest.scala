@@ -1,55 +1,50 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
-import cats.data.Validated.Invalid
 import io.github.iltotore.iron.*
+import org.scalacheck.Gen
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
 
-class AddressTest extends AnyFlatSpecLike:
-  "A Street built from an empty value" must "return a validation error" in:
-    val result = Street("")
-    result shouldBe a[Invalid[String]]
-    result.swap.getOrElse("") should include("empty")
-  "A Street built from a valid value" must "return a valid Street" in:
-    val result = Street("123 Main St")
-    result.isValid shouldBe true
-  "A Street" should "be compared" in:
-    val street1: Street = Street("123 Main St")
-    val street2: Street = Street("123 Main St")
-    street1 shouldEqual street2
-  "A City built from an empty value" must "return a validation error" in:
-    val result = City("")
-    result shouldBe a[Invalid[String]]
-    result.swap.getOrElse("") should include("empty")
-  "A City built from a valid value" must "return a valid City" in:
-    val result = City("Springfield")
-    result.isValid shouldBe true
-  "A PostalCode built from an invalid value" must "return a validation error" in:
-    val result = PostalCode("ABCDE")
-    result shouldBe a[Invalid[String]]
-    result.swap.getOrElse("") should include("match")
-  "A PostalCode built from a valid value" must "return a valid PostalCode" in:
-    val result = PostalCode("12345")
-    result.isValid shouldBe true
-  "A Country built from an empty value" must "return a validation error" in:
-    val result = Country("")
-    result shouldBe a[Invalid[String]]
-    result.swap.getOrElse("") should include("empty")
-  "A Country built from a valid value" must "return a valid Country" in:
-    val result = Country("USA")
-    result.isValid shouldBe true
-  "Two Address instances with the same values" must "be equal" in:
-    val address1 = Address(
-      street = Street("123 Main St"),
-      city = City("Springfield"),
-      cap = PostalCode("12345"),
-      nation = Country("USA"),
+class AddressTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
+
+  private val genNonEmptyString: Gen[String] = Gen.alphaNumStr.suchThat(_.nonEmpty)
+  private val genPostalCode: Gen[String] = Gen.listOfN(5, Gen.numChar).map(_.mkString)
+
+  "Address.createAddress" should "succeed for non-empty street, city, country, and a 5-digit postal code" in:
+    forAll(genNonEmptyString, genNonEmptyString, genPostalCode, genNonEmptyString): (street, city, postalCode, country) =>
+      Address.createAddress(street, city, postalCode, country).isValid shouldEqual true
+
+  it should "preserve all field values when creation succeeds" in:
+    forAll(genNonEmptyString, genNonEmptyString, genPostalCode, genNonEmptyString): (street, city, postalCode, country) =>
+      Address
+        .createAddress(street, city, postalCode, country)
+        .foreach: address =>
+          address.street.toString shouldEqual street
+          address.city.toString shouldEqual city
+          address.postalCode.toString shouldEqual postalCode
+          address.country.toString shouldEqual country
+
+  it should "fail when the street is empty" in:
+    forAll(genNonEmptyString, genPostalCode, genNonEmptyString): (city, postalCode, country) =>
+      Address.createAddress("", city, postalCode, country).isValid shouldEqual false
+
+  it should "fail when the postal code is not made of exactly 5 digits" in:
+    forAll(genNonEmptyString, genNonEmptyString, genNonEmptyString): (street, city, country) =>
+      Address.createAddress(street, city, "ABCDE", country).isValid shouldEqual false
+
+  "updatePostalCode" should "replace only the postal code" in:
+    val address = Address(
+      street = "123MainStreet".refineUnsafe[Street],
+      city = "Springfield".refineUnsafe[City],
+      postalCode = "12345".refineUnsafe[PostalCode],
+      country = "USA".refineUnsafe[Country],
     )
-    val address2 = Address(
-      street = Street("123 Main St"),
-      city = City("Springfield"),
-      cap = PostalCode("12345"),
-      nation = Country("USA"),
-    )
-    address1 shouldEqual address2
+
+    val updated = address.updatePostalCode("54321".refineUnsafe[PostalCode])
+
+    updated.postalCode.toString shouldEqual "54321"
+    updated.street shouldEqual address.street
+    updated.city shouldEqual address.city
+    updated.country shouldEqual address.country
 end AddressTest

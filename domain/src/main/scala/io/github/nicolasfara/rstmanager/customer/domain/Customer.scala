@@ -2,9 +2,11 @@ package io.github.nicolasfara.rstmanager.customer.domain
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.*
-
+import cats.data.Validated
 import cats.data.ValidatedNec
+import cats.syntax.all.*
+import io.github.iltotore.iron.*
+import monocle.syntax.all.*
 
 final case class Customer(
     id: CustomerId,
@@ -12,72 +14,24 @@ final case class Customer(
     address: Address,
     fiscalCode: FiscalCode,
     customerType: CustomerType,
-)
+) derives CanEqual:
+  def updateContactInfo(contactInfo: ContactInfo): Customer = this.focus(_.contactInfo).replace(contactInfo)
 
-private sealed trait CustomerValidator:
-  type ValidationResult[A] = ValidatedNec[String, A]
+  def updateAddress(address: Address): Customer = this.focus(_.address).replace(address)
 
-  private def validateName(name: String): ValidationResult[Name] = Name(name).toValidatedNec
-  private def validateSurname(surname: String): ValidationResult[Surname] = Surname(surname).toValidatedNec
-  private def validateEmail(email: String): ValidationResult[Email] = Email(email).toValidatedNec
-  private def validatePhone(phone: String): ValidationResult[PhoneNumber] = PhoneNumber(phone).toValidatedNec
-  private def validateStreet(street: String): ValidationResult[Street] = Street(street).toValidatedNec
-  private def validateCity(city: String): ValidationResult[City] = City(city).toValidatedNec
-  private def validatePostalCode(cap: String): ValidationResult[PostalCode] = PostalCode(cap).toValidatedNec
-  private def validateCountry(nation: String): ValidationResult[Country] = Country(nation).toValidatedNec
-  private def validateFiscalCode(fiscalCode: String): ValidationResult[FiscalCode] = FiscalCode(
-    fiscalCode,
-  ).toValidatedNec
+  def updateFiscalCode(fiscalCode: FiscalCode): Customer = this.focus(_.fiscalCode).replace(fiscalCode)
 
-  def validateCustomer(
-      id: UUID,
-      name: String,
-      surname: String,
-      email: String,
-      phone: String,
-      street: String,
-      city: String,
-      cap: String,
-      nation: String,
-      fiscalCode: String,
-      customerType: CustomerType,
-  ): ValidationResult[Customer] =
-    (
-      validateName(name),
-      validateSurname(surname),
-      validateEmail(email),
-      validatePhone(phone),
-      validateStreet(street),
-      validateCity(city),
-      validatePostalCode(cap),
-      validateCountry(nation),
-      validateFiscalCode(fiscalCode),
-    ).mapN {
-      (
-          validName,
-          validSurname,
-          validEmail,
-          validPhone,
-          validStreet,
-          validCity,
-          validCAP,
-          validNation,
-          validFiscalCode,
-      ) =>
-        Customer(
-          id = id,
-          contactInfo = ContactInfo(validName, validSurname, validEmail, validPhone),
-          address = Address(validStreet, validCity, validCAP, validNation),
-          fiscalCode = validFiscalCode,
-          customerType = customerType,
-        )
-    }
-end CustomerValidator
+  def updateCustomerType(customerType: CustomerType): Customer = this.focus(_.customerType).replace(customerType)
 
-object CustomerValidator extends CustomerValidator
+  def updateEmail(email: String :| Email): Customer = this.focus(_.contactInfo.email).replace(email)
+
+  def updatePhone(phone: String :| PhoneNumber): Customer = this.focus(_.contactInfo.phone).replace(phone)
+
+  def updatePostalCode(postalCode: String :| PostalCode): Customer = this.focus(_.address.postalCode).replace(postalCode)
+end Customer
 
 object Customer:
-  def apply(
+  def createCustomer(
       id: UUID,
       name: String,
       surname: String,
@@ -85,22 +39,16 @@ object Customer:
       phone: String,
       street: String,
       city: String,
-      cap: String,
-      nation: String,
+      postalCode: String,
+      country: String,
       fiscalCode: String,
       customerType: CustomerType,
   ): ValidatedNec[String, Customer] =
-    CustomerValidator.validateCustomer(
-      id,
-      name,
-      surname,
-      email,
-      phone,
-      street,
-      city,
-      cap,
-      nation,
-      fiscalCode,
-      customerType,
-    )
+    (
+      Validated.validNec(id),
+      ContactInfo.createContactInfo(name, surname, email, phone),
+      Address.createAddress(street, city, postalCode, country),
+      FiscalCode.createFiscalCode(fiscalCode),
+      Validated.validNec(customerType),
+    ).mapN(Customer.apply)
 end Customer

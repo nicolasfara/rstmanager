@@ -10,11 +10,10 @@ class BudgetHoursTest extends AnyFlatSpecLike:
     for
       default <- WeeklyHours(defaultHours)
       expectHours <- DailyHours(defaultHours / 5)
-    do {
+    do
       val budgetHours = BudgetHours(default, Nil)
       val hours = budgetHours.getWorkingHoursForDay(DateTime.now())
       hours shouldEqual expectHours
-    }
   it should "return the hours according to the daily override" in:
     val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
     val overrideHours = 4
@@ -22,11 +21,10 @@ class BudgetHoursTest extends AnyFlatSpecLike:
       default <- WeeklyHours(defaultHours)
       hoursOverride <- DailyHours(overrideHours)
       dailyOverride = WorkingDayOverride(hoursOverride, Some("Special day"), overrideDate)
-    do {
+    do
       val budgetHours = BudgetHours(default, List(dailyOverride))
       val hours = budgetHours.getWorkingHoursForDay(overrideDate)
       hours shouldEqual hoursOverride
-    }
   it should "return 0 hours for any day within the vacation interval" in:
     val overrideFrom = DateTime.now().withTimeAtStartOfDay().nn
     val vacationInterval = overrideFrom to overrideFrom.plusDays(4).nn
@@ -35,14 +33,12 @@ class BudgetHoursTest extends AnyFlatSpecLike:
       default <- WeeklyHours(defaultHours)
       weeklyOverride <- WeeklyHours(overrideWeeklyHours)
       rangeOverride = VacationOverride(vacationInterval)
-    do {
+    do
       val budgetHours = BudgetHours(default, List(rangeOverride))
-      for dayOffset <- 0 until 4 do {
+      for dayOffset <- 0 until 4 do
         val day = overrideFrom.plusDays(dayOffset).nn
         val hours = budgetHours.getWorkingHoursForDay(day)
         hours shouldEqual weeklyOverride
-      }
-    }
   it should "return the override hours when a day has overrides" in:
     val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
     val overrideHours = 2
@@ -50,8 +46,8 @@ class BudgetHoursTest extends AnyFlatSpecLike:
       default <- WeeklyHours(defaultHours)
       hoursOverride <- DailyHours(overrideHours)
       dailyOverride = WorkingDayOverride(hoursOverride, Some("Special day"), overrideDate)
-    do {
+    do
       val budgetHours = BudgetHours(default, List(dailyOverride))
       val hours = budgetHours.getWorkingHoursForDay(overrideDate)
       hours shouldEqual hoursOverride
-    }
+end BudgetHoursTest

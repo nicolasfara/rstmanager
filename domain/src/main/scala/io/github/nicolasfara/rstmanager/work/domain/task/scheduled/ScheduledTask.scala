@@ -2,8 +2,8 @@ package io.github.nicolasfara.rstmanager.work.domain.task.scheduled
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.work.domain.task.{TaskHours, TaskId}
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.{TaskMustBeInProgress, TaskWithNegativeProgress}
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.{ TaskMustBeInProgress, TaskWithNegativeProgress }
 
 import cats.data.*
 import cats.syntax.all.*
@@ -19,78 +19,79 @@ object ScheduledTaskId:
 
 type Percentage = DescribedAs[Closed[0, 100], "Percentage must be between 0 and 100"]
 
-/** A scheduled task in the system.
-  *
-  * It can be in one of three states: [[InProgressTask]] - The task is currently being worked on. [[CompletedTask]] - The task has been completed.
-  * [[PendingTask]] - The task is scheduled but not yet started.
-  *
-  * The transitions between states are managed through methods that ensure valid state changes. A [[InProgressTask]] can be advanced or completed, a
-  * [[PendingTask]] can be marked as in progress, and a [[CompletedTask]] can be reverted to in progress. Any invalid transitions will return a
-  * [[ScheduledTaskError]].
-  */
+/**
+ * A scheduled task in the system.
+ *
+ * It can be in one of three states: [[InProgressTask]] - The task is currently being worked on. [[CompletedTask]] - The task has been completed.
+ * [[PendingTask]] - The task is scheduled but not yet started.
+ *
+ * The transitions between states are managed through methods that ensure valid state changes. A [[InProgressTask]] can be advanced or completed, a
+ * [[PendingTask]] can be marked as in progress, and a [[CompletedTask]] can be reverted to in progress. Any invalid transitions will return a
+ * [[ScheduledTaskError]].
+ */
 enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedHours: TaskHours):
   case InProgressTask(
       override val id: ScheduledTaskId,
       override val taskId: TaskId,
       override val expectedHours: TaskHours,
-      override val completedHours: TaskHours
+      override val completedHours: TaskHours,
   ) extends ScheduledTask(id, taskId, expectedHours)
   case CompletedTask(
       override val id: ScheduledTaskId,
       override val taskId: TaskId,
       override val expectedHours: TaskHours,
       override val completedHours: TaskHours,
-      completionDate: DateTime
+      completionDate: DateTime,
   ) extends ScheduledTask(id, taskId, expectedHours)
   case PendingTask(override val id: ScheduledTaskId, override val taskId: TaskId, override val expectedHours: TaskHours)
       extends ScheduledTask(id, taskId, expectedHours)
 
   def remainingHours: TaskHours = this match
     case InProgressTask(_, _, expectedHours, completedHours) => TaskHours.option(expectedHours - completedHours).getOrElse(TaskHours(0))
-    case CompletedTask(_, _, _, _, _)                        => TaskHours(0)
-    case PendingTask(_, _, expectedHours)                    => expectedHours
+    case CompletedTask(_, _, _, _, _) => TaskHours(0)
+    case PendingTask(_, _, expectedHours) => expectedHours
 
   def completedHours: TaskHours = this match
-    case InProgressTask(_, _, _, completedHours)   => completedHours
+    case InProgressTask(_, _, _, completedHours) => completedHours
     case CompletedTask(_, _, _, completedHours, _) => completedHours
-    case PendingTask(_, _, _)                      => TaskHours(0)
+    case PendingTask(_, _, _) => TaskHours(0)
 
   def revertToInProgress: Either[ScheduledTaskError, ScheduledTask] = this match
     case CompletedTask(id, taskId, _, completedHours, _) =>
       InProgressTask(id, taskId, completedHours, completedHours).asRight[ScheduledTaskError]
     case InProgressTask(_, _, _, _) => ScheduledTaskError.TaskAlreadyInProgress.asLeft
-    case PendingTask(_, _, _)       => ScheduledTaskError.TaskMustBeInProgress.asLeft
+    case PendingTask(_, _, _) => ScheduledTaskError.TaskMustBeInProgress.asLeft
 
   def markAsInProgress: Either[ScheduledTaskError, ScheduledTask] = this match
     case PendingTask(id, taskId, expectedHours) =>
       InProgressTask(id, taskId, expectedHours, TaskHours(0)).asRight[ScheduledTaskError]
-    case InProgressTask(_, _, _, _)   => ScheduledTaskError.TaskAlreadyInProgress.asLeft
+    case InProgressTask(_, _, _, _) => ScheduledTaskError.TaskAlreadyInProgress.asLeft
     case CompletedTask(_, _, _, _, _) => ScheduledTaskError.TaskAlreadyCompleted.asLeft
 
   def advanceInProgressTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress
     .map(_.focus(_.completedHours).modify(_ + withHours))
 
-  def rollbackInProgressTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress
-    .flatMap { task =>
-      val newCompletedHours = task.completedHours - withHours
-      if newCompletedHours < 0 then TaskWithNegativeProgress.asLeft
-      else task.focus(_.completedHours).replace(TaskHours.applyUnsafe(newCompletedHours)).asRight
-    }
+  def rollbackInProgressTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = mustBeInProgress.flatMap { task =>
+    val newCompletedHours = task.completedHours - withHours
+    if newCompletedHours < 0 then TaskWithNegativeProgress.asLeft
+    else task.focus(_.completedHours).replace(TaskHours.applyUnsafe(newCompletedHours)).asRight
+  }
 
   def completeTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = this match
     case InProgressTask(id, taskId, expectedHours, completedHours) =>
       Right(CompletedTask(id, taskId, expectedHours, completedHours + withHours, DateTime.now()))
     case CompletedTask(_, _, _, _, _) => Left(ScheduledTaskError.TaskAlreadyCompleted)
-    case PendingTask(_, _, _)         => Left(ScheduledTaskError.TaskMustBeInProgress)
+    case PendingTask(_, _, _) => Left(ScheduledTaskError.TaskMustBeInProgress)
 
   private def mustBeInProgress: Either[ScheduledTaskError, InProgressTask] = this match
     case task @ InProgressTask(_, _, _, _) => task.asRight
-    case _                                 => TaskMustBeInProgress.asLeft
+    case _ => TaskMustBeInProgress.asLeft
+end ScheduledTask
 
 object ScheduledTask:
   def createScheduledTask(id: UUID, taskId: TaskId, expectedHours: Int): ValidatedNec[String, PendingTask] =
     (
       Validated.valid(id),
       Validated.valid(taskId),
-      TaskHours.validatedNec(expectedHours)
+      TaskHours.validatedNec(expectedHours),
     ).mapN(PendingTask(_, _, _))

@@ -12,15 +12,12 @@ private object Stylesheet extends js.Object
 
 val _ = Stylesheet // Use import to prevent DCE
 
-@main def main(): Unit = {
+@main def main(): Unit =
   renderOnDomContentLoaded(
     container = dom.document.querySelector("#app"),
-    rootNode = {
-      div(
-        cls("Main"),
-        h1("Laminar Template"),
-        HelloWorld()
-      )
-    }
+    rootNode = div(
+      cls("Main"),
+      h1("Laminar Template"),
+      HelloWorld(),
+    ),
   )
-}

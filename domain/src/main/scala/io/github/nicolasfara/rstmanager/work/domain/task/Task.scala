@@ -21,18 +21,20 @@ object TaskHours extends RefinedType[Int, Positive0]:
     def +(other: TaskHours): TaskHours = TaskHours.applyUnsafe(value.value + other.value)
     def -(other: TaskHours): Int = value.value - other.value
 
-/** Entity that represents a Task in the system.
-  */
+/**
+ * Entity that represents a Task in the system.
+ */
 final case class Task(id: TaskId, name: String :| TaskName, taskDescription: Option[String :| TaskDescription], requiredHours: TaskHours)
 
 object Task:
-  /** Smart constructor for a [[Task]] providing the [[id]], [[name]], an optional [[description]], and the [[requiredHours]] to complete the task.
-    * The creation may fail if an empty name, an empty description if provided or a negative value for required hours are provided.
-    */
+  /**
+   * Smart constructor for a [[Task]] providing the [[id]], [[name]], an optional [[description]], and the [[requiredHours]] to complete the task. The
+   * creation may fail if an empty name, an empty description if provided or a negative value for required hours are provided.
+   */
   def createTask(id: UUID, name: String, description: Option[String], requiredHours: Int): ValidatedNec[String, Task] =
     (
       Validated.validNec(id),
       name.refineValidatedNec[TaskName],
       description.traverse(_.refineValidatedNec[TaskDescription]),
-      TaskHours.validatedNec(requiredHours)
+      TaskHours.validatedNec(requiredHours),
     ).mapN(Task.apply)

@@ -90,3 +90,4 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
       val ha = TaskHours.applyUnsafe(a)
       val hb = TaskHours.applyUnsafe(b)
       (ha - hb) shouldEqual (a - b)
+end TaskTest

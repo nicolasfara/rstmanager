@@ -11,7 +11,7 @@ final case class Customer(
     contactInfo: ContactInfo,
     address: Address,
     fiscalCode: FiscalCode,
-    customerType: CustomerType
+    customerType: CustomerType,
 )
 
 private sealed trait CustomerValidator:
@@ -26,7 +26,7 @@ private sealed trait CustomerValidator:
   private def validatePostalCode(cap: String): ValidationResult[PostalCode] = PostalCode(cap).toValidatedNec
   private def validateCountry(nation: String): ValidationResult[Country] = Country(nation).toValidatedNec
   private def validateFiscalCode(fiscalCode: String): ValidationResult[FiscalCode] = FiscalCode(
-    fiscalCode
+    fiscalCode,
   ).toValidatedNec
 
   def validateCustomer(
@@ -40,7 +40,7 @@ private sealed trait CustomerValidator:
       cap: String,
       nation: String,
       fiscalCode: String,
-      customerType: CustomerType
+      customerType: CustomerType,
   ): ValidationResult[Customer] =
     (
       validateName(name),
@@ -51,7 +51,7 @@ private sealed trait CustomerValidator:
       validateCity(city),
       validatePostalCode(cap),
       validateCountry(nation),
-      validateFiscalCode(fiscalCode)
+      validateFiscalCode(fiscalCode),
     ).mapN {
       (
           validName,
@@ -62,16 +62,17 @@ private sealed trait CustomerValidator:
           validCity,
           validCAP,
           validNation,
-          validFiscalCode
+          validFiscalCode,
       ) =>
         Customer(
           id = id,
           contactInfo = ContactInfo(validName, validSurname, validEmail, validPhone),
           address = Address(validStreet, validCity, validCAP, validNation),
           fiscalCode = validFiscalCode,
-          customerType = customerType
+          customerType = customerType,
         )
     }
+end CustomerValidator
 
 object CustomerValidator extends CustomerValidator
 
@@ -87,7 +88,7 @@ object Customer:
       cap: String,
       nation: String,
       fiscalCode: String,
-      customerType: CustomerType
+      customerType: CustomerType,
   ): ValidatedNec[String, Customer] =
     CustomerValidator.validateCustomer(
       id,
@@ -100,5 +101,6 @@ object Customer:
       cap,
       nation,
       fiscalCode,
-      customerType
+      customerType,
     )
+end Customer

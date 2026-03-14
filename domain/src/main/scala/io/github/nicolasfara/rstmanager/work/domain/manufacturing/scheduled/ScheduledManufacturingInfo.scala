@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 
 import cats.data.NonEmptyList
@@ -18,5 +18,5 @@ final case class ScheduledManufacturingInfo(
     code: ManufacturingCode,
     completionDate: DateTime,
     tasks: NonEmptyList[ScheduledTask],
-    dependencies: ManufacturingDependencies
+    dependencies: ManufacturingDependencies,
 )

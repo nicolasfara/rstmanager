@@ -43,12 +43,13 @@ class AddressTest extends AnyFlatSpecLike:
       street = Street("123 Main St"),
       city = City("Springfield"),
       cap = PostalCode("12345"),
-      nation = Country("USA")
+      nation = Country("USA"),
     )
     val address2 = Address(
       street = Street("123 Main St"),
       city = City("Springfield"),
       cap = PostalCode("12345"),
-      nation = Country("USA")
+      nation = Country("USA"),
     )
     address1 shouldEqual address2
+end AddressTest

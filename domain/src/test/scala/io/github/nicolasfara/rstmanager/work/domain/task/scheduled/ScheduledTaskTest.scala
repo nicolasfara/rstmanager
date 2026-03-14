@@ -21,8 +21,9 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   private val genUUID: Gen[UUID] = Gen.delay(UUID.randomUUID().nn)
   private val genHours: Gen[TaskHours] = Gen.posNum[Int].map(TaskHours.applyUnsafe)
 
-  /** Two hour values where `completed <= expected`, modelling a task still in progress but not yet over budget.
-    */
+  /**
+   * Two hour values where `completed <= expected`, modelling a task still in progress but not yet over budget.
+   */
   private val genBoundedHours: Gen[(TaskHours, TaskHours)] =
     for
       expected <- genHours
@@ -193,3 +194,4 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   it should "fail for zero or negative expectedHours" in:
     forAll(Gen.chooseNum(Int.MinValue, -1)): hours =>
       ScheduledTask.createScheduledTask(UUID.randomUUID().nn, UUID.randomUUID().nn, hours).isValid shouldEqual false
+end ScheduledTaskTest

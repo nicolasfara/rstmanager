@@ -5,7 +5,7 @@ import scala.scalajs.js.annotation.JSImport
 
 import com.raquo.laminar.api.L.*
 
-object HelloWorld {
+object HelloWorld:
 
   @JSImport("@find/**/HelloWorld.less", JSImport.Namespace)
   @js.native
@@ -13,7 +13,7 @@ object HelloWorld {
 
   val _ = Stylesheet // Use import to prevent DCE
 
-  def apply(): HtmlElement = {
+  def apply(): HtmlElement =
     val nameVar = Var(initial = "world")
     div(
       cls("HelloWorld"),
@@ -21,13 +21,12 @@ object HelloWorld {
       input(
         onMountFocus,
         placeholder := "Enter your name here",
-        onInput.mapToValue --> nameVar
+        onInput.mapToValue --> nameVar,
       ),
       div(
         cls("-greeting"),
         "Hello, ",
-        text <-- nameVar.signal.map(_.toUpperCase.nn)
-      )
+        text <-- nameVar.signal.map(_.toUpperCase.nn),
+      ),
     )
-  }
-}
+end HelloWorld

@@ -24,12 +24,13 @@ class ContactInfoTest extends AnyFlatSpec:
       name = Name("John"),
       surname = Surname("Doe"),
       email = Email("foo@bar.com"),
-      phone = PhoneNumber("+12345678901")
+      phone = PhoneNumber("+12345678901"),
     )
     val contactInfo2 = ContactInfo(
       name = Name("John"),
       surname = Surname("Doe"),
       email = Email("foo@bar.com"),
-      phone = PhoneNumber("+12345678901")
+      phone = PhoneNumber("+12345678901"),
     )
     contactInfo1 shouldEqual contactInfo2
+end ContactInfoTest

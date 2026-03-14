@@ -1,21 +1,22 @@
 package io.github.nicolasfara.rstmanager.work.domain.order.events
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
-import io.github.nicolasfara.rstmanager.work.domain.order.{CancellationReason, OrderData, OrderPriority, SuspensionReason}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderPriority, SuspensionReason }
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
 
-/** Events representing state changes at the Order level within the Order aggregate.
-  *
-  * These events capture changes to the Order entity itself, including adding/removing manufacturings from the order. Events affecting the
-  * ScheduledManufacturing entities within the aggregate are defined in ManufacturingEvent.
-  *
-  * Note: ScheduledManufacturing is an entity within the Order aggregate boundary. Both OrderEvent and ManufacturingEvent are emitted through the
-  * Order aggregate root, but are separated for clarity and organization.
-  */
+/**
+ * Events representing state changes at the Order level within the Order aggregate.
+ *
+ * These events capture changes to the Order entity itself, including adding/removing manufacturings from the order. Events affecting the
+ * ScheduledManufacturing entities within the aggregate are defined in ManufacturingEvent.
+ *
+ * Note: ScheduledManufacturing is an entity within the Order aggregate boundary. Both OrderEvent and ManufacturingEvent are emitted through the Order
+ * aggregate root, but are separated for clarity and organization.
+ */
 enum OrderEvent:
   /** Order has been created with initial data */
   case OrderCreated(orderData: OrderData, deliveryDate: DateTime)
@@ -58,3 +59,4 @@ enum OrderEvent:
 
   /** A task within a manufacturing has been reverted to in-progress */
   case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
+end OrderEvent

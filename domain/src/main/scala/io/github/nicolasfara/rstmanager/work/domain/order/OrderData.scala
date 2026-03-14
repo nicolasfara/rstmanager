@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ScheduledManufacturing, ScheduledManufacturingId}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 
 import cats.data.NonEmptyList
@@ -22,7 +22,7 @@ final case class OrderData(
     creationDate: DateTime,
     deliveryDate: DateTime,
     priority: OrderPriority,
-    setOfManufacturing: NonEmptyList[ScheduledManufacturing]
+    setOfManufacturing: NonEmptyList[ScheduledManufacturing],
 ):
   def addManufacturing(manufacturing: ScheduledManufacturing): OrderData =
     this.focus(_.setOfManufacturing).modify(_.append(manufacturing))
@@ -30,6 +30,6 @@ final case class OrderData(
   def removeManufacturing(manufacturingId: ScheduledManufacturingId): OrderData =
     this.focus(_.setOfManufacturing).modify { nel =>
       nel.filterNot(_.info.id == manufacturingId) match
-        case Nil          => nel
+        case Nil => nel
         case head :: tail => NonEmptyList(head, tail)
     }

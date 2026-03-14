@@ -2,18 +2,18 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ScheduledTask, ScheduledTaskId}
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
 
 import cats.data.NonEmptyList
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
-import io.github.iltotore.iron.constraint.any.{DescribedAs, Not}
+import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
 import io.github.iltotore.iron.constraint.collection.Empty
 import org.scalacheck.Gen
 import org.scalatest.flatspec.AnyFlatSpecLike
@@ -232,3 +232,4 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
         yield reverted
       result.isRight shouldEqual true
       result.foreach(_ shouldBe a[InProgressManufacturing])
+end ScheduledManufacturingTest

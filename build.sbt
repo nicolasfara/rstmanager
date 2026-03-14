@@ -22,7 +22,7 @@ lazy val sharedDependencies = Seq(
   "io.github.iltotore" %% "iron-cats" % "3.2.3",
   "org.scalactic" %% "scalactic" % "3.2.19",
   "org.scalatest" %% "scalatest" % "3.2.19" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.17.1" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.19.0" % "test",
   "org.scalatestplus" %% "scalacheck-1-17" % "3.2.18.0" % "test",
   "org.typelevel" %% "cats-core" % "2.13.0",
   "org.typelevel" %% "cats-kernel" % "2.13.0",

@@ -24,10 +24,12 @@ final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride
   def setOverride(hoursOverride: HoursOverride): BudgetHours =
     hoursOverride match
       case WorkingDayOverride(_, _, newDay) =>
-        this.focus(_.overrides).modify(_.filter {
-          case WorkingDayOverride(_, _, day) => day != newDay
-          case _ => true
-        } :+ hoursOverride)
+        this
+          .focus(_.overrides)
+          .modify(_.filter {
+            case WorkingDayOverride(_, _, day) => day != newDay
+            case _ => true
+          } :+ hoursOverride)
       case _ =>
         addOverride(hoursOverride)
 
@@ -43,6 +45,7 @@ final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride
           case VacationOverride(interval) => interval.contains(day)
           case _ => false
         }
+end BudgetHours
 
 object BudgetHours:
   def createBudgetHours(default: Int, overrides: List[HoursOverride]): ValidatedNec[String, BudgetHours] =

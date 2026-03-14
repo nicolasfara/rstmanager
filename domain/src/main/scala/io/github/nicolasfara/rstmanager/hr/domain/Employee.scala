@@ -2,8 +2,7 @@ package io.github.nicolasfara.rstmanager.hr.domain
 
 import java.util.UUID
 
-import cats.data.Validated
-import cats.data.ValidatedNec
+import cats.data.{Validated, ValidatedNec}
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.*
 import io.github.iltotore.iron.*

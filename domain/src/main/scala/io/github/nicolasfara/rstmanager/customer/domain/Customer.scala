@@ -2,8 +2,7 @@ package io.github.nicolasfara.rstmanager.customer.domain
 
 import java.util.UUID
 
-import cats.data.Validated
-import cats.data.ValidatedNec
+import cats.data.{Validated, ValidatedNec}
 import cats.syntax.all.*
 import io.github.iltotore.iron.*
 import monocle.syntax.all.*

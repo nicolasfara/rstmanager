@@ -14,12 +14,13 @@ type FiscalCodeRule =
 type FiscalCode = String :| FiscalCodeRule
 
 object FiscalCode:
-  /** Validates and normalizes a raw fiscal code string.
-    *
-    * The input is converted to uppercase before refinement.
-    *
-    * @param value
-    *   Raw fiscal code provided by the caller.
-    */
+  /**
+   * Validates and normalizes a raw fiscal code string.
+   *
+   * The input is converted to uppercase before refinement.
+   *
+   * @param value
+   *   Raw fiscal code provided by the caller.
+   */
   def createFiscalCode(value: String): ValidatedNec[String, FiscalCode] =
     value.toUpperCase.nn.refineValidatedNec[FiscalCodeRule]

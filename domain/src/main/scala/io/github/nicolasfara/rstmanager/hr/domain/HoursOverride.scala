@@ -21,15 +21,16 @@ object DailyHours extends RefinedType[Int, GreaterEqual[0] & LessEqual[24]]
 /** Marker for temporary changes applied to the default employee budget. */
 sealed trait HoursOverride
 
-/** Overrides the working hours for a specific day.
-  *
-  * @param hours
-  *   Hours to apply on the given day.
-  * @param reason
-  *   Optional explanation for the override.
-  * @param day
-  *   Day affected by the override.
-  */
+/**
+ * Overrides the working hours for a specific day.
+ *
+ * @param hours
+ *   Hours to apply on the given day.
+ * @param reason
+ *   Optional explanation for the override.
+ * @param day
+ *   Day affected by the override.
+ */
 final case class WorkingDayOverride(hours: DailyHours, reason: Option[String :| OverrideReason], day: DateTime) extends HoursOverride:
   /** Returns a copy with updated hours. */
   def updateHours(hours: DailyHours): WorkingDayOverride = this.focus(_.hours).replace(hours)
@@ -41,15 +42,16 @@ final case class WorkingDayOverride(hours: DailyHours, reason: Option[String :| 
   def updateDay(day: DateTime): WorkingDayOverride = this.focus(_.day).replace(day)
 
 object WorkingDayOverride:
-  /** Creates a one-day override from raw values.
-    *
-    * @param hours
-    *   Working hours for the day.
-    * @param reason
-    *   Optional explanation.
-    * @param day
-    *   Day affected by the override.
-    */
+  /**
+   * Creates a one-day override from raw values.
+   *
+   * @param hours
+   *   Working hours for the day.
+   * @param reason
+   *   Optional explanation.
+   * @param day
+   *   Day affected by the override.
+   */
   def createWorkingDayOverride(hours: Int, reason: Option[String], day: DateTime): ValidatedNec[String, WorkingDayOverride] =
     val validatedReason = reason match
       case Some(value) => value.refineValidatedNec[OverrideReason].map(Some(_))
@@ -63,24 +65,27 @@ object WorkingDayOverride:
 
   def apply(hours: Int, reason: Option[String], day: DateTime): ValidatedNec[String, WorkingDayOverride] =
     createWorkingDayOverride(hours, reason, day)
+end WorkingDayOverride
 
-/** Removes working capacity for a continuous interval, typically to represent vacation.
-  *
-  * @param interval
-  *   Closed interval affected by the override.
-  */
+/**
+ * Removes working capacity for a continuous interval, typically to represent vacation.
+ *
+ * @param interval
+ *   Closed interval affected by the override.
+ */
 final case class VacationOverride(interval: Interval) extends HoursOverride:
   /** Returns a copy with an updated vacation interval. */
   def updateInterval(interval: Interval): VacationOverride = this.focus(_.interval).replace(interval)
 
 object VacationOverride:
-  /** Creates a vacation override if the interval bounds are valid.
-    *
-    * @param startDate
-    *   Start of the vacation interval.
-    * @param endDate
-    *   End of the vacation interval.
-    */
+  /**
+   * Creates a vacation override if the interval bounds are valid.
+   *
+   * @param startDate
+   *   Start of the vacation interval.
+   * @param endDate
+   *   End of the vacation interval.
+   */
   def createVacationOverride(startDate: DateTime, endDate: DateTime): ValidatedNec[String, VacationOverride] =
     Validated.condNec(
       !endDate.isBefore(startDate),

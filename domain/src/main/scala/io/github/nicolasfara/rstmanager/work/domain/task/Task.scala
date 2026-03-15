@@ -30,31 +30,33 @@ object TaskHours extends RefinedType[Int, Positive0]:
     def +(other: TaskHours): TaskHours = TaskHours.applyUnsafe(value.value + other.value)
     def -(other: TaskHours): Int = value.value - other.value
 
-/** Immutable task definition used inside manufacturings.
-  *
-  * @param id
-  *   Stable task identifier.
-  * @param name
-  *   Human-readable task name.
-  * @param taskDescription
-  *   Optional task description.
-  * @param requiredHours
-  *   Estimated effort required to complete the task.
-  */
+/**
+ * Immutable task definition used inside manufacturings.
+ *
+ * @param id
+ *   Stable task identifier.
+ * @param name
+ *   Human-readable task name.
+ * @param taskDescription
+ *   Optional task description.
+ * @param requiredHours
+ *   Estimated effort required to complete the task.
+ */
 final case class Task(id: TaskId, name: String :| TaskName, taskDescription: Option[String :| TaskDescription], requiredHours: TaskHours)
 
 object Task:
-  /** Creates a `Task` from raw values after applying refined validation.
-    *
-    * @param id
-    *   Task identifier.
-    * @param name
-    *   Raw task name.
-    * @param description
-    *   Optional raw description.
-    * @param requiredHours
-    *   Raw task effort in hours.
-    */
+  /**
+   * Creates a `Task` from raw values after applying refined validation.
+   *
+   * @param id
+   *   Task identifier.
+   * @param name
+   *   Raw task name.
+   * @param description
+   *   Optional raw description.
+   * @param requiredHours
+   *   Raw task effort in hours.
+   */
   def createTask(id: UUID, name: String, description: Option[String], requiredHours: Int): ValidatedNec[String, Task] =
     (
       Validated.validNec(id),

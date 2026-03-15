@@ -20,17 +20,18 @@ type PostalCode = DescribedAs[Match["[0-9]{5}"], "The postal code must contain e
 /** Refined constraint for a non-empty country value. */
 type Country = DescribedAs[Not[Empty], "The country cannot be empty"]
 
-/** Postal address attached to a customer record.
-  *
-  * @param street
-  *   Street name and house number.
-  * @param city
-  *   City for the address.
-  * @param postalCode
-  *   Postal code in five-digit format.
-  * @param country
-  *   Country name.
-  */
+/**
+ * Postal address attached to a customer record.
+ *
+ * @param street
+ *   Street name and house number.
+ * @param city
+ *   City for the address.
+ * @param postalCode
+ *   Postal code in five-digit format.
+ * @param country
+ *   Country name.
+ */
 final case class Address(
     street: String :| Street,
     city: String :| City,
@@ -50,17 +51,18 @@ final case class Address(
   def updateCountry(country: String :| Country): Address = this.focus(_.country).replace(country)
 
 object Address:
-  /** Builds an `Address` from raw strings, validating each field first.
-    *
-    * @param street
-    *   Raw street value.
-    * @param city
-    *   Raw city value.
-    * @param postalCode
-    *   Raw postal code value.
-    * @param country
-    *   Raw country value.
-    */
+  /**
+   * Builds an `Address` from raw strings, validating each field first.
+   *
+   * @param street
+   *   Raw street value.
+   * @param city
+   *   Raw city value.
+   * @param postalCode
+   *   Raw postal code value.
+   * @param country
+   *   Raw country value.
+   */
   def createAddress(street: String, city: String, postalCode: String, country: String): ValidatedNec[String, Address] =
     (
       street.refineValidatedNec[Street],

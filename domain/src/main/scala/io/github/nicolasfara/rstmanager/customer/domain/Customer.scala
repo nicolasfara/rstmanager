@@ -7,19 +7,20 @@ import cats.syntax.all.*
 import io.github.iltotore.iron.*
 import monocle.syntax.all.*
 
-/** Customer aggregate containing identity, contacts, address, and fiscal classification.
-  *
-  * @param id
-  *   Stable customer identifier.
-  * @param contactInfo
-  *   Primary contact details.
-  * @param address
-  *   Customer postal address.
-  * @param fiscalCode
-  *   Customer fiscal code.
-  * @param customerType
-  *   Whether the customer is an individual or a company.
-  */
+/**
+ * Customer aggregate containing identity, contacts, address, and fiscal classification.
+ *
+ * @param id
+ *   Stable customer identifier.
+ * @param contactInfo
+ *   Primary contact details.
+ * @param address
+ *   Customer postal address.
+ * @param fiscalCode
+ *   Customer fiscal code.
+ * @param customerType
+ *   Whether the customer is an individual or a company.
+ */
 final case class Customer(
     id: CustomerId,
     contactInfo: ContactInfo,
@@ -50,33 +51,34 @@ final case class Customer(
 end Customer
 
 object Customer:
-  /** Creates a `Customer` aggregate from raw input values.
-    *
-    * Validation is delegated to the value objects that make up the aggregate.
-    *
-    * @param id
-    *   Customer identifier.
-    * @param name
-    *   Contact first name.
-    * @param surname
-    *   Contact surname.
-    * @param email
-    *   Contact email address.
-    * @param phone
-    *   Contact phone number.
-    * @param street
-    *   Street name and house number.
-    * @param city
-    *   City for the postal address.
-    * @param postalCode
-    *   Postal code in five-digit format.
-    * @param country
-    *   Country for the postal address.
-    * @param fiscalCode
-    *   Raw fiscal code.
-    * @param customerType
-    *   Customer classification.
-    */
+  /**
+   * Creates a `Customer` aggregate from raw input values.
+   *
+   * Validation is delegated to the value objects that make up the aggregate.
+   *
+   * @param id
+   *   Customer identifier.
+   * @param name
+   *   Contact first name.
+   * @param surname
+   *   Contact surname.
+   * @param email
+   *   Contact email address.
+   * @param phone
+   *   Contact phone number.
+   * @param street
+   *   Street name and house number.
+   * @param city
+   *   City for the postal address.
+   * @param postalCode
+   *   Postal code in five-digit format.
+   * @param country
+   *   Country for the postal address.
+   * @param fiscalCode
+   *   Raw fiscal code.
+   * @param customerType
+   *   Customer classification.
+   */
   def createCustomer(
       id: UUID,
       name: String,

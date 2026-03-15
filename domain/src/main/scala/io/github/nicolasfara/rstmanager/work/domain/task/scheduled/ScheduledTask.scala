@@ -21,16 +21,16 @@ object ScheduledTaskId:
 /** Percentage value constrained to the inclusive range `0` to `100`. */
 type Percentage = DescribedAs[Closed[0, 100], "Percentage must be between 0 and 100"]
 
-/** Task instance tracked inside a scheduled manufacturing.
-  *
-  * State model:
-  *  - `PendingTask`: planned but not started.
-  *  - `InProgressTask`: work has started and progress can move forward or backward.
-  *  - `CompletedTask`: work is finished and carries a completion timestamp.
-  *
-  * Transition methods keep the state machine consistent and return `ScheduledTaskError` when a
-  * requested change is invalid.
-  */
+/**
+ * Task instance tracked inside a scheduled manufacturing.
+ *
+ * State model:
+ *   - `PendingTask`: planned but not started.
+ *   - `InProgressTask`: work has started and progress can move forward or backward.
+ *   - `CompletedTask`: work is finished and carries a completion timestamp.
+ *
+ * Transition methods keep the state machine consistent and return `ScheduledTaskError` when a requested change is invalid.
+ */
 enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedHours: TaskHours):
   case InProgressTask(
       override val id: ScheduledTaskId,

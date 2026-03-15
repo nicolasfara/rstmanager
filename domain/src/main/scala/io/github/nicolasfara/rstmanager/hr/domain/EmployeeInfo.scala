@@ -14,13 +14,14 @@ type Name = DescribedAs[Not[Empty], "The employee name cannot be empty"]
 /** Refined constraint for a non-empty employee surname. */
 type Surname = DescribedAs[Not[Empty], "The employee surname cannot be empty"]
 
-/** Employee personal information stored independently from contract data.
-  *
-  * @param name
-  *   Employee first name.
-  * @param surname
-  *   Employee surname.
-  */
+/**
+ * Employee personal information stored independently from contract data.
+ *
+ * @param name
+ *   Employee first name.
+ * @param surname
+ *   Employee surname.
+ */
 final case class EmployeeInfo(name: String :| Name, surname: String :| Surname) derives CanEqual:
   /** Returns a copy with an updated first name. */
   def updateName(name: String :| Name): EmployeeInfo = this.focus(_.name).replace(name)

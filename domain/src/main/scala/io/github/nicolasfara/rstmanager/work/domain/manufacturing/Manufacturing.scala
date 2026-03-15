@@ -18,19 +18,20 @@ type ManufacturingName = DescribedAs[Not[Empty], "The manufacturing name should 
 /** Refined constraint for a non-empty manufacturing description. */
 type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing description should be not empty"]
 
-/** Manufacturing template composed of tasks and dependency constraints.
-  *
-  * @param code
-  *   Unique manufacturing code.
-  * @param name
-  *   Human-readable manufacturing name.
-  * @param description
-  *   Optional textual description.
-  * @param tasks
-  *   Non-empty list of tasks required by the manufacturing.
-  * @param dependencies
-  *   Dependency graph between tasks.
-  */
+/**
+ * Manufacturing template composed of tasks and dependency constraints.
+ *
+ * @param code
+ *   Unique manufacturing code.
+ * @param name
+ *   Human-readable manufacturing name.
+ * @param description
+ *   Optional textual description.
+ * @param tasks
+ *   Non-empty list of tasks required by the manufacturing.
+ * @param dependencies
+ *   Dependency graph between tasks.
+ */
 final case class Manufacturing(
     code: String :| ManufacturingCode,
     name: String :| ManufacturingName,

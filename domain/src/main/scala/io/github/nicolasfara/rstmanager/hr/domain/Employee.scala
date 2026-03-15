@@ -8,17 +8,18 @@ import com.github.nscala_time.time.Imports.*
 import io.github.iltotore.iron.*
 import monocle.syntax.all.*
 
-/** Employee aggregate containing personal information, contract, and available budget hours.
-  *
-  * @param id
-  *   Stable employee identifier.
-  * @param info
-  *   Employee name and surname.
-  * @param contract
-  *   Contract describing the employment relationship.
-  * @param budgetHours
-  *   Weekly hours budget with optional overrides.
-  */
+/**
+ * Employee aggregate containing personal information, contract, and available budget hours.
+ *
+ * @param id
+ *   Stable employee identifier.
+ * @param info
+ *   Employee name and surname.
+ * @param contract
+ *   Contract describing the employment relationship.
+ * @param budgetHours
+ *   Weekly hours budget with optional overrides.
+ */
 final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract, budgetHours: BudgetHours):
   /** Checks whether the employee is active on a given reference date. */
   def isActiveAt(referenceDate: DateTime): Boolean = contract match
@@ -61,21 +62,22 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
 end Employee
 
 object Employee:
-  /** Creates an `Employee` aggregate from raw identifier and validated value objects.
-    *
-    * @param id
-    *   Employee identifier.
-    * @param name
-    *   Raw first name.
-    * @param surname
-    *   Raw surname.
-    * @param contract
-    *   Employment contract.
-    * @param defaultWeeklyHours
-    *   Weekly hours budget before overrides.
-    * @param overrides
-    *   Initial hours overrides.
-    */
+  /**
+   * Creates an `Employee` aggregate from raw identifier and validated value objects.
+   *
+   * @param id
+   *   Employee identifier.
+   * @param name
+   *   Raw first name.
+   * @param surname
+   *   Raw surname.
+   * @param contract
+   *   Employment contract.
+   * @param defaultWeeklyHours
+   *   Weekly hours budget before overrides.
+   * @param overrides
+   *   Initial hours overrides.
+   */
   def createEmployee(
       id: UUID,
       name: String,
@@ -90,3 +92,4 @@ object Employee:
       Validated.validNec(contract),
       BudgetHours.createBudgetHours(defaultWeeklyHours, overrides),
     ).mapN(Employee.apply)
+end Employee

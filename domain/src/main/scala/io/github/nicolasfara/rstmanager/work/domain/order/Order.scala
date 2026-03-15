@@ -20,18 +20,19 @@ import monocle.syntax.all.*
 type CancellationReason = DescribedAs[Not[Empty], "The reason, if provided, cannot be empty"]
 type SuspensionReason = DescribedAs[Not[Empty], "The suspension reason, if provided, cannot be empty"]
 
-/** Event-sourced aggregate root representing an order lifecycle.
-  *
-  * State model:
-  *  - `NewOrder`: initial empty state.
-  *  - `InProgressOrder`: active order being executed.
-  *  - `SuspendedOrder`: temporarily paused order.
-  *  - `CompletedOrder`: work is complete.
-  *  - `DeliveredOrder`: completed order already delivered.
-  *  - `CancelledOrder`: order cancelled before delivery.
-  *
-  * Commands on the aggregate emit `OrderEvent` values and validate the resulting state.
-  */
+/**
+ * Event-sourced aggregate root representing an order lifecycle.
+ *
+ * State model:
+ *   - `NewOrder`: initial empty state.
+ *   - `InProgressOrder`: active order being executed.
+ *   - `SuspendedOrder`: temporarily paused order.
+ *   - `CompletedOrder`: work is complete.
+ *   - `DeliveredOrder`: completed order already delivered.
+ *   - `CancelledOrder`: order cancelled before delivery.
+ *
+ * Commands on the aggregate emit `OrderEvent` values and validate the resulting state.
+ */
 enum Order derives CanEqual:
   case NewOrder
   case InProgressOrder(data: OrderData, plannedDelivery: DateTime)
@@ -40,10 +41,11 @@ enum Order derives CanEqual:
   case DeliveredOrder(data: OrderData, completionDate: DateTime, deliveredOn: DateTime)
   case CancelledOrder(data: OrderData, cancelledOn: DateTime, reason: Option[String :| CancellationReason])
 
-  /** Creates an order from `NewOrder`.
-    *
-    * Fails with `OrderAlreadyCreated` for every other state.
-    */
+  /**
+   * Creates an order from `NewOrder`.
+   *
+   * Fails with `OrderAlreadyCreated` for every other state.
+   */
   def create(data: OrderData, plannedDelivery: DateTime): Decision[OrderError, OrderEvent, Order] = this.decide {
     case NewOrder => Decision.accept(OrderCreated(data, plannedDelivery))
     case _ => Decision.reject(OrderAlreadyCreated)

@@ -8,11 +8,11 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
 
-/** Domain events emitted by the `Order` aggregate.
-  *
-  * The enum includes both order-level lifecycle events and task/manufacturing events that are
-  * persisted through the aggregate root.
-  */
+/**
+ * Domain events emitted by the `Order` aggregate.
+ *
+ * The enum includes both order-level lifecycle events and task/manufacturing events that are persisted through the aggregate root.
+ */
 enum OrderEvent:
   /** The order has been created with its initial data. */
   case OrderCreated(orderData: OrderData, deliveryDate: DateTime)

@@ -18,13 +18,14 @@ object ManufacturingDependencies:
   def apply(edges: DiEdge[TaskId]*): ManufacturingDependencies = Graph.from(edges)
 
   extension (md: ManufacturingDependencies)
-    /** Adds dependency edges for a task.
-      *
-      * @param task
-      *   Task that depends on the provided predecessors.
-      * @param dependsOn
-      *   Tasks that must be completed before `task`.
-      */
+    /**
+     * Adds dependency edges for a task.
+     *
+     * @param task
+     *   Task that depends on the provided predecessors.
+     * @param dependsOn
+     *   Tasks that must be completed before `task`.
+     */
     def addTaskDependencies(task: TaskId, dependsOn: Set[TaskId]): ManufacturingDependencies =
       val newEdges = dependsOn.map(dep => DiEdge(task, dep))
       md ++ newEdges
@@ -35,10 +36,11 @@ object ManufacturingDependencies:
     /** Returns `true` when the dependency graph contains at least one cycle. */
     def hasCycle: Boolean = md.isCyclic
 
-    /** Produces a topological ordering for the tasks when the graph is acyclic.
-      *
-      * Returns `ManufacturingDependencyError.CycleDetected` when a cycle prevents sorting.
-      */
+    /**
+     * Produces a topological ordering for the tasks when the graph is acyclic.
+     *
+     * Returns `ManufacturingDependencyError.CycleDetected` when a cycle prevents sorting.
+     */
     def sort: Either[ManufacturingDependencyError, List[TaskId]] =
       md.topologicalSort.left
         .map(error => CycleDetected(error.candidateCycleNodes.map(_.outer)))

@@ -11,14 +11,15 @@ import cats.data.*
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 
-/** Scheduled execution of a manufacturing.
-  *
-  * State model:
-  *  - `NotStartedManufacturing`: no task activity has happened yet.
-  *  - `InProgressManufacturing`: at least one task has started.
-  *  - `PausedManufacturing`: execution is temporarily halted.
-  *  - `CompletedManufacturing`: every task is completed.
-  */
+/**
+ * Scheduled execution of a manufacturing.
+ *
+ * State model:
+ *   - `NotStartedManufacturing`: no task activity has happened yet.
+ *   - `InProgressManufacturing`: at least one task has started.
+ *   - `PausedManufacturing`: execution is temporarily halted.
+ *   - `CompletedManufacturing`: every task is completed.
+ */
 enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqual:
   case NotStartedManufacturing(override val info: ScheduledManufacturingInfo) extends ScheduledManufacturing(info)
   case InProgressManufacturing(override val info: ScheduledManufacturingInfo, startedAt: DateTime) extends ScheduledManufacturing(info)

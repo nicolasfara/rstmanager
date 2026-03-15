@@ -5,23 +5,25 @@ import com.github.nscala_time.time.Imports.*
 import io.github.iltotore.iron.cats.*
 import monocle.syntax.all.*
 
-/** Budgeted availability for an employee.
-  *
-  * The budget is defined by a weekly default and optional day or interval overrides.
-  *
-  * @param default
-  *   Default weekly working hours.
-  * @param overrides
-  *   Exceptions applied on top of the weekly default.
-  */
+/**
+ * Budgeted availability for an employee.
+ *
+ * The budget is defined by a weekly default and optional day or interval overrides.
+ *
+ * @param default
+ *   Default weekly working hours.
+ * @param overrides
+ *   Exceptions applied on top of the weekly default.
+ */
 final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride]):
   given CanEqual[DateTime, DateTime] = CanEqual.derived
   private val zeroDailyHours: DailyHours = DailyHours.applyUnsafe(0)
 
-  /** Returns the working hours available on a specific day.
-    *
-    * Day-specific overrides take precedence over vacation intervals and over the derived default.
-    */
+  /**
+   * Returns the working hours available on a specific day.
+   *
+   * Day-specific overrides take precedence over vacation intervals and over the derived default.
+   */
   def getWorkingHoursForDay(day: DateTime): DailyHours =
     overrides.collectFirst {
       case WorkingDayOverride(hours, _, dayOfWeek) if dayOfWeek == day => hours

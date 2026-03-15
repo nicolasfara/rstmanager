@@ -18,23 +18,24 @@ type OrderId = UUID
 /** Refined constraint for a non-empty order number. */
 type OrderNumber = DescribedAs[Not[Empty], "The order number cannot be empty"]
 
-/** Shared business data carried by all active order states.
-  *
-  * @param id
-  *   Stable order identifier.
-  * @param number
-  *   External order number.
-  * @param customerId
-  *   Customer that owns the order.
-  * @param creationDate
-  *   Timestamp when the order was created.
-  * @param deliveryDate
-  *   Requested or promised delivery date.
-  * @param priority
-  *   Order priority.
-  * @param setOfManufacturing
-  *   Non-empty list of scheduled manufacturings associated with the order.
-  */
+/**
+ * Shared business data carried by all active order states.
+ *
+ * @param id
+ *   Stable order identifier.
+ * @param number
+ *   External order number.
+ * @param customerId
+ *   Customer that owns the order.
+ * @param creationDate
+ *   Timestamp when the order was created.
+ * @param deliveryDate
+ *   Requested or promised delivery date.
+ * @param priority
+ *   Order priority.
+ * @param setOfManufacturing
+ *   Non-empty list of scheduled manufacturings associated with the order.
+ */
 final case class OrderData(
     id: OrderId,
     number: String :| OrderNumber,
@@ -55,3 +56,4 @@ final case class OrderData(
         case Nil => nel
         case head :: tail => NonEmptyList(head, tail)
     }
+end OrderData

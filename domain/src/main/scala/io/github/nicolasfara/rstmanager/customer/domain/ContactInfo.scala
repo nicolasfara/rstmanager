@@ -23,17 +23,18 @@ type PhoneNumber = DescribedAs[
   "The customer phone number must contain 8 to 15 digits with an optional leading +",
 ]
 
-/** Contact details for a customer.
-  *
-  * @param name
-  *   Contact first name.
-  * @param surname
-  *   Contact surname.
-  * @param email
-  *   Contact email address.
-  * @param phone
-  *   Contact phone number.
-  */
+/**
+ * Contact details for a customer.
+ *
+ * @param name
+ *   Contact first name.
+ * @param surname
+ *   Contact surname.
+ * @param email
+ *   Contact email address.
+ * @param phone
+ *   Contact phone number.
+ */
 final case class ContactInfo(
     name: String :| Name,
     surname: String :| Surname,
@@ -53,17 +54,18 @@ final case class ContactInfo(
   def updatePhone(phone: String :| PhoneNumber): ContactInfo = this.focus(_.phone).replace(phone)
 
 object ContactInfo:
-  /** Builds `ContactInfo` from raw values after applying refined validation.
-    *
-    * @param name
-    *   Raw first name.
-    * @param surname
-    *   Raw surname.
-    * @param email
-    *   Raw email address.
-    * @param phone
-    *   Raw phone number.
-    */
+  /**
+   * Builds `ContactInfo` from raw values after applying refined validation.
+   *
+   * @param name
+   *   Raw first name.
+   * @param surname
+   *   Raw surname.
+   * @param email
+   *   Raw email address.
+   * @param phone
+   *   Raw phone number.
+   */
   def createContactInfo(name: String, surname: String, email: String, phone: String): ValidatedNec[String, ContactInfo] =
     (
       name.refineValidatedNec[Name],

@@ -29,6 +29,6 @@ This site complements the API reference by describing:
 
 ## Site map
 
-- [Bounded Contexts](bounded-contexts.html)
-- [Tactical Design](tactical-design.html)
-- [Lifecycles And Events](lifecycles.html)
+- [Bounded Contexts](bounded-contexts.md)
+- [Tactical Design](tactical-design.md)
+- [Lifecycles And Events](lifecycles.md)

@@ -121,19 +121,19 @@ end-user message. A planning error should identify:
 - the missing capacity or blocking constraint
 - whether the result causes an order delay, manufacturing delay, or full infeasibility
 
-The current [[io.github.nicolasfara.rstmanager.planning.PlanningError]] model should be expanded
-with the relevant identifiers, dates, and capacity values needed to explain the scheduling result
-without reconstructing context elsewhere. For example, insufficient capacity should identify the
-planning window, required hours, available hours, and affected orders or manufacturings.
+[[io.github.nicolasfara.rstmanager.planning.PlanningError]] carries the relevant identifiers,
+dates, and capacity values needed to explain the scheduling result without reconstructing context
+elsewhere. For example, insufficient capacity identifies the planning window, required hours,
+available hours, and affected orders or manufacturings.
 
-## Proposed Planning Model
+## Planning Model
 
-The planning context should introduce a persisted schedule model built from day-level allocations:
+The planning context contains a persisted schedule model built from day-level allocations:
 
 - `DailySchedule`: the schedule for one production day.
 - `ScheduledTaskSlice`: the amount of task work planned for one day.
-- `CandidateEmployee`: the employee selected for a task slice, including available hours for the
-  day and the hours assigned by the schedule.
+- `CandidateEmployee`: the employee selected for a task slice, including daily availability and
+  the task hours assigned by the schedule.
 - `PlanningResult`: the result of a scheduling attempt, including planned days, delayed orders,
   delayed manufacturings, and planning warnings or errors.
 
@@ -147,12 +147,12 @@ A `ScheduledTaskSlice` should identify:
 - the planned hours for that day
 - the remaining task hours after the slice
 
-The candidate employee should be attached to the scheduled manufacturing or to its planned task
-slices so the schedule can explain who is expected to work on each piece of manufacturing work.
-Because an employee may change between slices, the assignment should belong to the slice-level
-schedule data rather than only to the task definition.
+The candidate employee is attached to planned task slices so the schedule can explain who is
+expected to work on each piece of manufacturing work. Because an employee may change between
+slices, the assignment belongs to the slice-level schedule data rather than to the task
+definition.
 
-Planning behavior should also be event-sourced. A possible event model is:
+Planning behavior is event-sourced. The planning event model includes:
 
 - `PlanningRequested`: a domain change triggered a new scheduling attempt.
 - `ScheduleComputed`: a feasible schedule was computed for the open orders.
@@ -165,20 +165,15 @@ Planning behavior should also be event-sourced. A possible event model is:
 These events should carry the same identifiers and dates exposed by planning errors, so the system
 can audit how a schedule was produced and recover from failed or partial planning attempts.
 
-## Current Modeling Gaps
+## Remaining Modeling Gaps
 
-These requirements are now decided at the business level, but the code does not yet model every
-planning concept explicitly:
+These requirements are now decided at the business level and the planning concepts are modeled.
+The remaining gaps are implementation concerns for the future scheduler:
 
-- Scheduled tasks correctly track expected, completed, and remaining hours, but they do not yet
-  record the employee assigned to a specific day or time slice.
-- The domain does not yet contain a daily schedule aggregate or value object that reports planned
-  task slices per day.
-- Planning errors currently expose only insufficient capacity and a basic manufacturing
-  constraint violation; they should be enriched with the relevant data needed for informed
-  end-user messages.
-- Planning events are not yet modeled even though planning should persist scheduling attempts,
-  decisions, warnings, and failures in an event-sourced form.
+- the scheduling algorithm that allocates open orders into task slices
+- total daily capacity aggregation across all slices assigned to the same employee
+- persistence and integration of planning events with the application layer
+- propagation from planning delays to order promised-delivery updates
 
 ## Core ideas
 

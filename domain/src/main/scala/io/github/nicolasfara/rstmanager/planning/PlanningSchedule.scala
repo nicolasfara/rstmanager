@@ -1,6 +1,6 @@
 package io.github.nicolasfara.rstmanager.planning
 
-import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
@@ -46,11 +46,11 @@ object PlanningWindow:
  * @param assignedHours
  *   Hours assigned to this slice.
  */
-final case class CandidateEmployee(employeeId: EmployeeId, availableHours: TaskHours, assignedHours: TaskHours)
+final case class CandidateEmployee(employeeId: EmployeeId, availableHours: DailyHours, assignedHours: TaskHours)
 
 object CandidateEmployee:
   /** Creates an employee assignment for a single task slice. */
-  def create(employeeId: EmployeeId, availableHours: TaskHours, assignedHours: TaskHours): ValidatedNec[PlanningError, CandidateEmployee] =
+  def create(employeeId: EmployeeId, availableHours: DailyHours, assignedHours: TaskHours): ValidatedNec[PlanningError, CandidateEmployee] =
     Validated.condNec(
       assignedHours.value > 0 && assignedHours.value <= availableHours.value,
       CandidateEmployee(employeeId, availableHours, assignedHours),
@@ -110,17 +110,27 @@ object DailySchedule:
       .fromList(slices)
       .toValidNec(PlanningError.EmptyDailySchedule(day))
       .andThen { nonEmptySlices =>
-        nonEmptySlices.find(slice => slice.day.getMillis != day.getMillis) match
+        val scheduleDay = day.withTimeAtStartOfDay().nn
+        nonEmptySlices.find(slice => slice.day.withTimeAtStartOfDay().nn.getMillis != scheduleDay.getMillis) match
           case Some(slice) => PlanningError.TaskSliceOutsideScheduleDay(day, slice.day).invalidNec
-          case None => DailySchedule(day, nonEmptySlices).validNec
+          case None => DailySchedule(scheduleDay, nonEmptySlices).validNec
       }
 
 /**
- * Order whose planned delivery date moved beyond its expected delivery date.
+ * Order whose promised delivery date moved beyond its expected delivery date.
  *
  * The promised delivery date should be the first admissible date computed by the new schedule.
  */
 final case class DelayedOrder(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)
+
+object DelayedOrder:
+  /** Creates an order delay when the promised delivery date is after the expected date. */
+  def create(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime): ValidatedNec[PlanningError, DelayedOrder] =
+    Validated.condNec(
+      promisedDeliveryDate.isAfter(expectedDeliveryDate),
+      DelayedOrder(orderId, expectedDeliveryDate, promisedDeliveryDate),
+      PlanningError.InvalidOrderDelay(orderId, expectedDeliveryDate, promisedDeliveryDate),
+    )
 
 /**
  * Manufacturing whose computed completion date moved beyond its expected completion date.
@@ -133,6 +143,20 @@ final case class DelayedManufacturing(
     expectedCompletionDate: DateTime,
     computedCompletionDate: DateTime,
 )
+
+object DelayedManufacturing:
+  /** Creates a manufacturing delay when the computed completion date is after the expected date. */
+  def create(
+      orderId: OrderId,
+      manufacturingId: ScheduledManufacturingId,
+      expectedCompletionDate: DateTime,
+      computedCompletionDate: DateTime,
+  ): ValidatedNec[PlanningError, DelayedManufacturing] =
+    Validated.condNec(
+      computedCompletionDate.isAfter(expectedCompletionDate),
+      DelayedManufacturing(orderId, manufacturingId, expectedCompletionDate, computedCompletionDate),
+      PlanningError.InvalidManufacturingDelay(orderId, manufacturingId, expectedCompletionDate, computedCompletionDate),
+    )
 
 /**
  * Non-fatal issue detected while planning.
@@ -176,3 +200,26 @@ object PlanningResult:
       .fromList(schedules)
       .toValidNec(PlanningError.EmptyPlanningResult)
       .map(PlanningResult(_, delayedOrders, delayedManufacturings, warnings))
+
+  /** Builds the final planning result from accepted task-slice, delay, and warning events. */
+  def fromSlices(
+      slices: List[ScheduledTaskSlice],
+      delayedOrders: List[DelayedOrder],
+      delayedManufacturings: List[DelayedManufacturing],
+      warnings: List[PlanningWarning],
+  ): ValidatedNec[PlanningError, PlanningResult] =
+    NonEmptyList
+      .fromList(slices)
+      .toValidNec(PlanningError.EmptyPlanningResult)
+      .andThen { nonEmptySlices =>
+        val scheduleInputs = nonEmptySlices.toList
+          .groupBy(_.day.withTimeAtStartOfDay().nn.getMillis)
+          .toList
+          .sortBy(_._1)
+          .map { case (_, daySlices) =>
+            val scheduleDay = daySlices.head.day.withTimeAtStartOfDay().nn
+            DailySchedule.create(scheduleDay, daySlices)
+          }
+
+        scheduleInputs.sequence.andThen(create(_, delayedOrders, delayedManufacturings, warnings))
+      }

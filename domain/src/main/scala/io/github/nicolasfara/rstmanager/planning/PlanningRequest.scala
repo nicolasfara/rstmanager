@@ -2,7 +2,9 @@ package io.github.nicolasfara.rstmanager.planning
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import com.github.nscala_time.time.Imports.DateTime
 
@@ -23,10 +25,10 @@ enum PlanningTrigger derives CanEqual:
   case OrderChanged(orderId: OrderId)
 
   /** A manufacturing change inside an order requires a new schedule. */
-  case ManufacturingChanged(orderId: OrderId)
+  case ManufacturingChanged(orderId: OrderId, manufacturingId: ScheduledManufacturingId)
 
   /** Task progress or task structure changed inside an order. */
-  case TaskChanged(orderId: OrderId)
+  case TaskChanged(orderId: OrderId, manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
 
   /** Employee capacity, calendar overrides, holidays, or absences changed. */
   case WorkforceCapacityChanged

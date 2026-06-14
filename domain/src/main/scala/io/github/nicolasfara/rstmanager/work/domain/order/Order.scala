@@ -35,8 +35,8 @@ type SuspensionReason = DescribedAs[Not[Empty], "The suspension reason, if provi
  */
 enum Order derives CanEqual:
   case NewOrder
-  case InProgressOrder(data: OrderData, plannedDelivery: DateTime)
-  case SuspendedOrder(data: OrderData, plannedDelivery: DateTime, pausedOn: DateTime, reason: Option[String :| SuspensionReason])
+  case InProgressOrder(data: OrderData, promisedDeliveryDate: DateTime)
+  case SuspendedOrder(data: OrderData, promisedDeliveryDate: DateTime, pausedOn: DateTime, reason: Option[String :| SuspensionReason])
   case CompletedOrder(data: OrderData, completionDate: DateTime)
   case DeliveredOrder(data: OrderData, completionDate: DateTime, deliveredOn: DateTime)
   case CancelledOrder(data: OrderData, cancelledOn: DateTime, reason: Option[String :| CancellationReason])
@@ -46,8 +46,8 @@ enum Order derives CanEqual:
    *
    * Fails with `OrderAlreadyCreated` for every other state.
    */
-  def create(data: OrderData, plannedDelivery: DateTime): Decision[OrderError, OrderEvent, Order] = this.decide {
-    case NewOrder => Decision.accept(OrderCreated(data, plannedDelivery))
+  def create(data: OrderData, promisedDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] = this.decide {
+    case NewOrder => Decision.accept(OrderCreated(data, promisedDeliveryDate))
     case _ => Decision.reject(OrderAlreadyCreated)
   }
     .validate(_.mustBeInProgress)
@@ -77,11 +77,11 @@ enum Order derives CanEqual:
     }
       .validate(_.mustBeCancelled)
 
-  /** Changes the planned delivery date for an active or suspended order. */
-  def updateDeliveryDate(newDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] =
+  /** Changes the promised delivery date for an active or suspended order. */
+  def updatePromisedDeliveryDate(newPromisedDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] =
     this.decide {
       case _: InProgressOrder | _: SuspendedOrder =>
-        Decision.accept(OrderDeliveryDateChanged(newDeliveryDate, DateTime.now()))
+        Decision.accept(OrderPromisedDeliveryDateChanged(newPromisedDeliveryDate, DateTime.now()))
       case _ =>
         Decision.reject(OrderMustBeInProgressOrPaused)
     }
@@ -152,16 +152,18 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
   override def initial: Order = NewOrder
 
   override def transition: OrderEvent => Order => ValidatedNec[OrderError, Order] = {
-    case OrderCreated(orderData, deliveryDate) => _ => InProgressOrder(orderData, deliveryDate).validNec
+    case OrderCreated(orderData, promisedDeliveryDate) => _ => InProgressOrder(orderData, promisedDeliveryDate).validNec
     case OrderCancelled(date, reason) =>
       _.mustBeInProgressOrSuspended.map {
         case InProgressOrder(data, _) => CancelledOrder(data, date, reason)
         case SuspendedOrder(data, _, _, _) => CancelledOrder(data, date, reason)
       }
     case OrderSuspended(date, reason) =>
-      _.mustBeInProgress.map { case InProgressOrder(orderData, plannedDelivery) => SuspendedOrder(orderData, plannedDelivery, date, reason) }
+      _.mustBeInProgress.map { case InProgressOrder(orderData, promisedDeliveryDate) =>
+        SuspendedOrder(orderData, promisedDeliveryDate, date, reason)
+      }
     case OrderReactivated(_) => {
-      case SuspendedOrder(orderData, plannedDelivery, _, _) => InProgressOrder(orderData, plannedDelivery).validNec
+      case SuspendedOrder(orderData, promisedDeliveryDate, _, _) => InProgressOrder(orderData, promisedDeliveryDate).validNec
       case CancelledOrder(data, _, _) => InProgressOrder(data, data.deliveryDate).validNec
       case _ => OrderMustBeSuspended.invalidNec
     }
@@ -172,10 +174,10 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
       }
     case OrderDelivered(date) =>
       _.mustBeCompleted.map { case CompletedOrder(data, completionDate) => DeliveredOrder(data, completionDate, date) }
-    case OrderDeliveryDateChanged(newDate, _) =>
+    case OrderPromisedDeliveryDateChanged(newDate, _) =>
       _.mustBeInProgressOrSuspended.map {
-        case order: InProgressOrder => order.focus(_.plannedDelivery).replace(newDate)
-        case order: SuspendedOrder => order.focus(_.plannedDelivery).replace(newDate)
+        case order: InProgressOrder => order.focus(_.promisedDeliveryDate).replace(newDate)
+        case order: SuspendedOrder => order.focus(_.promisedDeliveryDate).replace(newDate)
       }
     case OrderPriorityChanged(newPriority, _) =>
       _.mustBeInProgressOrSuspended.map {

@@ -15,7 +15,7 @@ import io.github.iltotore.iron.*
  */
 enum OrderEvent:
   /** The order has been created with its initial data. */
-  case OrderCreated(orderData: OrderData, deliveryDate: DateTime)
+  case OrderCreated(orderData: OrderData, promisedDeliveryDate: DateTime)
 
   /** The order has been cancelled. */
   case OrderCancelled(cancelledOn: DateTime, reason: Option[String :| CancellationReason])
@@ -32,8 +32,8 @@ enum OrderEvent:
   /** The order has been delivered to the customer. */
   case OrderDelivered(deliveredOn: DateTime)
 
-  /** The planned delivery date has changed. */
-  case OrderDeliveryDateChanged(newDeliveryDate: DateTime, changedOn: DateTime)
+  /** The promised delivery date has changed. */
+  case OrderPromisedDeliveryDateChanged(newPromisedDeliveryDate: DateTime, changedOn: DateTime)
 
   /** The order priority has changed. */
   case OrderPriorityChanged(newPriority: OrderPriority, changedOn: DateTime)

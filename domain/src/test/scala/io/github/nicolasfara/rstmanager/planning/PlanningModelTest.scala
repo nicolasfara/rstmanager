@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.planning
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
-import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId }
 import io.github.nicolasfara.rstmanager.planning.Planning.*
 import io.github.nicolasfara.rstmanager.planning.PlanningError.*
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent.*
@@ -16,6 +16,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.{ NonEmptyList, ValidatedNec }
+import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.Empty
@@ -37,7 +38,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
   private def candidate: CandidateEmployee = candidateWithHours(8, 4)
 
   private def candidateWithHours(availableHours: Int, assignedHours: Int): CandidateEmployee =
-    validOrFail(CandidateEmployee.create(employeeId, TaskHours.applyUnsafe(availableHours), TaskHours.applyUnsafe(assignedHours)))
+    validOrFail(CandidateEmployee.create(employeeId, DailyHours.applyUnsafe(availableHours), TaskHours.applyUnsafe(assignedHours)))
 
   private def slice: ScheduledTaskSlice = sliceForDay(day)
 
@@ -97,12 +98,12 @@ class PlanningModelTest extends AnyFlatSpecLike:
     candidateWithHours(8, 8).assignedHours shouldEqual TaskHours(8)
 
   it should "reject a zero assignment" in:
-    CandidateEmployee.create(employeeId, TaskHours(8), TaskHours(0)).toEither.left.map(_.head) shouldEqual
-      Left(InvalidEmployeeAssignment(TaskHours(8), TaskHours(0)))
+    CandidateEmployee.create(employeeId, DailyHours(8), TaskHours(0)).toEither.left.map(_.head) shouldEqual
+      Left(InvalidEmployeeAssignment(DailyHours(8), TaskHours(0)))
 
   it should "reject an assignment above available hours" in:
-    CandidateEmployee.create(employeeId, TaskHours(4), TaskHours(5)).toEither.left.map(_.head) shouldEqual
-      Left(InvalidEmployeeAssignment(TaskHours(4), TaskHours(5)))
+    CandidateEmployee.create(employeeId, DailyHours(4), TaskHours(5)).toEither.left.map(_.head) shouldEqual
+      Left(InvalidEmployeeAssignment(DailyHours(4), TaskHours(5)))
 
   "DailySchedule" should "reject empty slices" in:
     DailySchedule.create(day, Nil).toEither.left.map(_.head) shouldEqual Left(EmptyDailySchedule(day))
@@ -115,8 +116,8 @@ class PlanningModelTest extends AnyFlatSpecLike:
     dailySchedule.slices.head.day shouldEqual day
 
   "PlanningResult" should "represent planned days, delays, and warnings" in:
-    val delayedOrder = DelayedOrder(orderId, day, nextDay)
-    val delayedManufacturing = DelayedManufacturing(orderId, manufacturingId, day, nextDay)
+    val delayedOrder = validOrFail(DelayedOrder.create(orderId, day, nextDay))
+    val delayedManufacturing = validOrFail(DelayedManufacturing.create(orderId, manufacturingId, day, nextDay))
     val warning = PlanningWarning("Capacity is tight")
     val result = validOrFail(PlanningResult.create(List(dailySchedule), List(delayedOrder), List(delayedManufacturing), List(warning)))
 
@@ -127,6 +128,13 @@ class PlanningModelTest extends AnyFlatSpecLike:
 
   it should "reject an empty schedule collection" in:
     PlanningResult.create(Nil, Nil, Nil, Nil).toEither.left.map(_.head) shouldEqual Left(EmptyPlanningResult)
+
+  "DelayedOrder" should "reject dates that do not move the promised delivery after the expected date" in:
+    DelayedOrder.create(orderId, day, day).toEither.left.map(_.head) shouldEqual Left(InvalidOrderDelay(orderId, day, day))
+
+  "DelayedManufacturing" should "reject dates that do not move completion after the expected date" in:
+    DelayedManufacturing.create(orderId, manufacturingId, day, day).toEither.left.map(_.head) shouldEqual
+      Left(InvalidManufacturingDelay(orderId, manufacturingId, day, day))
 
   "PlanningError" should "carry structured data for insufficient capacity" in:
     val error = InsufficientCapacity(planningWindow, TaskHours(16), TaskHours(8), List(orderId), List(manufacturingId))
@@ -146,6 +154,22 @@ class PlanningModelTest extends AnyFlatSpecLike:
     val completed = validOrFail(Planning.transition(ScheduleComputed(planningResult, nextDay))(withSlice))
 
     completed shouldBe a[CompletedPlanning]
+
+  it should "derive a completed result from accepted planning facts" in:
+    val active = validOrFail(Planning.transition(PlanningRequested(request))(Planning.initial))
+    val withSlice = validOrFail(Planning.transition(TaskSliceAssigned(slice, day))(active))
+    val delayed = validOrFail(Planning.transition(OrderDelayedByPlanning(validOrFail(DelayedOrder.create(orderId, day, nextDay)), day))(withSlice))
+    val warned = validOrFail(Planning.transition(PlanningWarningRaised(PlanningWarning("Capacity is tight"), day))(delayed))
+    val result = validOrFail {
+      warned match
+        case Planning.InProgressPlanning(_, slices, delayedOrders, delayedManufacturings, warnings) =>
+          PlanningResult.fromSlices(slices, delayedOrders, delayedManufacturings, warnings)
+        case _ => PlanningError.PlanningMustBeInProgress.invalidNec
+    }
+
+    result.schedules.head.slices.head shouldEqual slice
+    result.delayedOrders should contain only validOrFail(DelayedOrder.create(orderId, day, nextDay))
+    result.warnings should contain only PlanningWarning("Capacity is tight")
 
   it should "transition from requested to rejected through events" in:
     val active = validOrFail(Planning.transition(PlanningRequested(request))(Planning.initial))

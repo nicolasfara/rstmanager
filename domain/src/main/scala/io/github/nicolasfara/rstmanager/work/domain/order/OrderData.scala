@@ -30,7 +30,7 @@ type OrderNumber = DescribedAs[Not[Empty], "The order number cannot be empty"]
  * @param creationDate
  *   Timestamp when the order was created.
  * @param deliveryDate
- *   Requested or promised delivery date.
+ *   Expected or requested delivery date used as the baseline for delay decisions.
  * @param priority
  *   Order priority.
  * @param setOfManufacturing

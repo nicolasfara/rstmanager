@@ -1,5 +1,6 @@
 package io.github.nicolasfara.rstmanager.planning
 
+import io.github.nicolasfara.rstmanager.hr.domain.DailyHours
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
@@ -18,7 +19,18 @@ enum PlanningError derives CanEqual:
   case InvalidPlanningWindow(start: DateTime, end: DateTime)
 
   /** Returned when an employee assignment is empty or exceeds the employee's available hours. */
-  case InvalidEmployeeAssignment(availableHours: TaskHours, assignedHours: TaskHours)
+  case InvalidEmployeeAssignment(availableHours: DailyHours, assignedHours: TaskHours)
+
+  /** Returned when a planned order delay does not actually move the promised date after the expected date. */
+  case InvalidOrderDelay(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)
+
+  /** Returned when a planned manufacturing delay does not actually move completion after the expected date. */
+  case InvalidManufacturingDelay(
+      orderId: OrderId,
+      manufacturingId: ScheduledManufacturingId,
+      expectedCompletionDate: DateTime,
+      computedCompletionDate: DateTime,
+  )
 
   /** Returned when a daily schedule contains no task slices. */
   case EmptyDailySchedule(day: DateTime)

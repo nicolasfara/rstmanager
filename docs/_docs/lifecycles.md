@@ -63,13 +63,26 @@ The work execution model keeps successful changes and failed decisions explicit.
   [[io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError]]
   and [[io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError]].
 
-## Planning boundary
+## Planning lifecycle
 
-The planning package is currently smaller than the operational model.
+[[io.github.nicolasfara.rstmanager.planning.Planning]] records one scheduling attempt as an
+event-sourced aggregate.
 
-- [[io.github.nicolasfara.rstmanager.planning.SchedulingService]] marks the service boundary.
-- [[io.github.nicolasfara.rstmanager.planning.PlanningError]] defines the expected planning
-  failures.
+States:
 
-As planning behavior grows, this is the place where higher-level scheduling policies can stay
-separate from the operational aggregates.
+- `NewPlanning`
+- `InProgressPlanning`
+- `CompletedPlanning`
+- `RejectedPlanning`
+
+The aggregate accepts a [[io.github.nicolasfara.rstmanager.planning.PlanningRequest]], records
+task slices, delays, and warnings, and then either computes a
+[[io.github.nicolasfara.rstmanager.planning.PlanningResult]] from the accepted facts or rejects
+the attempt with structured [[io.github.nicolasfara.rstmanager.planning.PlanningError]] values.
+
+Planning events are represented by
+[[io.github.nicolasfara.rstmanager.planning.events.PlanningEvent]].
+
+[[io.github.nicolasfara.rstmanager.planning.SchedulingService]] remains the orchestration boundary
+for the future scheduling algorithm. The current domain model captures the request, schedule,
+events, and failure vocabulary without mutating operational aggregates directly.

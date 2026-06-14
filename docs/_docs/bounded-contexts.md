@@ -84,13 +84,26 @@ Responsibilities:
 
 Main types:
 
-- Domain service boundary: [[io.github.nicolasfara.rstmanager.planning.SchedulingService]]
+- Aggregate root: [[io.github.nicolasfara.rstmanager.planning.Planning]]
+- Request model: [[io.github.nicolasfara.rstmanager.planning.PlanningRequest]],
+  [[io.github.nicolasfara.rstmanager.planning.PlanningTrigger]]
+- Schedule model: [[io.github.nicolasfara.rstmanager.planning.PlanningResult]],
+  [[io.github.nicolasfara.rstmanager.planning.DailySchedule]],
+  [[io.github.nicolasfara.rstmanager.planning.ScheduledTaskSlice]],
+  [[io.github.nicolasfara.rstmanager.planning.CandidateEmployee]]
 - Planning failures: [[io.github.nicolasfara.rstmanager.planning.PlanningError]]
+- Planning events: [[io.github.nicolasfara.rstmanager.planning.events.PlanningEvent]]
+- Domain service boundary for future orchestration:
+  [[io.github.nicolasfara.rstmanager.planning.SchedulingService]]
 
 ## Cross-context relationships
 
 - [[io.github.nicolasfara.rstmanager.work.domain.order.OrderData]] references
   [[io.github.nicolasfara.rstmanager.customer.domain.CustomerId]].
-- Planning errors reference
-  [[io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingCode]].
-- The planning context is expected to combine work demand with HR capacity.
+- Planning schedules reference order, scheduled manufacturing, scheduled task, and employee
+  identifiers from the work and HR contexts.
+- Planning assignments use [[io.github.nicolasfara.rstmanager.hr.domain.DailyHours]] for daily
+  employee availability and [[io.github.nicolasfara.rstmanager.work.domain.task.TaskHours]] for
+  assigned task effort.
+- The planning context combines work demand with HR capacity without mutating operational
+  aggregates directly.

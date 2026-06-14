@@ -15,7 +15,8 @@ import edomata.syntax.all.*
  * Event-sourced aggregate representing one planning attempt lifecycle.
  *
  * `Planning` records the decisions made while producing a schedule. It does not run the scheduling algorithm; instead, it accepts the facts produced
- * by that algorithm as events. This keeps the planning audit trail explicit and recoverable in the same style as the order execution model.
+ * by that algorithm as events. The final result is derived from the accepted task-slice, delay, and warning events so the completed schedule cannot
+ * diverge from the audit trail.
  *
  * Lifecycle:
  *   - [[Planning.NewPlanning]] has not received a request yet.
@@ -34,7 +35,7 @@ enum Planning derives CanEqual:
    * Active planning attempt.
    *
    * The lists are append-only projections of events already accepted by the aggregate. They are useful while the attempt is still being built, but
-   * the authoritative completed output is the [[PlanningResult]] carried by [[Planning.CompletedPlanning]].
+   * the authoritative completed output is derived from these accepted facts when the attempt is completed.
    */
   case InProgressPlanning(
       request: PlanningRequest,
@@ -72,9 +73,14 @@ enum Planning derives CanEqual:
   def raiseWarning(warning: PlanningWarning): Decision[PlanningError, PlanningEvent, Planning] =
     this.perform(mustBeInProgress.toDecision *> PlanningWarningRaised(warning, DateTime.now()).accept).validate(_.mustBeInProgress)
 
-  /** Completes an active planning attempt with a feasible result. */
-  def complete(result: PlanningResult): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> ScheduleComputed(result, DateTime.now()).accept).validate(_.mustBeCompleted)
+  /** Completes an active planning attempt with a feasible result derived from its accepted events. */
+  def complete: Decision[PlanningError, PlanningEvent, Planning] = this.decide {
+    case planning: InProgressPlanning =>
+      PlanningResult
+        .fromSlices(planning.slices, planning.delayedOrders, planning.delayedManufacturings, planning.warnings)
+        .fold(errors => Decision.reject(errors.head), result => Decision.accept(ScheduleComputed(result, DateTime.now())))
+    case _ => Decision.reject(PlanningMustBeInProgress)
+  }.validate(_.mustBeCompleted)
 
   /** Rejects an active planning attempt with one or more planning errors. */
   def reject(errors: NonEmptyList[PlanningError]): Decision[PlanningError, PlanningEvent, Planning] =

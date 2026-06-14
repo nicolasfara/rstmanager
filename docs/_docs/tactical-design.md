@@ -12,6 +12,8 @@ This model follows common tactical DDD building blocks.
   Owns the task list and dependency graph for a manufacturing template.
 - [[io.github.nicolasfara.rstmanager.work.domain.order.Order]]
   Owns the order lifecycle and the scheduled manufacturings executed for the order.
+- [[io.github.nicolasfara.rstmanager.planning.Planning]]
+  Owns the lifecycle and audit trail of one planning attempt.
 
 ## Entities
 
@@ -48,14 +50,21 @@ The model leans heavily on immutable value objects and refined primitives.
   [[io.github.nicolasfara.rstmanager.work.domain.task.TaskHours]],
   [[io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies]],
   [[io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority]]
+- Planning value objects:
+  [[io.github.nicolasfara.rstmanager.planning.PlanningWindow]],
+  [[io.github.nicolasfara.rstmanager.planning.PlanningRequest]],
+  [[io.github.nicolasfara.rstmanager.planning.PlanningResult]],
+  [[io.github.nicolasfara.rstmanager.planning.DailySchedule]],
+  [[io.github.nicolasfara.rstmanager.planning.ScheduledTaskSlice]],
+  [[io.github.nicolasfara.rstmanager.planning.CandidateEmployee]]
 
 Refined aliases such as names, emails, weekly hours, postal codes, and manufacturing codes
 move simple validation rules into the type system.
 
 ## Domain services and helpers
 
-- [[io.github.nicolasfara.rstmanager.planning.SchedulingService]] is the explicit domain
-  service boundary for scheduling use cases.
+- [[io.github.nicolasfara.rstmanager.planning.SchedulingService]] is the future domain service
+  boundary for scheduling use cases that orchestrate the planning model.
 - [[io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations]] keeps pure helper
   logic that updates nested manufacturings during event application.
 
@@ -68,3 +77,7 @@ move simple validation rules into the type system.
   [[io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError]],
   and [[io.github.nicolasfara.rstmanager.planning.PlanningError]]
   make failure modes part of the model.
+- Event-sourced aggregate roots such as
+  [[io.github.nicolasfara.rstmanager.work.domain.order.Order]] and
+  [[io.github.nicolasfara.rstmanager.planning.Planning]] persist successful decisions as domain
+  events.

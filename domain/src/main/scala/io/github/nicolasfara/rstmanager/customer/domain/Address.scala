@@ -70,3 +70,4 @@ object Address:
       postalCode.refineValidatedNec[PostalCode],
       country.refineValidatedNec[Country],
     ).mapN(Address.apply)
+end Address

@@ -73,3 +73,4 @@ object ContactInfo:
       email.refineValidatedNec[Email],
       phone.refineValidatedNec[PhoneNumber],
     ).mapN(ContactInfo.apply)
+end ContactInfo

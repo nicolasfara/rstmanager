@@ -64,3 +64,4 @@ object Task:
       description.traverse(_.refineValidatedNec[TaskDescription]),
       TaskHours.validatedNec(requiredHours),
     ).mapN(Task.apply)
+end Task

@@ -14,20 +14,17 @@ import edomata.syntax.all.*
 /**
  * Event-sourced aggregate representing one planning attempt lifecycle.
  *
- * `Planning` records the decisions made while producing a schedule. It does not run the scheduling
- * algorithm; instead, it accepts the facts produced by that algorithm as events. This keeps the
- * planning audit trail explicit and recoverable in the same style as the order execution model.
+ * `Planning` records the decisions made while producing a schedule. It does not run the scheduling algorithm; instead, it accepts the facts produced
+ * by that algorithm as events. This keeps the planning audit trail explicit and recoverable in the same style as the order execution model.
  *
  * Lifecycle:
  *   - [[Planning.NewPlanning]] has not received a request yet.
- *   - [[Planning.InProgressPlanning]] records task slices, delays, and warnings for one active
- *     request.
+ *   - [[Planning.InProgressPlanning]] records task slices, delays, and warnings for one active request.
  *   - [[Planning.CompletedPlanning]] stores the final feasible [[PlanningResult]].
  *   - [[Planning.RejectedPlanning]] stores the planning errors that made the request infeasible.
  *
- * Only an in-progress attempt can receive task slices, delays, warnings, completion, or rejection.
- * A new request can be started from `NewPlanning` or after a previous attempt has completed or
- * been rejected.
+ * Only an in-progress attempt can receive task slices, delays, warnings, completion, or rejection. A new request can be started from `NewPlanning` or
+ * after a previous attempt has completed or been rejected.
  */
 enum Planning derives CanEqual:
   /** Initial planning state, before a request has started. */
@@ -36,9 +33,8 @@ enum Planning derives CanEqual:
   /**
    * Active planning attempt.
    *
-   * The lists are append-only projections of events already accepted by the aggregate. They are
-   * useful while the attempt is still being built, but the authoritative completed output is the
-   * [[PlanningResult]] carried by [[Planning.CompletedPlanning]].
+   * The lists are append-only projections of events already accepted by the aggregate. They are useful while the attempt is still being built, but
+   * the authoritative completed output is the [[PlanningResult]] carried by [[Planning.CompletedPlanning]].
    */
   case InProgressPlanning(
       request: PlanningRequest,

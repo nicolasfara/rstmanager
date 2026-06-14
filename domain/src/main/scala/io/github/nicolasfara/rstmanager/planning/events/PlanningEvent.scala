@@ -8,9 +8,8 @@ import com.github.nscala_time.time.Imports.DateTime
 /**
  * Domain events emitted by the planning aggregate.
  *
- * These events form the audit trail for a planning attempt. They record both the incremental
- * facts produced while planning, such as task slice assignments, and the terminal outcome,
- * either a computed schedule or a rejected schedule with structured errors.
+ * These events form the audit trail for a planning attempt. They record both the incremental facts produced while planning, such as task slice
+ * assignments, and the terminal outcome, either a computed schedule or a rejected schedule with structured errors.
  */
 enum PlanningEvent:
   /** A domain change requested a new scheduling attempt. */

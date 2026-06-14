@@ -12,9 +12,8 @@ type PlanningRequestId = UUID
 /**
  * Reason why planning was requested.
  *
- * Planning is system-managed: every relevant operational change is represented as a trigger that
- * can start a new planning attempt. Triggers are intentionally coarse-grained and identify the
- * affected order where that context is available.
+ * Planning is system-managed: every relevant operational change is represented as a trigger that can start a new planning attempt. Triggers are
+ * intentionally coarse-grained and identify the affected order where that context is available.
  */
 enum PlanningTrigger derives CanEqual:
   /** Regular day-by-day planning run. */
@@ -38,10 +37,9 @@ enum PlanningTrigger derives CanEqual:
 /**
  * Input metadata for a system-managed planning attempt.
  *
- * A request captures the planning window, the reason planning was triggered, and the open orders
- * considered by that run. Open orders are expected to be `InProgressOrder` values selected by the
- * planning policy before the scheduling algorithm starts; suspended, completed, delivered,
- * cancelled, and new orders are excluded from `openOrderIds`.
+ * A request captures the planning window, the reason planning was triggered, and the open orders considered by that run. Open orders are expected to
+ * be `InProgressOrder` values selected by the planning policy before the scheduling algorithm starts; suspended, completed, delivered, cancelled, and
+ * new orders are excluded from `openOrderIds`.
  *
  * @param id
  *   Stable request identifier.

@@ -7,7 +7,7 @@ import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.planning.Planning.*
 import io.github.nicolasfara.rstmanager.planning.PlanningError.*
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent.*
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ManufacturingCode, ManufacturingDependencies}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
@@ -150,7 +150,9 @@ class PlanningModelTest extends AnyFlatSpecLike:
   it should "transition from requested to rejected through events" in:
     val active = validOrFail(Planning.transition(PlanningRequested(request))(Planning.initial))
     val rejected = validOrFail(
-      Planning.transition(ScheduleRejected(NonEmptyList.one(InsufficientCapacity(planningWindow, TaskHours(16), TaskHours(8), List(orderId), Nil)), nextDay))(
+      Planning.transition(
+        ScheduleRejected(NonEmptyList.one(InsufficientCapacity(planningWindow, TaskHours(16), TaskHours(8), List(orderId), Nil)), nextDay),
+      )(
         active,
       ),
     )

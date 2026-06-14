@@ -10,9 +10,8 @@ import com.github.nscala_time.time.Imports.DateTime
 /**
  * Errors produced while computing, deciding, or applying a production plan.
  *
- * Planning errors are structured so the application can build clear user-facing messages without
- * looking up every piece of context again. They include the relevant order, manufacturing, task,
- * date, and capacity values whenever those values are known.
+ * Planning errors are structured so the application can build clear user-facing messages without looking up every piece of context again. They
+ * include the relevant order, manufacturing, task, date, and capacity values whenever those values are known.
  */
 enum PlanningError derives CanEqual:
   /** Returned when the planning window end is before its start. */
@@ -30,8 +29,8 @@ enum PlanningError derives CanEqual:
   /**
    * Returned when no feasible capacity is available for the requested planning window.
    *
-   * `requiredHours` and `availableHours` summarize the capacity gap. The affected identifiers
-   * make it possible to explain which orders and manufacturings could not fit the window.
+   * `requiredHours` and `availableHours` summarize the capacity gap. The affected identifiers make it possible to explain which orders and
+   * manufacturings could not fit the window.
    */
   case InsufficientCapacity(
       window: PlanningWindow,
@@ -52,8 +51,8 @@ enum PlanningError derives CanEqual:
   /**
    * Returned when a task cannot be scheduled on a candidate day because of a blocking constraint.
    *
-   * The blocking constraint is intentionally textual for now because the scheduler implementation
-   * does not yet expose a closed set of constraint types.
+   * The blocking constraint is intentionally textual for now because the scheduler implementation does not yet expose a closed set of constraint
+   * types.
    */
   case TaskCannotBeScheduled(
       orderId: OrderId,

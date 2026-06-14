@@ -1,14 +1,13 @@
 package io.github.nicolasfara.rstmanager.planning
 
-import io.github.nicolasfara.rstmanager.work.domain.order.{Order, OrderPriority}
+import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderPriority }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 
 /**
  * Priority policy used to order open orders before planning.
  *
- * Only `InProgressOrder` values are schedulable. The policy gives precedence to urgent orders,
- * then earlier planned delivery dates, then earlier creation dates, and finally stable order ids
- * to keep the result deterministic.
+ * Only `InProgressOrder` values are schedulable. The policy gives precedence to urgent orders, then earlier planned delivery dates, then earlier
+ * creation dates, and finally stable order ids to keep the result deterministic.
  */
 object PlanningPriorityPolicy:
   /** Returns only open orders, ordered by priority, delivery date, creation date, then stable id. */

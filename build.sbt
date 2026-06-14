@@ -20,7 +20,7 @@ lazy val sharedDependencies = Seq(
   "io.circe" %% "circe-generic" % "0.14.15",
   "io.github.iltotore" %% "iron" % "3.3.0",
   "io.github.iltotore" %% "iron-cats" % "3.3.0",
-  "org.scalactic" %% "scalactic" % "3.2.19",
+  "org.scalactic" %% "scalactic" % "3.2.20",
   "org.scalatest" %% "scalatest" % "3.2.19" % "test",
   "org.scalacheck" %% "scalacheck" % "1.19.0" % "test",
   "org.scalatestplus" %% "scalacheck-1-17" % "3.2.18.0" % "test",

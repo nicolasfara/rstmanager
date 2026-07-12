@@ -33,6 +33,10 @@ object ManufacturingDependencies:
     /** Removes a task and all related dependency edges. */
     def removeTask(task: TaskId): ManufacturingDependencies = md - task
 
+    /** Returns the direct prerequisites of a task, or an empty set when the task has no registered dependencies. */
+    def dependenciesOf(task: TaskId): Set[TaskId] =
+      md.find(task).map(_.diSuccessors.map(_.outer).toSet).getOrElse(Set.empty)
+
     /** Returns `true` when the dependency graph contains at least one cycle. */
     def hasCycle: Boolean = md.isCyclic
 

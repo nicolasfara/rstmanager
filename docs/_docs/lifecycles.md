@@ -83,6 +83,11 @@ the attempt with structured [[io.github.nicolasfara.rstmanager.planning.Planning
 Planning events are represented by
 [[io.github.nicolasfara.rstmanager.planning.events.PlanningEvent]].
 
-[[io.github.nicolasfara.rstmanager.planning.SchedulingService]] remains the orchestration boundary
-for the future scheduling algorithm. The current domain model captures the request, schedule,
-events, and failure vocabulary without mutating operational aggregates directly.
+[[io.github.nicolasfara.rstmanager.planning.SchedulingService]] implements the scheduling
+algorithm: it walks the Monday-to-Friday production days of the window, allocates each task
+to the available employee hours in priority and dependency order, and reports delays,
+warnings, or structured errors. [[io.github.nicolasfara.rstmanager.planning.PlanningService]]
+wires that algorithm to the `Planning` aggregate as an edomata service: one `ComputePlan`
+command starts the attempt, records every produced fact as planning events, and completes or
+rejects the attempt, publishing notifications for downstream contexts. Neither service mutates
+operational aggregates directly.

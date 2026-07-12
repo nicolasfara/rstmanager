@@ -223,3 +223,4 @@ object PlanningResult:
 
         scheduleInputs.sequence.andThen(create(_, delayedOrders, delayedManufacturings, warnings))
       }
+end PlanningResult

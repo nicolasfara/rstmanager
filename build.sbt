@@ -62,6 +62,19 @@ lazy val domain = project
     libraryDependencies ++= Seq() ++ sharedDependencies
   )
 
+lazy val service = project
+  .in(file("service"))
+  .dependsOn(domain)
+  .settings(
+    name := "rstmanager-service",
+    scalaVersion := scala3Version,
+    scalacOptions ++= projectScalacOptions,
+    libraryDependencies ++= Seq(
+      "dev.hnaderi" %% "edomata-backend" % "0.13.0",
+      "dev.hnaderi" %% "edomata-skunk-circe" % "0.13.0"
+    ) ++ sharedDependencies
+  )
+
 lazy val frontend = project
   .in(file("frontend"))
   .enablePlugins(ScalaJSPlugin)
@@ -83,7 +96,7 @@ lazy val frontend = project
 lazy val root = project
   .in(file("."))
   .enablePlugins(ScalaUnidocPlugin)
-  .aggregate(domain, frontend)
+  .aggregate(domain, service, frontend)
   .settings(
     name := "rstmanager",
     ScalaUnidoc / unidoc / unidocProjectFilter := inAnyProject -- inProjects(frontend),

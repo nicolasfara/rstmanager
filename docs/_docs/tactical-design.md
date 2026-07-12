@@ -63,8 +63,12 @@ move simple validation rules into the type system.
 
 ## Domain services and helpers
 
-- [[io.github.nicolasfara.rstmanager.planning.SchedulingService]] is the future domain service
-  boundary for scheduling use cases that orchestrate the planning model.
+- [[io.github.nicolasfara.rstmanager.planning.SchedulingService]] is the pure domain service
+  that computes when each task must be performed, combining work demand with weekly HR
+  capacity inside a planning window.
+- [[io.github.nicolasfara.rstmanager.planning.PlanningService]] is the edomata service that
+  runs a planning attempt on the [[io.github.nicolasfara.rstmanager.planning.Planning]]
+  aggregate and publishes completion, rejection, and delay notifications.
 - [[io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations]] keeps pure helper
   logic that updates nested manufacturings during event application.
 

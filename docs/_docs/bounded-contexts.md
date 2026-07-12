@@ -93,8 +93,14 @@ Main types:
   [[io.github.nicolasfara.rstmanager.planning.CandidateEmployee]]
 - Planning failures: [[io.github.nicolasfara.rstmanager.planning.PlanningError]]
 - Planning events: [[io.github.nicolasfara.rstmanager.planning.events.PlanningEvent]]
-- Domain service boundary for future orchestration:
+- Scheduling algorithm (pure domain service):
   [[io.github.nicolasfara.rstmanager.planning.SchedulingService]]
+- Edomata service orchestrating planning attempts:
+  [[io.github.nicolasfara.rstmanager.planning.PlanningService]]
+
+The `service` sbt module compiles `PlanningService` to a runnable cats-effect application
+backed by the edomata skunk event-sourcing backend (Postgres journal and outbox with fs2
+notification streaming).
 
 ## Cross-context relationships
 

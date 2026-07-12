@@ -65,7 +65,10 @@ class OrderServiceTest extends AnyFlatSpecLike:
   private def task(id: ScheduledTaskId = taskId): InProgressTask =
     InProgressTask(id, templateTaskId, TaskHours(8), TaskHours(0))
 
-  private def run(command: Command, state: Order): EdomatonResult[Order, io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent, OrderError, Notification] =
+  private def run(
+      command: Command,
+      state: Order,
+  ): EdomatonResult[Order, io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent, OrderError, Notification] =
     val message = CommandMessage("message-1", Instant.parse("2026-06-14T12:00:00Z").nn, orderId.toString, command)
     OrderService[Id].execute(RequestContext(message, state))
 

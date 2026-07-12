@@ -1,5 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
@@ -32,28 +34,31 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case Command.Create(data, promisedDeliveryDate) =>
       App.state.decide(_.create(data, promisedDeliveryDate)).void >> App.publish(Notification.SchedulingRecalculationRequested(data.id))
     case Command.Suspend(reason) =>
-      App.state.decide(_.suspend(reason)).void
+      App.state.decide(_.suspend(reason)).void >> publishSchedulingRecalculation
     case Command.Reactivate =>
-      App.state.decide(_.reactivate).void
+      App.state.decide(_.reactivate).void >> publishSchedulingRecalculation
     case Command.Complete =>
-      App.state.decide(_.complete).void
+      App.state.decide(_.complete).void >> publishSchedulingRecalculation
     case Command.Deliver =>
-      App.state.decide(_.deliver).void
+      App.state.decide(_.deliver).void >> publishSchedulingRecalculation
     case Command.Cancel(reason) =>
-      App.state.decide(_.cancel(reason)).void
+      App.state.decide(_.cancel(reason)).void >> publishSchedulingRecalculation
     case Command.UpdatePromisedDeliveryDate(newPromisedDeliveryDate) =>
-      App.state.decide(_.updatePromisedDeliveryDate(newPromisedDeliveryDate)).void
+      App.state.decide(_.updatePromisedDeliveryDate(newPromisedDeliveryDate)).void >> publishSchedulingRecalculation
     case Command.Reopen =>
-      App.state.decide(_.reopen).void
+      App.state.decide(_.reopen).void >> publishSchedulingRecalculation
     case Command.ChangePriority(newPriority) =>
-      App.state.decide(_.changePriority(newPriority)).void
+      App.state.decide(_.changePriority(newPriority)).void >> publishSchedulingRecalculation
     case Command.AddManufacturing(manufacturing) =>
-      App.state.decide(_.addManufacturing(manufacturing)).void
+      App.state.decide(_.addManufacturing(manufacturing)).void >> publishSchedulingRecalculation
     case Command.RemoveManufacturing(manufacturingId) =>
-      App.state.decide(_.removeManufacturing(manufacturingId)).void
+      App.state.decide(_.removeManufacturing(manufacturingId)).void >> publishSchedulingRecalculation
     case Command.CompleteTask(manufacturingId, taskId, withHours) =>
-      App.state.decide(_.completeTask(manufacturingId, taskId, withHours)).void
+      App.state.decide(_.completeTask(manufacturingId, taskId, withHours)).void >> publishSchedulingRecalculation
     case Command.RevertTask(manufacturingId, taskId) =>
-      App.state.decide(_.revertTask(manufacturingId, taskId)).void
+      App.state.decide(_.revertTask(manufacturingId, taskId)).void >> publishSchedulingRecalculation
   }
+
+  private def publishSchedulingRecalculation[F[_]: Monad]: App[F, Unit] =
+    App.aggregateId.flatMap(id => App.publish(Notification.SchedulingRecalculationRequested(UUID.fromString(id).nn)))
 end OrderService

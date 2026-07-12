@@ -1,0 +1,14 @@
+.git
+.bloop
+.metals
+.scala-build
+.vscode
+.idea
+
+target
+**/target
+node_modules
+dist
+
+.DS_Store
+*.log

@@ -17,6 +17,10 @@ object ManufacturingDependencies:
   /** Creates a dependency graph from a sequence of directed edges. */
   def apply(edges: DiEdge[TaskId]*): ManufacturingDependencies = Graph.from(edges)
 
+  /** Rebuilds a dependency graph from directed `(source, target)` edge pairs. Used to persist and restore the graph. */
+  def fromEdgePairs(pairs: List[(TaskId, TaskId)]): ManufacturingDependencies =
+    Graph.from(pairs.map((source, target) => DiEdge(source, target)))
+
   extension (md: ManufacturingDependencies)
     /**
      * Adds dependency edges for a task.
@@ -32,6 +36,10 @@ object ManufacturingDependencies:
 
     /** Removes a task and all related dependency edges. */
     def removeTask(task: TaskId): ManufacturingDependencies = md - task
+
+    /** Returns the directed dependency edges as `(source, target)` pairs. Used to persist and restore the graph. */
+    def toEdgePairs: List[(TaskId, TaskId)] =
+      md.edges.toList.map(edge => (edge.outer.source, edge.outer.target))
 
     /** Returns the direct prerequisites of a task, or an empty set when the task has no registered dependencies. */
     def dependenciesOf(task: TaskId): Set[TaskId] =

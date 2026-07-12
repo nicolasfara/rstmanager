@@ -1,6 +1,10 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
+import sbtassembly.AssemblyPlugin.autoImport.*
+import sbtassembly.MergeStrategy
 
 lazy val scala3Version = "3.3.7"
+lazy val http4sVersion = "0.23.30"
+lazy val tapirVersion = "1.13.26"
 lazy val projectScalacOptions = Seq(
   "-encoding",
   "utf-8",
@@ -69,9 +73,29 @@ lazy val service = project
     name := "rstmanager-service",
     scalaVersion := scala3Version,
     scalacOptions ++= projectScalacOptions,
+    Compile / mainClass := Some("io.github.nicolasfara.rstmanager.planning.service.Main"),
+    assembly / mainClass := Some("io.github.nicolasfara.rstmanager.planning.service.Main"),
+    assembly / assemblyJarName := "rstmanager-service.jar",
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "maven", "org.webjars", "swagger-ui", "pom.properties") => MergeStrategy.singleOrError
+      case PathList("META-INF", "resources", "webjars", "swagger-ui", _*) => MergeStrategy.singleOrError
+      case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
+      case PathList("META-INF", "INDEX.LIST") => MergeStrategy.discard
+      case PathList("META-INF", "DEPENDENCIES") => MergeStrategy.discard
+      case PathList("META-INF", "LICENSE" | "LICENSE.txt" | "NOTICE" | "NOTICE.txt") => MergeStrategy.discard
+      case PathList("META-INF", file) if file.endsWith(".SF") || file.endsWith(".DSA") || file.endsWith(".RSA") => MergeStrategy.discard
+      case PathList("META-INF", "services", _*) => MergeStrategy.concat
+      case "module-info.class" => MergeStrategy.discard
+      case other => (assembly / assemblyMergeStrategy).value(other)
+    },
     libraryDependencies ++= Seq(
+      "io.github.iltotore" %% "iron-circe" % "3.3.1",
       "dev.hnaderi" %% "edomata-backend" % "0.13.0",
-      "dev.hnaderi" %% "edomata-skunk-circe" % "0.13.0"
+      "dev.hnaderi" %% "edomata-skunk-circe" % "0.13.0",
+      "com.softwaremill.sttp.tapir" %% "tapir-http4s-server" % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe" % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapirVersion,
+      "org.http4s" %% "http4s-ember-server" % http4sVersion
     ) ++ sharedDependencies
   )
 

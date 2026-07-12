@@ -101,7 +101,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
         newState.data shouldEqual data
         newState.promisedDeliveryDate shouldEqual nextDay
         events.toChain.toList should matchPattern { case List(OrderSuspended(_, None)) => }
-        notifications shouldBe empty
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
       case other => fail(s"Unexpected result: $other")
 
   it should "delegate nested task commands through the order aggregate" in:
@@ -112,7 +112,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
         newState.data.id shouldEqual data.id
         events.toChain.toList shouldEqual List(ManufacturingTaskCompleted(manufacturingId, taskId, TaskHours(8)))
-        notifications shouldBe empty
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
       case other => fail(s"Unexpected result: $other")
 
   it should "surface nested aggregate errors" in:

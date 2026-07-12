@@ -39,6 +39,37 @@ Navigate to http://localhost:3333
 
 Open the browser's dev console – this is where logs and exceptions will go.
 
+## Backend with Docker Compose
+
+The planning REST API can be started together with Postgres:
+
+```bash
+docker compose up --build
+```
+
+The API is then available at:
+
+- http://localhost:8080/api/v1/health
+- http://localhost:8080/docs
+- http://localhost:8080/docs/docs.yaml
+
+Postgres is exposed on `localhost:5432` by default and uses `rstmanager` as database, user, and password. Override ports or credentials with
+environment variables before running Compose, for example:
+
+```bash
+RSTMANAGER_HTTP_PUBLISHED_PORT=8081 RSTMANAGER_DB_PUBLISHED_PORT=5433 docker compose up --build
+```
+
+The backend image uses a multi-stage build: the build stage starts from `eclipse-temurin:17-jdk-jammy` and installs sbt `1.12.11`, while the runtime
+stage starts from `eclipse-temurin:17-jre-jammy` and runs only the assembled service jar. These can be overridden with `RSTMANAGER_JDK_IMAGE`,
+`RSTMANAGER_RUNTIME_IMAGE`, and `RSTMANAGER_SBT_VERSION`.
+
+To remove the persisted database volume:
+
+```bash
+docker compose down -v
+```
+
 
 ## IDE config
 

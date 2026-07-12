@@ -20,15 +20,13 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import cats.data.{ NonEmptyChain, NonEmptyList }
 import cats.effect.{ IO, IOApp, Resource }
 import com.github.nscala_time.time.Imports.DateTime
-import edomata.backend.{ Backend, OutboxConsumer }
+import edomata.backend.Backend
 import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.Empty
 import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
-import org.typelevel.otel4s.metrics.Meter.Implicits.noop
-import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import skunk.Session
 
 /**
@@ -64,47 +62,35 @@ object PlanningApp:
       request: PlanningRequest,
       orders: List[Order],
       employees: List[Employee],
-  ): IO[Either[NonEmptyChain[PlanningError], Unit]] =
+  ): IO[Either[NonEmptyChain[PlanningError], String]] =
+    IO(UUID.randomUUID().nn.toString).flatMap(commandId => computePlanWithCommandId(backend, commandId, request, orders, employees))
+
+  /** Sends one `ComputePlan` command with a caller-provided command id, useful for idempotent outbox-driven retries. */
+  def computePlanWithCommandId(
+      backend: PlanningBackend,
+      commandId: String,
+      request: PlanningRequest,
+      orders: List[Order],
+      employees: List[Employee],
+  ): IO[Either[NonEmptyChain[PlanningError], String]] =
     val service = backend.compile(PlanningService[IO])
-    IO(UUID.randomUUID().nn.toString).flatMap { commandId =>
-      service(CommandMessage(commandId, Instant.now().nn, planningAddress, Command.ComputePlan(request, orders, employees)))
-    }
+    service(CommandMessage(commandId, Instant.now().nn, planningAddress, Command.ComputePlan(request, orders, employees))).map(_.map(_ => commandId))
 end PlanningApp
 
 /**
- * Runnable demo wiring the planning service to a local Postgres instance.
+ * Runnable HTTP service wiring the planning service to Postgres.
  *
- * Start a database with: `docker run --rm -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16`, then run `sbt service/run`. The demo plans one
- * urgent order whose manufacturing has three dependent tasks from today onward, prints the resulting aggregate state, and streams the outbox
- * notifications produced by the run.
+ * Start a database with: `docker run --rm -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16`, then run `sbt service/run`. Swagger UI is exposed
+ * at `/docs` and the OpenAPI document at `/docs/docs.yaml`.
  */
 object Main extends IOApp.Simple:
-  private def sessionPool: Resource[IO, Resource[IO, Session[IO]]] =
-    Session
-      .Builder[IO]
-      .withHost("localhost")
-      .withPort(5432)
-      .withDatabase("postgres")
-      .withUserAndPassword("postgres", "postgres")
-      .pooled(4)
-
   def run: IO[Unit] =
-    sessionPool.flatMap(PlanningApp.backend).use { backend =>
-      val consumer = OutboxConsumer(backend)(item => IO.println(s"[outbox] ${item.data}"))
-      consumer.compile.drain.background.surround {
-        for
-          scenario <- IO(DemoScenario.create)
-          result <- PlanningApp.computePlan(backend, scenario.request, scenario.orders, scenario.employees)
-          _ <- result.fold(
-            errors => IO.println(s"Planning command rejected: ${errors.toChain.toList.mkString(", ")}"),
-            _ => IO.println("Planning command accepted"),
-          )
-          state <- backend.repository.get(PlanningApp.planningAddress)
-          _ <- IO.println(s"Planning aggregate state: $state")
-          _ <- IO.sleep(2.seconds)
-        yield ()
+    for
+      config <- PlanningServerConfig.load
+      _ <- PlanningHttpServer.resource(config).use { _ =>
+        IO.println(s"RST Manager planning API listening on ${config.http.baseUrl}; Swagger UI: ${config.http.baseUrl}/docs") >> IO.never
       }
-    }
+    yield ()
 
 /** Sample orders, workforce, and request used by the [[Main]] demo. */
 object DemoScenario:

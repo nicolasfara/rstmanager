@@ -1,0 +1,37 @@
+ARG JDK_IMAGE=eclipse-temurin:17-jdk-jammy
+ARG RUNTIME_IMAGE=eclipse-temurin:17-jre-jammy
+
+FROM ${JDK_IMAGE} AS build
+
+ARG SBT_VERSION=1.12.11
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl tar \
+  && curl -fsSL "https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt-${SBT_VERSION}.tgz" -o /tmp/sbt.tgz \
+  && mkdir -p /opt/sbt \
+  && tar -xzf /tmp/sbt.tgz -C /opt/sbt --strip-components=1 \
+  && ln -s /opt/sbt/bin/sbt /usr/local/bin/sbt \
+  && rm -rf /var/lib/apt/lists/* /tmp/sbt.tgz
+
+WORKDIR /app
+
+ENV SBT_OPTS="-Dsbt.supershell=false"
+
+COPY . .
+
+RUN sbt -batch service/assembly \
+  && cp service/target/scala-*/rstmanager-service.jar /tmp/rstmanager-service.jar
+
+FROM ${RUNTIME_IMAGE} AS runtime
+
+WORKDIR /app
+
+RUN useradd --create-home --uid 10001 appuser
+
+COPY --from=build /tmp/rstmanager-service.jar /app/rstmanager-service.jar
+
+USER appuser
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "/app/rstmanager-service.jar"]

@@ -129,22 +129,30 @@ enum Order derives CanEqual:
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskReverted(manufacturingId, taskId).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  transparent inline private def mustBe[O <: Order](onFail: OrderError): ValidatedNec[OrderError, O] = inline this match
-    case o: O => o.validNec
-    case _ => onFail.invalidNec
+  private def mustBeDelivered: ValidatedNec[OrderError, DeliveredOrder] = this match
+    case order: DeliveredOrder => order.validNec
+    case _ => OrderMustBeDelivered.invalidNec
 
-  private def mustBeDelivered: ValidatedNec[OrderError, DeliveredOrder] = mustBe[DeliveredOrder](OrderMustBeDelivered)
+  private def mustBeCompleted: ValidatedNec[OrderError, CompletedOrder] = this match
+    case order: CompletedOrder => order.validNec
+    case _ => OrderMustBeCompleted.invalidNec
 
-  private def mustBeCompleted: ValidatedNec[OrderError, CompletedOrder] = mustBe[CompletedOrder](OrderMustBeCompleted)
+  private def mustBeSuspended: ValidatedNec[OrderError, SuspendedOrder] = this match
+    case order: SuspendedOrder => order.validNec
+    case _ => OrderMustBeSuspended.invalidNec
 
-  private def mustBeSuspended: ValidatedNec[OrderError, SuspendedOrder] = mustBe[SuspendedOrder](OrderMustBeSuspended)
+  private def mustBeCancelled: ValidatedNec[OrderError, CancelledOrder] = this match
+    case order: CancelledOrder => order.validNec
+    case _ => OrderMustBeCancelled.invalidNec
 
-  private def mustBeCancelled: ValidatedNec[OrderError, CancelledOrder] = mustBe[CancelledOrder](OrderMustBeCancelled)
+  private def mustBeInProgressOrSuspended: ValidatedNec[OrderError, InProgressOrder | SuspendedOrder] = this match
+    case order: InProgressOrder => order.validNec
+    case order: SuspendedOrder => order.validNec
+    case _ => OrderMustBeInProgressOrPaused.invalidNec
 
-  private def mustBeInProgressOrSuspended: ValidatedNec[OrderError, InProgressOrder | SuspendedOrder] =
-    mustBe[InProgressOrder | SuspendedOrder](OrderMustBeInProgressOrPaused)
-
-  private def mustBeInProgress: ValidatedNec[OrderError, InProgressOrder] = mustBe[InProgressOrder](OrderMustBeInProgress)
+  private def mustBeInProgress: ValidatedNec[OrderError, InProgressOrder] = this match
+    case order: InProgressOrder => order.validNec
+    case _ => OrderMustBeInProgress.invalidNec
 end Order
 
 /** `DomainModel` instance for the event-sourced `Order` aggregate. */

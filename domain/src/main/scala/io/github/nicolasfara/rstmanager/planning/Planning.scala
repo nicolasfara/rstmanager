@@ -20,12 +20,12 @@ import edomata.syntax.all.*
  *
  * Lifecycle:
  *   - [[Planning.NewPlanning]] has not received a request yet.
- *   - [[Planning.InProgressPlanning]] records task slices, delays, and warnings for one active request.
+ *   - [[Planning.InProgressPlanning]] records task slices, delays, unplanned orders, and warnings for one active request.
  *   - [[Planning.CompletedPlanning]] stores the final feasible [[PlanningResult]].
- *   - [[Planning.RejectedPlanning]] stores the planning errors that made the request infeasible.
+ *   - [[Planning.RejectedPlanning]] stores terminal lifecycle or validation errors.
  *
- * Only an in-progress attempt can receive task slices, delays, warnings, completion, or rejection. A new request can be started from `NewPlanning` or
- * after a previous attempt has completed or been rejected.
+ * Only an in-progress attempt can receive task slices, delays, unplanned orders, warnings, completion, or rejection. A new request can be started
+ * from `NewPlanning` or after a previous attempt has completed or been rejected.
  */
 enum Planning derives CanEqual:
   /** Initial planning state, before a request has started. */
@@ -42,19 +42,20 @@ enum Planning derives CanEqual:
       slices: List[ScheduledTaskSlice],
       delayedOrders: List[DelayedOrder],
       delayedManufacturings: List[DelayedManufacturing],
+      unplannedOrders: List[UnplannedOrder],
       warnings: List[PlanningWarning],
   )
 
   /** Feasible planning attempt with its final day-by-day result. */
   case CompletedPlanning(request: PlanningRequest, result: PlanningResult, completedOn: DateTime)
 
-  /** Infeasible planning attempt with one or more structured errors for user-facing reporting. */
+  /** Rejected planning attempt with one or more terminal errors for user-facing reporting. */
   case RejectedPlanning(request: PlanningRequest, errors: NonEmptyList[PlanningError], rejectedOn: DateTime)
 
   /** Starts a planning attempt when no other attempt is in progress. */
   def request(request: PlanningRequest): Decision[PlanningError, PlanningEvent, Planning] = this.decide {
     case NewPlanning | CompletedPlanning(_, _, _) | RejectedPlanning(_, _, _) => Decision.accept(PlanningRequested(request))
-    case InProgressPlanning(activeRequest, _, _, _, _) => Decision.reject(PlanningAlreadyInProgress(activeRequest.id))
+    case InProgressPlanning(activeRequest, _, _, _, _, _) => Decision.reject(PlanningAlreadyInProgress(activeRequest.id))
   }.validate(_.mustBeInProgress)
 
   /** Records a daily task assignment during an active planning attempt. */
@@ -69,6 +70,10 @@ enum Planning derives CanEqual:
   def delayManufacturing(delay: DelayedManufacturing): Decision[PlanningError, PlanningEvent, Planning] =
     this.perform(mustBeInProgress.toDecision *> ManufacturingDelayedByPlanning(delay, DateTime.now()).accept).validate(_.mustBeInProgress)
 
+  /** Records an unplanned order during an active planning attempt. */
+  def markOrderUnplanned(unplannedOrder: UnplannedOrder): Decision[PlanningError, PlanningEvent, Planning] =
+    this.perform(mustBeInProgress.toDecision *> OrderMarkedUnplanned(unplannedOrder, DateTime.now()).accept).validate(_.mustBeInProgress)
+
   /** Records a non-fatal planning warning during an active planning attempt. */
   def raiseWarning(warning: PlanningWarning): Decision[PlanningError, PlanningEvent, Planning] =
     this.perform(mustBeInProgress.toDecision *> PlanningWarningRaised(warning, DateTime.now()).accept).validate(_.mustBeInProgress)
@@ -77,7 +82,7 @@ enum Planning derives CanEqual:
   def complete: Decision[PlanningError, PlanningEvent, Planning] = this.decide {
     case planning: InProgressPlanning =>
       PlanningResult
-        .fromSlices(planning.slices, planning.delayedOrders, planning.delayedManufacturings, planning.warnings)
+        .fromSlices(planning.slices, planning.delayedOrders, planning.delayedManufacturings, planning.unplannedOrders, planning.warnings)
         .fold(errors => Decision.reject(errors.head), result => Decision.accept(ScheduleComputed(result, DateTime.now())))
     case _ => Decision.reject(PlanningMustBeInProgress)
   }.validate(_.mustBeCompleted)
@@ -104,13 +109,15 @@ object Planning extends DomainModel[Planning, PlanningEvent, PlanningError]:
   override def initial: Planning = NewPlanning
 
   override def transition: PlanningEvent => Planning => ValidatedNec[PlanningError, Planning] = {
-    case PlanningRequested(request) => _ => InProgressPlanning(request, Nil, Nil, Nil, Nil).validNec
+    case PlanningRequested(request) => _ => InProgressPlanning(request, Nil, Nil, Nil, Nil, Nil).validNec
     case TaskSliceAssigned(slice, _) =>
       _.mustBeInProgress.map { planning => planning.copy(slices = planning.slices :+ slice) }
     case OrderDelayedByPlanning(delay, _) =>
       _.mustBeInProgress.map { planning => planning.copy(delayedOrders = planning.delayedOrders :+ delay) }
     case ManufacturingDelayedByPlanning(delay, _) =>
       _.mustBeInProgress.map { planning => planning.copy(delayedManufacturings = planning.delayedManufacturings :+ delay) }
+    case OrderMarkedUnplanned(unplannedOrder, _) =>
+      _.mustBeInProgress.map { planning => planning.copy(unplannedOrders = planning.unplannedOrders :+ unplannedOrder) }
     case PlanningWarningRaised(warning, _) =>
       _.mustBeInProgress.map { planning => planning.copy(warnings = planning.warnings :+ warning) }
     case ScheduleComputed(result, computedOn) =>

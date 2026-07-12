@@ -26,7 +26,6 @@ object PlanningCodecs:
 
   given Codec[DailyHours] = Codec.from(Decoder.decodeInt.emap(DailyHours.either), Encoder.encodeInt.contramap(_.value))
 
-  given Codec[PlanningWindow] = deriveCodec
   given Codec[PlanningTrigger] = deriveCodec
   given Codec[PlanningRequest] = deriveCodec
   given Codec[CandidateEmployee] = deriveCodec
@@ -34,6 +33,9 @@ object PlanningCodecs:
   given Codec[DailySchedule] = deriveCodec
   given Codec[DelayedOrder] = deriveCodec
   given Codec[DelayedManufacturing] = deriveCodec
+  given Codec[UnplannedReason] = deriveCodec
+  given Codec[UnplannedTask] = deriveCodec
+  given Codec[UnplannedOrder] = deriveCodec
   given Codec[PlanningWarning] = deriveCodec
   given Codec[PlanningResult] = deriveCodec
   given Codec[PlanningError] = deriveCodec

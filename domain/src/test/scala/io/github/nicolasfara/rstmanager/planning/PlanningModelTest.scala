@@ -51,15 +51,18 @@ class PlanningModelTest extends AnyFlatSpecLike:
     validOrFail(DailySchedule.create(scheduleDay, List(sliceForDay(scheduleDay))))
 
   private def planningResult: PlanningResult =
-    validOrFail(PlanningResult.create(List(dailySchedule), Nil, Nil, Nil))
-
-  private def planningWindow: PlanningWindow =
-    validOrFail(PlanningWindow.create(day, nextDay))
+    validOrFail(PlanningResult.create(List(dailySchedule), Nil, Nil, Nil, Nil))
 
   private def request: PlanningRequest = requestWithId(UUID.fromString("00000000-0000-0000-0000-000000000005").nn)
 
   private def requestWithId(requestId: PlanningRequestId): PlanningRequest =
-    PlanningRequest(requestId, planningWindow, PlanningTrigger.DailyPlanning, day, List(orderId))
+    PlanningRequest(requestId, day, PlanningTrigger.DailyPlanning, day, List(orderId))
+
+  private def unplannedOrder: UnplannedOrder =
+    UnplannedOrder(
+      orderId,
+      NonEmptyList.one(UnplannedTask(manufacturingId, taskId, UnplannedReason.NoFutureCapacity(TaskHours(8)))),
+    )
 
   private def orderData(
       id: OrderId,
@@ -88,12 +91,6 @@ class PlanningModelTest extends AnyFlatSpecLike:
       ),
     )
 
-  "PlanningWindow" should "accept an inclusive window" in:
-    PlanningWindow.create(day, day).isValid shouldEqual true
-
-  it should "reject a reversed window" in:
-    PlanningWindow.create(nextDay, day).toEither.left.map(_.head) shouldEqual Left(InvalidPlanningWindow(nextDay, day))
-
   "CandidateEmployee" should "accept a positive assignment within available hours" in:
     candidateWithHours(8, 8).assignedHours shouldEqual TaskHours(8)
 
@@ -115,19 +112,23 @@ class PlanningModelTest extends AnyFlatSpecLike:
   it should "accept non-empty slices for the schedule day" in:
     dailySchedule.slices.head.day shouldEqual day
 
-  "PlanningResult" should "represent planned days, delays, and warnings" in:
+  "PlanningResult" should "represent planned days, delays, unplanned orders, and warnings" in:
     val delayedOrder = validOrFail(DelayedOrder.create(orderId, day, nextDay))
     val delayedManufacturing = validOrFail(DelayedManufacturing.create(orderId, manufacturingId, day, nextDay))
     val warning = PlanningWarning("Capacity is tight")
-    val result = validOrFail(PlanningResult.create(List(dailySchedule), List(delayedOrder), List(delayedManufacturing), List(warning)))
+    val result = validOrFail(PlanningResult.create(List(dailySchedule), List(delayedOrder), List(delayedManufacturing), List(unplannedOrder), List(warning)))
 
     result.schedules.head.day shouldEqual day
     result.delayedOrders should contain only delayedOrder
     result.delayedManufacturings should contain only delayedManufacturing
+    result.unplannedOrders should contain only unplannedOrder
     result.warnings should contain only warning
 
-  it should "reject an empty schedule collection" in:
-    PlanningResult.create(Nil, Nil, Nil, Nil).toEither.left.map(_.head) shouldEqual Left(EmptyPlanningResult)
+  it should "accept an empty schedule collection" in:
+    val result = validOrFail(PlanningResult.create(Nil, Nil, Nil, List(unplannedOrder), Nil))
+
+    result.schedules shouldBe empty
+    result.unplannedOrders should contain only unplannedOrder
 
   "DelayedOrder" should "reject dates that do not move the promised delivery after the expected date" in:
     DelayedOrder.create(orderId, day, day).toEither.left.map(_.head) shouldEqual Left(InvalidOrderDelay(orderId, day, day))
@@ -136,16 +137,15 @@ class PlanningModelTest extends AnyFlatSpecLike:
     DelayedManufacturing.create(orderId, manufacturingId, day, day).toEither.left.map(_.head) shouldEqual
       Left(InvalidManufacturingDelay(orderId, manufacturingId, day, day))
 
-  "PlanningError" should "carry structured data for insufficient capacity" in:
-    val error = InsufficientCapacity(planningWindow, TaskHours(16), TaskHours(8), List(orderId), List(manufacturingId))
+  "UnplannedOrder" should "carry structured data for unsatisfied work" in:
+    val unplanned = unplannedOrder
 
-    error match
-      case InsufficientCapacity(window, requiredHours, availableHours, affectedOrders, affectedManufacturings) =>
-        window shouldEqual planningWindow
-        requiredHours shouldEqual TaskHours(16)
-        availableHours shouldEqual TaskHours(8)
-        affectedOrders should contain only orderId
-        affectedManufacturings should contain only manufacturingId
+    unplanned.blockedTasks.head match
+      case UnplannedTask(blockedManufacturingId, blockedTaskId, UnplannedReason.NoFutureCapacity(requiredHours)) =>
+        unplanned.orderId shouldEqual orderId
+        blockedManufacturingId shouldEqual manufacturingId
+        blockedTaskId shouldEqual taskId
+        requiredHours shouldEqual TaskHours(8)
       case other => fail(s"Unexpected error: $other")
 
   "Planning aggregate" should "transition from requested to completed through events" in:
@@ -162,8 +162,8 @@ class PlanningModelTest extends AnyFlatSpecLike:
     val warned = validOrFail(Planning.transition(PlanningWarningRaised(PlanningWarning("Capacity is tight"), day))(delayed))
     val result = validOrFail {
       warned match
-        case Planning.InProgressPlanning(_, slices, delayedOrders, delayedManufacturings, warnings) =>
-          PlanningResult.fromSlices(slices, delayedOrders, delayedManufacturings, warnings)
+        case Planning.InProgressPlanning(_, slices, delayedOrders, delayedManufacturings, unplannedOrders, warnings) =>
+          PlanningResult.fromSlices(slices, delayedOrders, delayedManufacturings, unplannedOrders, warnings)
         case _ => PlanningError.PlanningMustBeInProgress.invalidNec
     }
 
@@ -171,11 +171,22 @@ class PlanningModelTest extends AnyFlatSpecLike:
     result.delayedOrders should contain only validOrFail(DelayedOrder.create(orderId, day, nextDay))
     result.warnings should contain only PlanningWarning("Capacity is tight")
 
+  it should "derive a completed result with unplanned orders from accepted planning facts" in:
+    val active = validOrFail(Planning.transition(PlanningRequested(request))(Planning.initial))
+    val marked = validOrFail(Planning.transition(OrderMarkedUnplanned(unplannedOrder, day))(active))
+    val completed = validOrFail(Planning.transition(ScheduleComputed(validOrFail(PlanningResult.fromSlices(Nil, Nil, Nil, List(unplannedOrder), Nil)), nextDay))(marked))
+
+    completed match
+      case CompletedPlanning(_, result, _) =>
+        result.schedules shouldBe empty
+        result.unplannedOrders should contain only unplannedOrder
+      case other => fail(s"Unexpected state: $other")
+
   it should "transition from requested to rejected through events" in:
     val active = validOrFail(Planning.transition(PlanningRequested(request))(Planning.initial))
     val rejected = validOrFail(
       Planning.transition(
-        ScheduleRejected(NonEmptyList.one(InsufficientCapacity(planningWindow, TaskHours(16), TaskHours(8), List(orderId), Nil)), nextDay),
+        ScheduleRejected(NonEmptyList.one(TaskCannotBeScheduled(orderId, manufacturingId, taskId, day, "terminal error")), nextDay),
       )(
         active,
       ),

@@ -15,9 +15,6 @@ import com.github.nscala_time.time.Imports.DateTime
  * include the relevant order, manufacturing, task, date, and capacity values whenever those values are known.
  */
 enum PlanningError derives CanEqual:
-  /** Returned when the planning window end is before its start. */
-  case InvalidPlanningWindow(start: DateTime, end: DateTime)
-
   /** Returned when an employee assignment is empty or exceeds the employee's available hours. */
   case InvalidEmployeeAssignment(availableHours: DailyHours, assignedHours: TaskHours)
 
@@ -38,20 +35,6 @@ enum PlanningError derives CanEqual:
   /** Returned when a task slice belongs to a different day than its containing daily schedule. */
   case TaskSliceOutsideScheduleDay(scheduleDay: DateTime, sliceDay: DateTime)
 
-  /**
-   * Returned when no feasible capacity is available for the requested planning window.
-   *
-   * `requiredHours` and `availableHours` summarize the capacity gap. The affected identifiers make it possible to explain which orders and
-   * manufacturings could not fit the window.
-   */
-  case InsufficientCapacity(
-      window: PlanningWindow,
-      requiredHours: TaskHours,
-      availableHours: TaskHours,
-      affectedOrders: List[OrderId],
-      affectedManufacturings: List[ScheduledManufacturingId],
-  )
-
   /** Returned when a manufacturing cannot complete by its expected date. */
   case ManufacturingDeadlineExceeded(
       orderId: OrderId,
@@ -61,10 +44,9 @@ enum PlanningError derives CanEqual:
   )
 
   /**
-   * Returned when a task cannot be scheduled on a candidate day because of a blocking constraint.
+   * Returned when a terminal validation path needs to reject a task-level planning fact.
    *
-   * The blocking constraint is intentionally textual for now because the scheduler implementation does not yet expose a closed set of constraint
-   * types.
+   * Normal scheduler output uses [[UnplannedReason]] instead of this error so the planning attempt can still complete.
    */
   case TaskCannotBeScheduled(
       orderId: OrderId,
@@ -79,7 +61,4 @@ enum PlanningError derives CanEqual:
 
   /** Returned when an event requires an active planning request. */
   case PlanningMustBeInProgress
-
-  /** Returned when no daily schedule can be computed. */
-  case EmptyPlanningResult
 end PlanningError

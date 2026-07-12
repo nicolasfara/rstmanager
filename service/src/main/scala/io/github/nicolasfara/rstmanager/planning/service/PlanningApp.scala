@@ -75,7 +75,7 @@ end PlanningApp
  * Runnable demo wiring the planning service to a local Postgres instance.
  *
  * Start a database with: `docker run --rm -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16`, then run `sbt service/run`. The demo plans one
- * urgent order whose manufacturing has three dependent tasks over a two-week window, prints the resulting aggregate state, and streams the outbox
+ * urgent order whose manufacturing has three dependent tasks from today onward, prints the resulting aggregate state, and streams the outbox
  * notifications produced by the run.
  */
 object Main extends IOApp.Simple:
@@ -112,7 +112,6 @@ object DemoScenario:
 
   def create: Scenario =
     val today = DateTime.now().withTimeAtStartOfDay().nn
-    val windowEnd = today.plusDays(13).nn
     val orderId: OrderId = UUID.randomUUID().nn
 
     val cutting: TaskId = UUID.randomUUID().nn
@@ -152,7 +151,7 @@ object DemoScenario:
       employee("Anna", "Bianchi", weeklyHours = 40),
       employee("Luca", "Verdi", weeklyHours = 24),
     )
-    val request = PlanningRequest(UUID.randomUUID().nn, PlanningWindow(today, windowEnd), PlanningTrigger.DailyPlanning, today, List(orderId))
+    val request = PlanningRequest(UUID.randomUUID().nn, today, PlanningTrigger.DailyPlanning, today, List(orderId))
     Scenario(request, List(order), employees)
 
   private def employee(name: String, surname: String, weeklyHours: Int): Employee =

@@ -13,8 +13,9 @@ import com.github.nscala_time.time.Imports.DateTime
  * Edomata service for the event-sourced [[Planning]] aggregate.
  *
  * One `ComputePlan` command runs a full planning attempt: it starts the attempt on the aggregate, executes [[SchedulingService.computeSchedule]],
- * records every produced fact (task slices, delays, warnings) as planning events, and finally completes or rejects the attempt. Downstream contexts
- * are informed through notifications, so, for example, the order service can update promised delivery dates when planning delays an order.
+ * records every produced fact (task slices, delays, unplanned orders, warnings) as planning events, and finally completes or rejects the attempt.
+ * Downstream contexts are informed through notifications, so, for example, the order service can update promised delivery dates when planning delays
+ * an order.
  *
  * The command carries the open orders and the workforce snapshot because planning combines work demand with HR capacity without reaching into other
  * aggregates; the application layer is responsible for loading them before dispatching the command.
@@ -25,10 +26,10 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
     case ComputePlan(request: PlanningRequest, orders: List[Order], employees: List[Employee])
 
   enum Notification derives CanEqual:
-    /** A feasible schedule was computed and recorded for the request. */
+    /** A planning result was computed and recorded for the request. */
     case PlanningCompleted(requestId: PlanningRequestId)
 
-    /** No feasible schedule exists for the request under the current constraints. */
+    /** The planning attempt hit terminal lifecycle or validation errors. */
     case PlanningRejected(requestId: PlanningRequestId, errors: NonEmptyList[PlanningError])
 
     /** Planning moved the promised delivery date of an order beyond its expected delivery date. */
@@ -41,6 +42,9 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
         expectedCompletionDate: DateTime,
         computedCompletionDate: DateTime,
     )
+
+    /** Planning could not place an order with the known workforce and structural constraints. */
+    case OrderUnplanned(unplannedOrder: UnplannedOrder)
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router { case Command.ComputePlan(request, orders, employees) =>
     // `App.state` always reads the state the command arrived on, so every decision after the first
@@ -61,12 +65,14 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
         outcome.delayedManufacturings.map { delay =>
           Notification.ManufacturingDelayed(delay.orderId, delay.manufacturingId, delay.expectedCompletionDate, delay.computedCompletionDate)
         }
+    val unplannedNotifications = outcome.unplannedOrders.map(Notification.OrderUnplanned.apply)
     for
       afterSlices <- outcome.slices.foldM(planning)((state, slice) => App.decide(state.assignTaskSlice(slice)))
       afterOrderDelays <- outcome.delayedOrders.foldM(afterSlices)((state, delay) => App.decide(state.delayOrder(delay)))
       afterManufacturingDelays <- outcome.delayedManufacturings.foldM(afterOrderDelays)((state, delay) => App.decide(state.delayManufacturing(delay)))
-      afterWarnings <- outcome.warnings.foldM(afterManufacturingDelays)((state, warning) => App.decide(state.raiseWarning(warning)))
+      afterUnplanned <- outcome.unplannedOrders.foldM(afterManufacturingDelays)((state, unplannedOrder) => App.decide(state.markOrderUnplanned(unplannedOrder)))
+      afterWarnings <- outcome.warnings.foldM(afterUnplanned)((state, warning) => App.decide(state.raiseWarning(warning)))
       _ <- App.decide(afterWarnings.complete)
-      _ <- App.publish(delayNotifications :+ Notification.PlanningCompleted(request.id)*)
+      _ <- App.publish((delayNotifications ++ unplannedNotifications :+ Notification.PlanningCompleted(request.id))*)
     yield ()
 end PlanningService

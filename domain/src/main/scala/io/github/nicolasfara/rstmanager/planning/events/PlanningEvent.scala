@@ -24,12 +24,15 @@ enum PlanningEvent:
   /** A manufacturing cannot complete by its expected date. */
   case ManufacturingDelayedByPlanning(delay: DelayedManufacturing, delayedOn: DateTime)
 
+  /** An order could not be planned with the known workforce and structural constraints. */
+  case OrderMarkedUnplanned(unplannedOrder: UnplannedOrder, markedOn: DateTime)
+
   /** A non-fatal planning issue was detected. */
   case PlanningWarningRaised(warning: PlanningWarning, raisedOn: DateTime)
 
   /** A feasible schedule was computed and can be exposed as the final planning result. */
   case ScheduleComputed(result: PlanningResult, computedOn: DateTime)
 
-  /** No feasible schedule could be computed under the current constraints. */
+  /** The planning attempt hit terminal lifecycle or validation errors. */
   case ScheduleRejected(errors: NonEmptyList[PlanningError], rejectedOn: DateTime)
 end PlanningEvent

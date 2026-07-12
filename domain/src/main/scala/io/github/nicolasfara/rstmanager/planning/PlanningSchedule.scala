@@ -4,30 +4,12 @@ import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.{ NonEmptyList, Validated, ValidatedNec }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
-
-/**
- * Inclusive date range used as input for a planning attempt.
- *
- * A planning window bounds the days that the planner is allowed to inspect and populate. The domain treats both `start` and `end` as included in the
- * window. Use [[PlanningWindow.create]] when accepting external input so the invariant `end >= start` is checked and reported as a
- * [[PlanningError.InvalidPlanningWindow]].
- *
- * @param start
- *   First production day that may be considered by the planning attempt.
- * @param end
- *   Last production day that may be considered by the planning attempt.
- */
-final case class PlanningWindow(start: DateTime, end: DateTime)
-
-object PlanningWindow:
-  /** Creates a planning window when the end is on or after the start. */
-  def create(start: DateTime, end: DateTime): ValidatedNec[PlanningError, PlanningWindow] =
-    Validated.condNec(!end.isBefore(start), PlanningWindow(start, end), PlanningError.InvalidPlanningWindow(start, end))
 
 /**
  * Employee selected for one scheduled task slice.
@@ -159,6 +141,44 @@ object DelayedManufacturing:
     )
 
 /**
+ * Structured reason why a task could not be planned.
+ *
+ * These reasons describe impossible work, not delayed work: orders that can be scheduled after their expected date are still represented through
+ * [[DelayedOrder]] and [[DelayedManufacturing]].
+ */
+enum UnplannedReason derives CanEqual:
+  /** No future production day with enough remaining workforce capacity exists for the task. */
+  case NoFutureCapacity(requiredHours: TaskHours)
+
+  /** The manufacturing dependency graph contains a cycle involving the listed task templates. */
+  case DependencyCycle(cycle: Set[TaskId])
+
+  /** The task depends on a template task that is not present in the manufacturing. */
+  case MissingDependency(dependency: TaskId)
+
+  /** The task cannot start because one of its prerequisites is itself unplanned. */
+  case BlockedByDependency(dependency: TaskId)
+
+/**
+ * One task-level planning failure inside an unplanned order.
+ *
+ * @param manufacturingId
+ *   Manufacturing containing the blocked task.
+ * @param taskId
+ *   Scheduled task instance that could not be placed.
+ * @param reason
+ *   Structured reason explaining the blocking condition.
+ */
+final case class UnplannedTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, reason: UnplannedReason)
+
+/**
+ * Order that cannot be planned with the known workforce and structural constraints.
+ *
+ * The list is non-empty because an order is marked unplanned only when at least one task makes the order impossible to schedule atomically.
+ */
+final case class UnplannedOrder(orderId: OrderId, blockedTasks: NonEmptyList[UnplannedTask])
+
+/**
  * Non-fatal issue detected while planning.
  *
  * Warnings should be shown to users or kept for audit when planning succeeds but some condition is noteworthy, such as tight capacity or a
@@ -169,58 +189,56 @@ final case class PlanningWarning(message: String)
 /**
  * Result of one planning attempt.
  *
- * A planning result is produced only when at least one production day has planned work. Delays and warnings are explicit side information derived
- * from the same planning run. This type does not mutate orders or task progress by itself; it describes the schedule that was computed.
+ * A planning result may contain no planned production days: when no work can be placed, the result still carries the structured list of unplanned
+ * orders and warnings. Delays and warnings are explicit side information derived from the same planning run. This type does not mutate orders or task
+ * progress by itself; it describes the schedule that was computed.
  *
  * @param schedules
- *   Non-empty day-by-day schedule.
+ *   Day-by-day schedules. Empty production days are omitted.
  * @param delayedOrders
  *   Orders whose promised delivery dates moved beyond their expected delivery dates.
  * @param delayedManufacturings
  *   Manufacturings whose computed completion dates exceed their expected completion dates.
+ * @param unplannedOrders
+ *   Orders that could not be planned at all with the known workforce and constraints.
  * @param warnings
  *   Non-fatal planning notes that should remain visible to users or auditors.
  */
 final case class PlanningResult(
-    schedules: NonEmptyList[DailySchedule],
+    schedules: List[DailySchedule],
     delayedOrders: List[DelayedOrder],
     delayedManufacturings: List[DelayedManufacturing],
+    unplannedOrders: List[UnplannedOrder],
     warnings: List[PlanningWarning],
 )
 
 object PlanningResult:
-  /** Creates a planning result when at least one daily schedule exists. */
+  /** Creates a planning result. Daily schedules, when present, are expected to have been validated through [[DailySchedule.create]]. */
   def create(
       schedules: List[DailySchedule],
       delayedOrders: List[DelayedOrder],
       delayedManufacturings: List[DelayedManufacturing],
+      unplannedOrders: List[UnplannedOrder],
       warnings: List[PlanningWarning],
   ): ValidatedNec[PlanningError, PlanningResult] =
-    NonEmptyList
-      .fromList(schedules)
-      .toValidNec(PlanningError.EmptyPlanningResult)
-      .map(PlanningResult(_, delayedOrders, delayedManufacturings, warnings))
+    PlanningResult(schedules, delayedOrders, delayedManufacturings, unplannedOrders, warnings).validNec
 
-  /** Builds the final planning result from accepted task-slice, delay, and warning events. */
+  /** Builds the final planning result from accepted task-slice, delay, unplanned-order, and warning events. */
   def fromSlices(
       slices: List[ScheduledTaskSlice],
       delayedOrders: List[DelayedOrder],
       delayedManufacturings: List[DelayedManufacturing],
+      unplannedOrders: List[UnplannedOrder],
       warnings: List[PlanningWarning],
   ): ValidatedNec[PlanningError, PlanningResult] =
-    NonEmptyList
-      .fromList(slices)
-      .toValidNec(PlanningError.EmptyPlanningResult)
-      .andThen { nonEmptySlices =>
-        val scheduleInputs = nonEmptySlices.toList
-          .groupBy(_.day.withTimeAtStartOfDay().nn.getMillis)
-          .toList
-          .sortBy(_._1)
-          .map { case (_, daySlices) =>
-            val scheduleDay = daySlices.head.day.withTimeAtStartOfDay().nn
-            DailySchedule.create(scheduleDay, daySlices)
-          }
-
-        scheduleInputs.sequence.andThen(create(_, delayedOrders, delayedManufacturings, warnings))
+    val scheduleInputs = slices
+      .groupBy(_.day.withTimeAtStartOfDay().nn.getMillis)
+      .toList
+      .sortBy(_._1)
+      .map { case (_, daySlices) =>
+        val scheduleDay = daySlices.head.day.withTimeAtStartOfDay().nn
+        DailySchedule.create(scheduleDay, daySlices)
       }
+
+    scheduleInputs.sequence.andThen(create(_, delayedOrders, delayedManufacturings, unplannedOrders, warnings))
 end PlanningResult

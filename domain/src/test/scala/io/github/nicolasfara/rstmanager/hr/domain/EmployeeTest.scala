@@ -56,6 +56,23 @@ class EmployeeTest extends AnyFlatSpecLike:
 
     employee.isActive shouldBe true
 
+  it should "be inactive before the contract start date" in:
+    val today = DateTime.now().withTimeAtStartOfDay().nn
+    val contract = Contract.createFullTime(today.plusDays(1).nn)
+    val employee = validOrFail(createEmployee("Future", "Starter", contract, 40, Nil))
+
+    employee.isActiveAt(today) shouldBe false
+
+  it should "be active inside a fixed-term contract and inactive on its end date" in:
+    val start = DateTime.now().withTimeAtStartOfDay().nn
+    val end = start.plusDays(2).nn
+    val contract = validOrFail(Contract.createFixedTerm(start, end))
+    val employee = validOrFail(createEmployee("Fixed", "Term", contract, 40, Nil))
+
+    employee.isActiveAt(start) shouldBe true
+    employee.isActiveAt(start.plusDays(1).nn) shouldBe true
+    employee.isActiveAt(end) shouldBe false
+
   it should "allow updating budget hours when active" in:
     val contract = Contract.createFullTime(DateTime.now().nn - 1.month)
     val employee = validOrFail(createEmployee("Alice", "Johnson", contract, 40, Nil))

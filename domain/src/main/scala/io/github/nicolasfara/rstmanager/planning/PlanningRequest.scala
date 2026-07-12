@@ -39,14 +39,14 @@ enum PlanningTrigger derives CanEqual:
 /**
  * Input metadata for a system-managed planning attempt.
  *
- * A request captures the planning window, the reason planning was triggered, and the open orders considered by that run. Open orders are expected to
- * be `InProgressOrder` values selected by the planning policy before the scheduling algorithm starts; suspended, completed, delivered, cancelled, and
- * new orders are excluded from `openOrderIds`.
+ * A request captures the first day that planning may use, the reason planning was triggered, and the open orders considered by that run. Open orders
+ * are expected to be `InProgressOrder` values selected by the planning policy before the scheduling algorithm starts; suspended, completed,
+ * delivered, cancelled, and new orders are excluded from `openOrderIds`.
  *
  * @param id
  *   Stable request identifier.
- * @param window
- *   Inclusive planning window.
+ * @param startOn
+ *   First production day that may be considered by the planning attempt. The scheduler normalizes it to the start of the day.
  * @param trigger
  *   Domain change or scheduled run that requested planning.
  * @param requestedOn
@@ -56,7 +56,7 @@ enum PlanningTrigger derives CanEqual:
  */
 final case class PlanningRequest(
     id: PlanningRequestId,
-    window: PlanningWindow,
+    startOn: DateTime,
     trigger: PlanningTrigger,
     requestedOn: DateTime,
     openOrderIds: List[OrderId],

@@ -23,9 +23,9 @@ import monocle.syntax.all.*
 final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract, budgetHours: BudgetHours):
   /** Checks whether the employee is active on a given reference date. */
   def isActiveAt(referenceDate: DateTime): Boolean = contract match
-    case Contract.FullTime(_) => true
-    case Contract.PartTime(_, _) => true
-    case Contract.FixedTerm(_, endDate) => endDate.isAfter(referenceDate)
+    case Contract.FullTime(startDate) => !referenceDate.isBefore(startDate)
+    case Contract.PartTime(startDate, _) => !referenceDate.isBefore(startDate)
+    case Contract.FixedTerm(startDate, endDate) => !referenceDate.isBefore(startDate) && endDate.isAfter(referenceDate)
 
   /** Checks whether the employee is active right now. */
   def isActive: Boolean = isActiveAt(DateTime.now())

@@ -21,8 +21,6 @@ import com.github.nscala_time.time.Imports.DateTime
 import edomata.core.{ CommandMessage, EdomatonResult, RequestContext }
 import edomata.syntax.all.*
 import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.Empty
-import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
@@ -63,7 +61,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
         id,
-        new DescribedAs[Not[Empty], "The code manufacturing should be not empty"](): ManufacturingCode,
+        "MFG-TEST".refineUnsafe[ManufacturingCode],
         completionDate,
         tasks,
         dependencies,

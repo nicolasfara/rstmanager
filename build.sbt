@@ -99,10 +99,11 @@ lazy val service = project
     ) ++ sharedDependencies
   )
 
+lazy val circeVersion = "0.14.15"
+
 lazy val frontend = project
   .in(file("frontend"))
   .enablePlugins(ScalaJSPlugin)
-  .dependsOn(domain)
   .settings(
     name := "rstmanager",
     scalaVersion := scala3Version,
@@ -111,10 +112,15 @@ lazy val frontend = project
     scalaJSLinkerConfig ~= {
       _.withModuleKind(ModuleKind.ESModule)
     },
+    // The frontend is a Scala.js module: it needs `%%%` (Scala.js) artifacts and cannot depend on the
+    // JVM `domain`/`service` code, so the API DTOs are mirrored locally with circe codecs.
     libraryDependencies ++= Seq(
       "org.scala-js" %%% "scalajs-dom" % "2.8.0",
-      "com.raquo" %%% "laminar" % "17.2.0"
-    ) ++ sharedDependencies
+      "com.raquo" %%% "laminar" % "17.2.0",
+      "io.circe" %%% "circe-core" % circeVersion,
+      "io.circe" %%% "circe-generic" % circeVersion,
+      "io.circe" %%% "circe-parser" % circeVersion
+    )
   )
 
 lazy val root = project

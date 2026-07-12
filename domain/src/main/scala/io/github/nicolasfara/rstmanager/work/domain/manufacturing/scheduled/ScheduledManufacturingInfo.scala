@@ -7,6 +7,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 
 import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.DateTime
+import io.github.iltotore.iron.*
 
 /** Unique identifier for a scheduled manufacturing instance. */
 type ScheduledManufacturingId = UUID
@@ -30,7 +31,7 @@ object ScheduledManufacturingId:
  */
 final case class ScheduledManufacturingInfo(
     id: ScheduledManufacturingId,
-    code: ManufacturingCode,
+    code: String :| ManufacturingCode,
     completionDate: DateTime,
     tasks: NonEmptyList[ScheduledTask],
     dependencies: ManufacturingDependencies,

@@ -25,8 +25,6 @@ import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.Empty
-import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
 import skunk.Session
 
 /**
@@ -114,7 +112,7 @@ object DemoScenario:
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
         UUID.randomUUID().nn,
-        new DescribedAs[Not[Empty], "The code manufacturing should be not empty"](): ManufacturingCode,
+        "MFG-2026-001".refineUnsafe[ManufacturingCode],
         today.plusDays(7).nn,
         tasks, 
         dependencies,

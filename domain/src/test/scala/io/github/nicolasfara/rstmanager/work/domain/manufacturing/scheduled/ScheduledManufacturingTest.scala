@@ -13,8 +13,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import cats.data.NonEmptyList
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
-import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
-import io.github.iltotore.iron.constraint.collection.Empty
+import io.github.iltotore.iron.*
 import org.scalacheck.Gen
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
@@ -47,10 +46,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   private val genScheduledTask: Gen[ScheduledTask] =
     Gen.oneOf(genPendingTask, genInProgressTask)
 
-  // ManufacturingCode = DescribedAs[Not[Empty], "..."]: a phantom class with no
-  // fields — all instances are equivalent at runtime.
-  private val fixedCode: ManufacturingCode =
-    new DescribedAs[Not[Empty], "The code manufacturing should be not empty"]()
+  private val fixedCode: String :| ManufacturingCode = "MFG-TEST".refineUnsafe[ManufacturingCode]
 
   private def genInfo(tasks: NonEmptyList[ScheduledTask]): Gen[ScheduledManufacturingInfo] =
     genUUID.map(ScheduledManufacturingInfo(_, fixedCode, DateTime.now(), tasks, ManufacturingDependencies()))

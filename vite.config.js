@@ -1,5 +1,6 @@
 import {defineConfig} from "vite";
 import scalaJSPlugin from "@scala-js/vite-plugin-scalajs";
+import tailwindcss from "@tailwindcss/vite";
 import rollupPluginSourcemaps from "rollup-plugin-sourcemaps";
 import globResolverPlugin from "@raquo/vite-plugin-glob-resolver";
 import importSideEffectPlugin from "@raquo/vite-plugin-import-side-effect";
@@ -8,6 +9,7 @@ export default defineConfig({
   base: "/",
   publicDir: "public",
   plugins: [
+    tailwindcss(),
     scalaJSPlugin({
       cwd: ".", // path to build.sbt
       projectID: "frontend" // scala.js project name in build.sbt
@@ -40,6 +42,13 @@ export default defineConfig({
   server: {
     port: 3333,
     strictPort: true,
-    logLevel: "debug"
+    logLevel: "debug",
+    // Proxy API calls to the backend so the SPA is same-origin in dev (no CORS handling needed).
+    proxy: {
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true
+      }
+    }
   }
 })

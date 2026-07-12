@@ -18,8 +18,6 @@ import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.Empty
-import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
@@ -78,7 +76,7 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
         UUID.fromString("00000000-0000-0000-0000-000000000015").nn,
-        new DescribedAs[Not[Empty], "The code manufacturing should be not empty"](): ManufacturingCode,
+        "MFG-TEST".refineUnsafe[ManufacturingCode],
         monday.plusDays(2).nn,
         NonEmptyList.one(scheduledTask),
         ManufacturingDependencies(),

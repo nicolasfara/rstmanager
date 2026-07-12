@@ -109,7 +109,7 @@ Want to add backend, more code examples, etc.? Check out [Laminar full stack dem
 This repository includes a Nix flake and a direnv `.envrc` to provide a reproducible development shell.
 
 Files added:
-- `flake.nix` — defines a devShell with OpenJDK 17, sbt, Node.js 18, yarn, and git.
+- `flake.nix` — defines a devShell with OpenJDK 17, sbt, Node.js 22, yarn, and git.
 - `.envrc` — loads the flake with `use flake` for direnv.
 
 Supported platform: x86_64-linux (see `flake.nix`).

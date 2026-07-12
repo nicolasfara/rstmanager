@@ -18,8 +18,6 @@ import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
-import io.github.iltotore.iron.constraint.all.Empty
-import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
 import sttp.tapir.Schema
 
 /** JSON DTOs and conversions for the order REST API (request graph adapted from the planning input DTOs). */
@@ -151,6 +149,7 @@ object OrderDtos:
         case ScheduledManufacturing.CompletedManufacturing(_, started, completed) => ("completed", Some(started), Some(completed), None)
       ManufacturingResponse(
         info.id,
+        info.code,
         formatDate(info.completionDate),
         status,
         startedAt.map(formatDate),
@@ -225,6 +224,7 @@ object OrderDtos:
 
   final case class ManufacturingResponse(
       id: UUID,
+      code: String,
       completionDate: String,
       status: String,
       startedAt: Option[String],
@@ -276,10 +276,8 @@ object OrderDtos:
       case "urgent" => OrderPriority.Urgent.validNec
       case other => s"$path '$other' is not supported. Use normal or urgent.".invalidNec
 
-  private val manufacturingCodeValue: ManufacturingCode = new DescribedAs[Not[Empty], "The code manufacturing should be not empty"]()
-
-  private def manufacturingCode(value: String): ValidatedNec[String, ManufacturingCode] =
-    value.refineValidatedNec[ManufacturingCode].as(manufacturingCodeValue)
+  private def manufacturingCode(value: String): ValidatedNec[String, String :| ManufacturingCode] =
+    value.refineValidatedNec[ManufacturingCode]
 
   private def parseDate(value: String, path: String): ValidatedNec[String, DateTime] =
     Either.catchNonFatal(DateTime.parse(value).nn).leftMap(_ => s"$path must be an ISO-8601 date-time.").toValidatedNec

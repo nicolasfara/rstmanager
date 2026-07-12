@@ -3,7 +3,8 @@
   description = "Dev shell for rstmanager";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.05";
+    # 24.11 provides nodejs_22 (Vite 8 requires Node >= 20.19); 23.05 only had an older nodejs_20.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
   };
 
   outputs = { self, nixpkgs, ... }:
@@ -17,7 +18,7 @@
             buildInputs = with pkgs; [
               openjdk17
               sbt
-              nodejs-18_x
+              nodejs_22
               yarn
               git
             ];

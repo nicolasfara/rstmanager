@@ -19,8 +19,6 @@ import cats.data.{ NonEmptyList, ValidatedNec }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.Empty
-import io.github.iltotore.iron.constraint.any.{ DescribedAs, Not }
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
@@ -84,7 +82,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
         manufacturingId,
-        new DescribedAs[Not[Empty], "The code manufacturing should be not empty"](): ManufacturingCode,
+        "MFG-TEST".refineUnsafe[ManufacturingCode],
         nextDay,
         NonEmptyList.one(PendingTask(UUID.randomUUID().nn, UUID.randomUUID().nn: TaskId, TaskHours(8))),
         ManufacturingDependencies(),

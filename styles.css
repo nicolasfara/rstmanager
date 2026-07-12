@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Base app typography. Tailwind utilities carry the rest of the styling. */
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: "Inter", Helvetica, "Helvetica Neue", Arial, sans-serif;
+}

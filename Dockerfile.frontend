@@ -1,4 +1,4 @@
-ARG NODE_IMAGE=node:22-bookworm
+ARG NODE_IMAGE=node:24-bookworm
 ARG NGINX_IMAGE=nginx:1.31-alpine
 
 FROM ${NODE_IMAGE} AS build

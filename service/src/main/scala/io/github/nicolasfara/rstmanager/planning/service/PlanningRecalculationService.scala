@@ -10,6 +10,7 @@ import io.github.nicolasfara.rstmanager.work.domain.order.Order
 import cats.data.NonEmptyChain
 import cats.effect.IO
 import com.github.nscala_time.time.Imports.DateTime
+import org.slf4j.LoggerFactory
 
 trait PlanningRecalculator:
   def recalculate(trigger: PlanningTrigger): IO[PlanningRecalculationResult]
@@ -34,6 +35,8 @@ object PlanningRecalculator:
       IO.pure(PlanningRecalculationResult.skipped)
 
 object PlanningRecalculationService:
+  private val logger = LoggerFactory.getLogger(getClass).nn
+
   type ComputePlan = (String, PlanningRequest, List[Order], List[Employee]) => IO[Either[NonEmptyChain[PlanningError], String]]
 
   def apply(backend: PlanningApp.PlanningBackend, gateway: PlanningEntityGateway): PlanningRecalculator =
@@ -53,14 +56,14 @@ object PlanningRecalculationService:
         case Right(result) => IO.pure(result)
         case Left(error) =>
           val message = s"Planning recalculation failed unexpectedly for ${cause.trigger}: $error"
-          IO.println(message).as(PlanningRecalculationResult(None, List(message)))
+          IO(logger.error(message, error)).as(PlanningRecalculationResult(None, List(message)))
       }
 
     private def run(cause: PlanningRecalculationCause): IO[PlanningRecalculationResult] =
       gateway.snapshot(None, None).flatMap {
         case Left(error) =>
           val messages = List(loadErrorMessage(error))
-          IO.println(messages.mkString("; ")).as(PlanningRecalculationResult(None, messages))
+          IO(logger.warn(messages.mkString("; "))).as(PlanningRecalculationResult(None, messages))
         case Right(snapshot) =>
           val computed =
             for
@@ -69,7 +72,7 @@ object PlanningRecalculationService:
               result <- compute(commandId, request, snapshot.orders, snapshot.employees).flatMap {
                 case Left(errors) =>
                   val messages = errors.toChain.toList.map(PlanningDomainErrorDto.fromDomain(_).message)
-                  IO.println(messages.mkString("; ")).as(PlanningRecalculationResult(None, messages))
+                  IO(logger.warn(messages.mkString("; "))).as(PlanningRecalculationResult(None, messages))
                 case Right(acceptedCommandId) =>
                   IO.pure(PlanningRecalculationResult(Some(acceptedCommandId), Nil))
               }

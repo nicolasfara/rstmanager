@@ -4,6 +4,8 @@ import sbtassembly.MergeStrategy
 
 lazy val scala3Version = "3.3.7"
 lazy val http4sVersion = "0.23.30"
+lazy val slf4jVersion = "2.0.17"
+lazy val logbackVersion = "1.5.32"
 lazy val tapirVersion = "1.13.26"
 lazy val projectScalacOptions = Seq(
   "-encoding",
@@ -83,6 +85,7 @@ lazy val service = project
       case PathList("META-INF", "INDEX.LIST") => MergeStrategy.discard
       case PathList("META-INF", "DEPENDENCIES") => MergeStrategy.discard
       case PathList("META-INF", "LICENSE" | "LICENSE.txt" | "NOTICE" | "NOTICE.txt") => MergeStrategy.discard
+      case PathList("META-INF", "versions", _, "module-info.class") => MergeStrategy.discard
       case PathList("META-INF", file) if file.endsWith(".SF") || file.endsWith(".DSA") || file.endsWith(".RSA") => MergeStrategy.discard
       case PathList("META-INF", "services", _*) => MergeStrategy.concat
       case "module-info.class" => MergeStrategy.discard
@@ -95,7 +98,9 @@ lazy val service = project
       "com.softwaremill.sttp.tapir" %% "tapir-http4s-server" % tapirVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-json-circe" % tapirVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapirVersion,
-      "org.http4s" %% "http4s-ember-server" % http4sVersion
+      "org.http4s" %% "http4s-ember-server" % http4sVersion,
+      "org.slf4j" % "slf4j-api" % slf4jVersion,
+      "ch.qos.logback" % "logback-classic" % logbackVersion % Runtime
     ) ++ sharedDependencies
   )
 

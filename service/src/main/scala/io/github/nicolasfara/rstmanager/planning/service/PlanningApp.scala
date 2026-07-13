@@ -25,6 +25,7 @@ import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import io.github.iltotore.iron.*
+import org.slf4j.LoggerFactory
 import skunk.Session
 
 /**
@@ -82,11 +83,13 @@ end PlanningApp
  * at `/docs` and the OpenAPI document at `/docs/docs.yaml`.
  */
 object Main extends IOApp.Simple:
+  private val logger = LoggerFactory.getLogger(getClass).nn
+
   def run: IO[Unit] =
     for
       config <- PlanningServerConfig.load
       _ <- PlanningHttpServer.resource(config).use { _ =>
-        IO.println(s"RST Manager planning API listening on ${config.http.baseUrl}; Swagger UI: ${config.http.baseUrl}/docs") >> IO.never
+        IO(logger.info(s"RST Manager planning API listening on ${config.http.baseUrl}; Swagger UI: ${config.http.baseUrl}/docs")) >> IO.never
       }
     yield ()
 

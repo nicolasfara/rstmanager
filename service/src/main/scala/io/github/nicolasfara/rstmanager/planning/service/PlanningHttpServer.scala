@@ -9,7 +9,8 @@ import cats.effect.{ IO, Resource }
 import com.comcast.ip4s.{ Host, Port }
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Server
-import org.http4s.server.middleware.CORS
+import org.http4s.server.middleware.{ CORS, Logger as HttpLogger }
+import org.slf4j.LoggerFactory
 import org.typelevel.otel4s.metrics.Meter.Implicits.noop
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import skunk.Session
@@ -52,6 +53,8 @@ object PlanningServerConfig:
 end PlanningServerConfig
 
 object PlanningHttpServer:
+  private val logger = LoggerFactory.getLogger(getClass).nn
+
   def resource(config: PlanningServerConfig): Resource[IO, Server] =
     for
       httpHost <- Resource.eval(parseHost(config.http.host))
@@ -66,11 +69,17 @@ object PlanningHttpServer:
       planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
       _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator)
       routes = ApiServer.routes(planningBackend, employees, customers, tasks, orders)
+      httpApp = CORS.policy.withAllowOriginAll(routes).orNotFound
+      loggedHttpApp = HttpLogger.httpApp[IO](
+        logHeaders = false,
+        logBody = false,
+        logAction = Some(message => IO(logger.info(message))),
+      )(httpApp)
       server <- EmberServerBuilder
         .default[IO]
         .withHost(httpHost)
         .withPort(httpPort)
-        .withHttpApp(CORS.policy.withAllowOriginAll(routes).orNotFound)
+        .withHttpApp(loggedHttpApp)
         .build
     yield server
 

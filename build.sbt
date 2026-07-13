@@ -4,7 +4,7 @@ import sbtassembly.MergeStrategy
 
 lazy val scala3Version = "3.3.7"
 lazy val http4sVersion = "0.23.36"
-lazy val slf4jVersion = "2.0.17"
+lazy val slf4jVersion = "2.0.18"
 lazy val logbackVersion = "1.5.38"
 lazy val tapirVersion = "1.13.27"
 lazy val projectScalacOptions = Seq(

@@ -10,7 +10,7 @@ import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.Plannin
 import io.github.nicolasfara.rstmanager.planning.service.PlanningEndpoints
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
-import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ OrderRequest, OrderUpdateRequest, TransitionRequest }
+import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ OrderRequest, OrderUpdateRequest, TaskProgressUpdateRequest, TransitionRequest }
 import io.github.nicolasfara.rstmanager.work.service.{ OrderHttpApi, TaskHttpApi }
 import io.github.nicolasfara.rstmanager.work.service.TaskHttpApi.TaskRequest
 
@@ -35,6 +35,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     orderData.setOfManufacturing.head.info.id shouldBe generatedManufacturingId
     validOrFail(OrderUpdateRequest.example.toCommands)
     validOrFail(TransitionRequest.example.toCommand)
+    validOrFail(TaskProgressUpdateRequest.example.toCommands(generatedManufacturingId, id))
     validOrFail(EmployeeRequest.example.toDomain(id))
     validOrFail(CustomerRequest.example.toDomain(id))
     validOrFail(TaskRequest.example.toDomain(id))

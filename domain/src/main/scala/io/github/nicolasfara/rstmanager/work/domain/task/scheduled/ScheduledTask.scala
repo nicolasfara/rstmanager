@@ -85,6 +85,27 @@ enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedHour
     else task.focus(_.completedHours).replace(TaskHours.applyUnsafe(newCompletedHours)).asRight
   }
 
+  /**
+   * Sets the absolute completed hours of the task, re-deriving its state from the new progress:
+   *   - `>= expectedHours` completes the task (recording the completion timestamp),
+   *   - `<= 0` returns it to pending,
+   *   - otherwise it is (or stays) in progress.
+   *
+   * Unlike [[advanceInProgressTask]], this works from any state, so it can start a pending task or reopen a completed one.
+   */
+  def setProgress(completed: TaskHours): ScheduledTask = withHours(expectedHours, completed)
+
+  /**
+   * Changes the total expected hours while preserving the completed hours, re-deriving the task state accordingly
+   * (a task whose completed hours now cover the new estimate becomes completed, and vice versa).
+   */
+  def changeExpectedHours(newExpectedHours: TaskHours): ScheduledTask = withHours(newExpectedHours, completedHours)
+
+  private def withHours(expected: TaskHours, completed: TaskHours): ScheduledTask =
+    if completed.value >= expected.value then CompletedTask(id, taskId, expected, completed, DateTime.now())
+    else if completed.value <= 0 then PendingTask(id, taskId, expected)
+    else InProgressTask(id, taskId, expected, completed)
+
   /** Completes an in-progress task and records the completion timestamp. */
   def completeTask(withHours: TaskHours): Either[ScheduledTaskError, ScheduledTask] = this match
     case InProgressTask(id, taskId, expectedHours, completedHours) =>

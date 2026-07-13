@@ -39,15 +39,21 @@ Navigate to http://localhost:3333
 
 Open the browser's dev console – this is where logs and exceptions will go.
 
-## Backend with Docker Compose
+## Application with Docker Compose
 
-The planning REST API can be started together with Postgres:
+The full stack can be started with Compose: Postgres, the Scala backend API, and the Scala.js/Vite frontend served by nginx:
 
 ```bash
 docker compose up --build
 ```
 
-The API is then available at:
+The app is then available at:
+
+- http://localhost:3333
+- http://localhost:3333/api/v1/health
+- http://localhost:3333/docs
+
+The backend is still exposed directly for API/debugging:
 
 - http://localhost:8080/api/v1/health
 - http://localhost:8080/docs
@@ -57,12 +63,16 @@ Postgres is exposed on `localhost:5432` by default and uses `rstmanager` as data
 environment variables before running Compose, for example:
 
 ```bash
-RSTMANAGER_HTTP_PUBLISHED_PORT=8081 RSTMANAGER_DB_PUBLISHED_PORT=5433 docker compose up --build
+RSTMANAGER_FRONTEND_PUBLISHED_PORT=3000 RSTMANAGER_HTTP_PUBLISHED_PORT=8081 RSTMANAGER_DB_PUBLISHED_PORT=5433 docker compose up --build
 ```
 
 The backend image uses a multi-stage build: the build stage starts from `eclipse-temurin:17-jdk-jammy` and installs sbt `1.12.11`, while the runtime
 stage starts from `eclipse-temurin:17-jre-jammy` and runs only the assembled service jar. These can be overridden with `RSTMANAGER_JDK_IMAGE`,
 `RSTMANAGER_RUNTIME_IMAGE`, and `RSTMANAGER_SBT_VERSION`.
+
+The frontend image also uses a multi-stage build: the build stage starts from `node:22-bookworm`, installs OpenJDK 17 plus sbt, and runs
+`npm run build`; the runtime stage starts from `nginx:1.27-alpine`, serves `dist`, and proxies `/api` plus `/docs` to the backend service. Override
+those base images with `RSTMANAGER_NODE_IMAGE` and `RSTMANAGER_NGINX_IMAGE`.
 
 To remove the persisted database volume:
 

@@ -222,6 +222,25 @@ object OrderDtos:
   object TransitionRequest:
     val example: TransitionRequest = TransitionRequest("suspend", Some("Waiting for material"))
 
+  /** Recalibration of a single scheduled task instance: its completed hours (progress) and/or its total expected hours. */
+  final case class TaskProgressUpdateRequest(completedHours: Option[Int], expectedHours: Option[Int]):
+    def toCommands(manufacturingId: UUID, taskId: UUID): ValidatedNec[String, List[OrderService.Command]] =
+      (
+        expectedHours.traverse(validateExpectedHours),
+        completedHours.traverse(h => TaskHours.validatedNec(h).leftMap(_.map(m => s"completedHours $m"))),
+      ).mapN { (expected, completed) =>
+        // Apply the new total first so the progress is re-derived against it.
+        expected.map(OrderService.Command.ChangeTaskExpectedHours(manufacturingId, taskId, _)).toList ++
+          completed.map(OrderService.Command.SetTaskProgress(manufacturingId, taskId, _)).toList
+      }
+
+    private def validateExpectedHours(hours: Int): ValidatedNec[String, TaskHours] =
+      if hours < 1 then "expectedHours must be at least 1.".invalidNec
+      else TaskHours.validatedNec(hours).leftMap(_.map(m => s"expectedHours $m"))
+
+  object TaskProgressUpdateRequest:
+    val example: TaskProgressUpdateRequest = TaskProgressUpdateRequest(Some(6), Some(12))
+
   final case class ManufacturingResponse(
       id: UUID,
       code: String,
@@ -294,6 +313,7 @@ object OrderDtos:
   given Codec[OrderRequest] = deriveCodec
   given Codec[OrderUpdateRequest] = deriveCodec
   given Codec[TransitionRequest] = deriveCodec
+  given Codec[TaskProgressUpdateRequest] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
   given Codec[OrderResponse] = deriveCodec
 
@@ -303,6 +323,7 @@ object OrderDtos:
   given Schema[OrderRequest] = Schema.derived
   given Schema[OrderUpdateRequest] = Schema.derived
   given Schema[TransitionRequest] = Schema.derived
+  given Schema[TaskProgressUpdateRequest] = Schema.derived
   given Schema[ManufacturingResponse] = Schema.derived
   given Schema[OrderResponse] = Schema.derived
 end OrderDtos

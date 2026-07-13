@@ -1,7 +1,10 @@
 .git
 .bloop
+**/.bloop
 .metals
+**/.metals
 .scala-build
+**/.scala-build
 .vscode
 .idea
 

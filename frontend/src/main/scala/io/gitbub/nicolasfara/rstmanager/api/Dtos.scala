@@ -131,6 +131,7 @@ object Dtos:
 
   final case class OrderUpdateRequest(priority: Option[String], promisedDeliveryDate: Option[String])
   final case class TransitionRequest(action: String, reason: Option[String])
+  final case class TaskProgressUpdateRequest(completedHours: Option[Int], expectedHours: Option[Int])
 
   final case class OrderResponse(
       id: UUID,
@@ -252,6 +253,7 @@ object Dtos:
   given Codec[OrderRequest] = deriveCodec
   given Codec[OrderUpdateRequest] = deriveCodec
   given Codec[TransitionRequest] = deriveCodec
+  given Codec[TaskProgressUpdateRequest] = deriveCodec
   given Codec[OrderResponse] = deriveCodec
 
   given Codec[PlanningTriggerDto] = deriveCodec

@@ -3,6 +3,7 @@ package io.gitbub.nicolasfara.rstmanager.ui
 import java.util.UUID
 
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.scalajs.js.timers.setTimeout
 import scala.util.Try
 
 import com.raquo.laminar.api.L.*
@@ -46,6 +47,18 @@ object PlanningPage:
     val tick = Var(0)
     val pageError = Var(Option.empty[ApiError])
 
+    // ---- Task-update modal state -----------------------------------------------------------------
+    // The scheduled task instance being edited: (orderId, manufacturingId, taskInstanceId).
+    val editing = Var(Option.empty[(UUID, UUID, UUID)])
+    val editName = Var("")
+    val editCompleted = Var("")
+    val editExpected = Var("")
+    val origCompleted = Var(0)
+    val origExpected = Var(0)
+    val modalOpen = Var(false)
+    val modalError = Var(Option.empty[ApiError])
+    val saving = Var(false)
+
     val planningData = loadable(tick.signal)(() => ApiClient.currentPlanning())
     val ordersData = loadable(tick.signal)(() => ApiClient.listOrders())
     val employeesData = loadable(tick.signal)(() => ApiClient.listEmployees())
@@ -80,6 +93,11 @@ object PlanningPage:
       case Some(Right(list)) => ("" -> "— seleziona ordine —") :: list.map(o => o.id.toString -> o.number)
       case _                 => List("" -> "—")
     }
+    // Resolve a slice's scheduled-task instance id to its current progress/estimate, so the modal opens pre-filled.
+    val scheduledTaskById: Signal[Map[UUID, ScheduledTaskDto]] =
+      ordersList.map(_.flatMap(_.manufacturings.flatMap(_.tasks.map(t => t.id -> t))).toMap)
+    val editLookup: Signal[(Map[UUID, ScheduledTaskDto], Map[UUID, String])] =
+      scheduledTaskById.combineWith(scheduledTaskNames)
 
     // ---- Attempt form ----------------------------------------------------------------------------
     val startOn = Var("")
@@ -113,10 +131,81 @@ object PlanningPage:
         child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
       )
 
+    // ---- Task-update modal -----------------------------------------------------------------------
+    def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String): Unit =
+      val completed = task.completedHours.getOrElse(0)
+      editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
+      editName.set(name)
+      editCompleted.set(completed.toString)
+      editExpected.set(task.expectedHours.toString)
+      origCompleted.set(completed)
+      origExpected.set(task.expectedHours)
+      modalError.set(None)
+      modalOpen.set(true)
+
+    def closeEdit(): Unit =
+      modalOpen.set(false); editing.set(None); saving.set(false)
+
+    def save(): Unit =
+      editing.now().foreach { case (orderId, manufacturingId, taskId) =>
+        val completed = editCompleted.now().trim.nn.toIntOption
+        val expected = editExpected.now().trim.nn.toIntOption
+        if completed.exists(_ < 0) then modalError.set(Some(ApiError("invalid", "Le ore svolte non possono essere negative.", Nil)))
+        else if expected.exists(_ < 1) then modalError.set(Some(ApiError("invalid", "Le ore totali devono essere almeno 1.", Nil)))
+        else
+          // Send only the fields the user actually changed, so we don't emit redundant events.
+          val request = TaskProgressUpdateRequest(
+            completed.filter(_ != origCompleted.now()),
+            expected.filter(_ != origExpected.now()),
+          )
+          if request.completedHours.isEmpty && request.expectedHours.isEmpty then closeEdit()
+          else
+            saving.set(true)
+            modalError.set(None)
+            ApiClient.updateScheduledTask(orderId, manufacturingId, taskId, request).foreach {
+              case Right(_) =>
+                closeEdit()
+                tick.update(_ + 1)
+                // Recalculation runs asynchronously on the backend; refresh again shortly to pick up the new plan.
+                setTimeout(1200)(tick.update(_ + 1))
+              case Left(err) => saving.set(false); modalError.set(Some(err))
+            }
+      }
+
+    val taskModal =
+      modal(modalOpen, "Aggiorna task")(
+        div(
+          cls := "space-y-3",
+          div(cls := "text-sm font-semibold text-slate-800", child.text <-- editName.signal),
+          div(
+            cls := "grid grid-cols-2 gap-3",
+            field("Ore svolte", textInput(editCompleted, inputType = "number")),
+            field("Ore totali", textInput(editExpected, inputType = "number")),
+          ),
+          p(cls := "text-xs text-slate-400", "Le ore svolte pari o superiori alle ore totali completano il task. La pianificazione si aggiorna in automatico."),
+          child.maybe <-- modalError.signal.map(_.map(errorBanner)),
+          div(
+            cls := "flex justify-end gap-2 pt-1",
+            button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => closeEdit())),
+            button(
+              tpe := "button",
+              cls := btnPrimary,
+              disabled <-- saving.signal,
+              child.text <-- saving.signal.map(s => if s then "Salvataggio…" else "Salva"),
+              onClick --> (_ => save()),
+            ),
+          ),
+        ),
+      )
+
     // ---- Board -----------------------------------------------------------------------------------
     def sliceCard(slice: ScheduledTaskSliceDto): HtmlElement =
       div(
         cls := s"rounded-lg border p-2.5 ${Formats.colorFor(slice.orderId)}",
+        cls := "cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
+        onClick.compose(_.sample(editLookup)) --> { case (byId, names) =>
+          byId.get(slice.taskId).foreach(task => openEdit(slice, task, names.getOrElse(slice.taskId, Formats.shortId(slice.taskId))))
+        },
         // Order number + hours assigned to this slice
         div(
           cls := "flex items-center justify-between gap-2",
@@ -188,6 +277,7 @@ object PlanningPage:
 
     div(
       cls := "space-y-4",
+      taskModal,
       sectionTitle("Pianificazione dei lavori"),
       attemptForm,
       renderResult(planningData) { state =>

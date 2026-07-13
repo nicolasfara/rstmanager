@@ -1,6 +1,10 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ScheduledManufacturing,
+  ScheduledManufacturingError,
+  ScheduledManufacturingId,
+}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
@@ -35,7 +39,7 @@ object OrderOperations:
       for
         manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
         updatedManufacturing <- manufacturing.advanceTask(taskId, advancedBy).leftMap(OrderError.ManufacturingError.apply)
-        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+        updatedData = data.replaceManufacturing(updatedManufacturing)
       yield InProgressOrder(updatedData, promisedDeliveryDate)
     order match
       case InProgressOrder(data, promisedDeliveryDate) => advance(data, promisedDeliveryDate)
@@ -52,11 +56,44 @@ object OrderOperations:
       for
         manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
         updatedManufacturing <- manufacturing.rollbackTask(taskId, rollbackBy).leftMap(OrderError.ManufacturingError.apply)
-        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+        updatedData = data.replaceManufacturing(updatedManufacturing)
       yield InProgressOrder(updatedData, promisedDeliveryDate)
     order match
       case InProgressOrder(data, promisedDeliveryDate) => rollback(data, promisedDeliveryDate)
       case SuspendedOrder(data, promisedDeliveryDate, _, _) => rollback(data, promisedDeliveryDate)
+
+  /** Sets the absolute progress (completed hours) of a task inside one of the order manufacturings. */
+  def setTaskProgress(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      completedHours: TaskHours,
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturingTask(order, manufacturingId)(_.setTaskProgress(taskId, completedHours))
+
+  /** Changes the total expected hours of a task inside one of the order manufacturings. */
+  def changeTaskExpectedHours(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      expectedHours: TaskHours,
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturingTask(order, manufacturingId)(_.changeTaskExpectedHours(taskId, expectedHours))
+
+  /** Applies a manufacturing-level update to the targeted manufacturing, keeping the order in progress. */
+  private def updateManufacturingTask(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+  )(update: ScheduledManufacturing => Either[ScheduledManufacturingError, ScheduledManufacturing]): Either[OrderError, InProgressOrder] =
+    def apply(data: OrderData, promisedDeliveryDate: DateTime): Either[OrderError, InProgressOrder] =
+      for
+        manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
+        updatedManufacturing <- update(manufacturing).leftMap(OrderError.ManufacturingError.apply)
+        updatedData = data.replaceManufacturing(updatedManufacturing)
+      yield InProgressOrder(updatedData, promisedDeliveryDate)
+    order match
+      case InProgressOrder(data, promisedDeliveryDate) => apply(data, promisedDeliveryDate)
+      case SuspendedOrder(data, promisedDeliveryDate, _, _) => apply(data, promisedDeliveryDate)
 
   /** Completes a task and completes the whole order when every manufacturing is done. */
   def completeTask(
@@ -69,7 +106,7 @@ object OrderOperations:
       for
         manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
         updatedManufacturing <- manufacturing.completeTask(taskId, withHours).leftMap(OrderError.ManufacturingError.apply)
-        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+        updatedData = data.replaceManufacturing(updatedManufacturing)
       yield
         if areAllManufacturingsCompleted(updatedData) then CompletedOrder(updatedData, DateTime.now())
         else InProgressOrder(updatedData, promisedDeliveryDate)
@@ -87,7 +124,7 @@ object OrderOperations:
       for
         manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
         updatedManufacturing <- manufacturing.revertTaskToInProgress(taskId).leftMap(OrderError.ManufacturingError.apply)
-        updatedData = data.removeManufacturing(manufacturingId).addManufacturing(updatedManufacturing)
+        updatedData = data.replaceManufacturing(updatedManufacturing)
       yield InProgressOrder(updatedData, promisedDeliveryDate)
     order match
       case InProgressOrder(data, promisedDeliveryDate) => revert(data, promisedDeliveryDate)

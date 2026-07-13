@@ -101,6 +101,13 @@ object ApiClient:
     sendJson(dom.HttpMethod.PUT, s"/orders/$id", jsonBody(request))
   def orderTransition(id: UUID, request: TransitionRequest): Future[Result[OrderResponse]] =
     sendJson(dom.HttpMethod.POST, s"/orders/$id/transitions", jsonBody(request))
+  def updateScheduledTask(
+      orderId: UUID,
+      manufacturingId: UUID,
+      taskId: UUID,
+      request: TaskProgressUpdateRequest,
+  ): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/manufacturings/$manufacturingId/tasks/$taskId", jsonBody(request))
   def deleteOrder(id: UUID, reason: Option[String]): Future[Result[Unit]] =
     val query = reason.filter(_.nonEmpty).fold("")(r => s"?reason=${js.URIUtils.encodeURIComponent(r)}")
     sendUnit(dom.HttpMethod.DELETE, s"/orders/$id$query", None)

@@ -50,6 +50,12 @@ enum OrderEvent:
   /** Progress on a task within a manufacturing has been rolled back. */
   case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: TaskHours)
 
+  /** The absolute progress (completed hours) of a task within a manufacturing has been set. */
+  case ManufacturingTaskProgressSet(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedHours: TaskHours)
+
+  /** The total expected hours of a task within a manufacturing has been changed. */
+  case ManufacturingTaskExpectedHoursChanged(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedHours: TaskHours)
+
   /** A task within a manufacturing has been completed. */
   case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
 

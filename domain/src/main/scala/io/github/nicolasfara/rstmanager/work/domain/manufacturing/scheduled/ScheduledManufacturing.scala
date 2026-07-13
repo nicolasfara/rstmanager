@@ -62,10 +62,15 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
 
   /** Completes a task and promotes the manufacturing to completed when all tasks are done. */
   def completeTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.completeTask(hours)).flatMap { updatedManufacturing =>
-      if areAllTasksCompleted(updatedManufacturing) then transitionToCompleted(updatedManufacturing)
-      else Right(updatedManufacturing)
-    }
+    changeTaskState(taskId, _.completeTask(hours)).flatMap(promoteWhenAllTasksCompleted)
+
+  /** Sets the absolute completed hours of a task and promotes the manufacturing to completed when all tasks are done. */
+  def setTaskProgress(taskId: ScheduledTaskId, completedHours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, task => task.setProgress(completedHours).asRight).flatMap(promoteWhenAllTasksCompleted)
+
+  /** Changes the total expected hours of a task and promotes the manufacturing to completed when all tasks are done. */
+  def changeTaskExpectedHours(taskId: ScheduledTaskId, expectedHours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, task => task.changeExpectedHours(expectedHours).asRight).flatMap(promoteWhenAllTasksCompleted)
 
   /** Reopens a completed task and, if necessary, reopens the manufacturing itself. */
   def revertTaskToInProgress(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
@@ -83,6 +88,12 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
       }
       newManufacturing = updateTasks(updatedTasks, info.dependencies)
     yield transitionToInProgressIfNeeded(newManufacturing)
+
+  private def promoteWhenAllTasksCompleted(
+      manufacturing: ScheduledManufacturing,
+  ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    if areAllTasksCompleted(manufacturing) then transitionToCompleted(manufacturing)
+    else Right(manufacturing)
 
   private def ensureTaskExists(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledTask] =
     info.tasks.find(_.id == taskId) match

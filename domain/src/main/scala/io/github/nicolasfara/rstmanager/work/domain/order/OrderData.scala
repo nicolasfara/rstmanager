@@ -49,6 +49,10 @@ final case class OrderData(
   def addManufacturing(manufacturing: ScheduledManufacturing): OrderData =
     this.focus(_.setOfManufacturing).modify(_.append(manufacturing))
 
+  /** Replaces the manufacturing sharing the given manufacturing's id in place, leaving the list unchanged if none matches. */
+  def replaceManufacturing(manufacturing: ScheduledManufacturing): OrderData =
+    this.focus(_.setOfManufacturing).modify(_.map(existing => if existing.info.id == manufacturing.info.id then manufacturing else existing))
+
   /** Removes a manufacturing when at least one manufacturing remains afterwards. */
   def removeManufacturing(manufacturingId: ScheduledManufacturingId): OrderData =
     this.focus(_.setOfManufacturing).modify { nel =>

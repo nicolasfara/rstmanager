@@ -24,6 +24,8 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case ChangePriority(newPriority: OrderPriority)
     case AddManufacturing(manufacturing: ScheduledManufacturing)
     case RemoveManufacturing(manufacturingId: ScheduledManufacturingId)
+    case SetTaskProgress(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedHours: TaskHours)
+    case ChangeTaskExpectedHours(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedHours: TaskHours)
     case CompleteTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
     case RevertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
 
@@ -53,6 +55,10 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
       App.state.decide(_.addManufacturing(manufacturing)).void >> publishSchedulingRecalculation
     case Command.RemoveManufacturing(manufacturingId) =>
       App.state.decide(_.removeManufacturing(manufacturingId)).void >> publishSchedulingRecalculation
+    case Command.SetTaskProgress(manufacturingId, taskId, completedHours) =>
+      App.state.decide(_.setTaskProgress(manufacturingId, taskId, completedHours)).void >> publishSchedulingRecalculation
+    case Command.ChangeTaskExpectedHours(manufacturingId, taskId, expectedHours) =>
+      App.state.decide(_.changeTaskExpectedHours(manufacturingId, taskId, expectedHours)).void >> publishSchedulingRecalculation
     case Command.CompleteTask(manufacturingId, taskId, withHours) =>
       App.state.decide(_.completeTask(manufacturingId, taskId, withHours)).void >> publishSchedulingRecalculation
     case Command.RevertTask(manufacturingId, taskId) =>

@@ -56,6 +56,14 @@ object OrderHttpApi:
       .in(jsonBody[TransitionRequest].example(TransitionRequest.example))
       .out(jsonBody[OrderResponse])
 
+  val updateTask: PublicEndpoint[(UUID, UUID, UUID, TaskProgressUpdateRequest), ApiFailure, OrderResponse, Any] =
+    ApiError.base.put
+      .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "tasks" / path[UUID]("taskId"))
+      .tag("Orders")
+      .summary("Update a scheduled task progress (completed hours) and/or its total expected hours")
+      .in(jsonBody[TaskProgressUpdateRequest].example(TaskProgressUpdateRequest.example))
+      .out(jsonBody[OrderResponse])
+
   val delete: PublicEndpoint[(UUID, Option[String]), ApiFailure, Unit, Any] =
     ApiError.base.delete
       .in(collection / path[UUID]("id"))
@@ -64,7 +72,7 @@ object OrderHttpApi:
       .summary("Cancel and remove an order")
       .out(statusCode(StatusCode.NoContent))
 
-  def endpoints: List[AnyEndpoint] = List(create, list, read, update, transition, delete)
+  def endpoints: List[AnyEndpoint] = List(create, list, read, update, transition, updateTask, delete)
 
   def routes(
       store: OrderApp.Store,
@@ -76,6 +84,7 @@ object OrderHttpApi:
     read.serverLogic(readLogic(store)),
     update.serverLogic(updateLogic(store)),
     transition.serverLogic(transitionLogic(store)),
+    updateTask.serverLogic(updateTaskLogic(store)),
     delete.serverLogic(deleteLogic(store)),
   )
 
@@ -129,6 +138,13 @@ object OrderHttpApi:
     request.toCommand.toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
       case Right(command) => runCommands(store, id, List(command))
+
+  private def updateTaskLogic(
+      store: OrderApp.Store,
+  )(id: UUID, manufacturingId: UUID, taskId: UUID, request: TaskProgressUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
+    request.toCommands(manufacturingId, taskId).toEither match
+      case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
+      case Right(commands) => runCommands(store, id, commands)
 
   private def deleteLogic(store: OrderApp.Store)(id: UUID, reason: Option[String]): IO[Either[ApiFailure, Unit]] =
     reason.traverse(_.refineValidatedNec[CancellationReason]).toEither match

@@ -113,6 +113,28 @@ class OrderServiceTest extends AnyFlatSpecLike:
         notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
       case other => fail(s"Unexpected result: $other")
 
+  it should "set a task's absolute progress, completing the manufacturing while keeping the order in progress" in:
+    val data = orderData()
+    val result = run(Command.SetTaskProgress(manufacturingId, taskId, TaskHours(8)), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        events.toChain.toList shouldEqual List(ManufacturingTaskProgressSet(manufacturingId, taskId, TaskHours(8)))
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+        newState.data.setOfManufacturing.head shouldBe a[ScheduledManufacturing.CompletedManufacturing]
+      case other => fail(s"Unexpected result: $other")
+
+  it should "change a task's total expected hours" in:
+    val data = orderData()
+    val result = run(Command.ChangeTaskExpectedHours(manufacturingId, taskId, TaskHours(16)), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        events.toChain.toList shouldEqual List(ManufacturingTaskExpectedHoursChanged(manufacturingId, taskId, TaskHours(16)))
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+        newState.data.setOfManufacturing.head.info.tasks.head.expectedHours shouldEqual TaskHours(16)
+      case other => fail(s"Unexpected result: $other")
+
   it should "surface nested aggregate errors" in:
     val unknownManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000106").nn
     val data = orderData()

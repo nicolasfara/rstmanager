@@ -180,6 +180,49 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         t.expectedHours shouldEqual task.expectedHours
 
   // ---------------------------------------------------------------------------
+  // setProgress / changeExpectedHours
+  // ---------------------------------------------------------------------------
+
+  "setProgress" should "complete the task when the completed hours reach the expected hours" in:
+    forAll(genPendingTask): task =>
+      val result = task.setProgress(task.expectedHours)
+      result shouldBe a[CompletedTask]
+      result.completedHours shouldEqual task.expectedHours
+      result.remainingHours shouldEqual zeroHours
+
+  it should "return the task to pending when the completed hours are zero" in:
+    forAll(genBoundedInProgressTask): task =>
+      val result = task.setProgress(zeroHours)
+      result shouldBe a[PendingTask]
+      result.expectedHours shouldEqual task.expectedHours
+
+  it should "keep the task in progress for a partial completion below the estimate" in:
+    forAll(genBoundedInProgressTask): task =>
+      whenever(task.expectedHours.value > 1):
+        val partial = TaskHours.applyUnsafe(task.expectedHours.value - 1)
+        val result = task.setProgress(partial)
+        result shouldBe a[InProgressTask]
+        result.completedHours shouldEqual partial
+
+  it should "reopen a completed task when progress drops below the estimate" in:
+    forAll(genCompletedTask): task =>
+      whenever(task.expectedHours.value > 1):
+        val result = task.setProgress(TaskHours.applyUnsafe(task.expectedHours.value - 1))
+        result shouldBe a[InProgressTask]
+
+  "changeExpectedHours" should "preserve the completed hours while re-deriving the state" in:
+    forAll(genBoundedInProgressTask, genHours): (task, newExpected) =>
+      val result = task.changeExpectedHours(newExpected)
+      result.completedHours shouldEqual task.completedHours
+      result.expectedHours shouldEqual newExpected
+
+  it should "complete the task when the new estimate is not above the completed hours" in:
+    forAll(genBoundedInProgressTask): task =>
+      whenever(task.completedHours.value > 0):
+        val result = task.changeExpectedHours(task.completedHours)
+        result shouldBe a[CompletedTask]
+
+  // ---------------------------------------------------------------------------
   // createScheduledTask smart constructor
   // ---------------------------------------------------------------------------
 

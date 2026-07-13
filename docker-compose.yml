@@ -44,6 +44,22 @@ services:
     networks:
       - rstmanager
 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        NODE_IMAGE: ${RSTMANAGER_NODE_IMAGE:-node:22-bookworm}
+        NGINX_IMAGE: ${RSTMANAGER_NGINX_IMAGE:-nginx:1.27-alpine}
+        SBT_VERSION: ${RSTMANAGER_SBT_VERSION:-1.12.11}
+    ports:
+      - "${RSTMANAGER_FRONTEND_PUBLISHED_PORT:-3333}:80"
+    depends_on:
+      planning-service:
+        condition: service_started
+    networks:
+      - rstmanager
+
 volumes:
   postgres-data:
 

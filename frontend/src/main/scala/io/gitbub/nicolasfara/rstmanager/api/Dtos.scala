@@ -105,6 +105,7 @@ object Dtos:
       completedAt: Option[String],
       pausedAt: Option[String],
       pauseReason: Option[String],
+      description: Option[String] = None,
   )
 
   final case class ManufacturingResponse(
@@ -117,6 +118,7 @@ object Dtos:
       pauseReason: Option[String],
       tasks: List[ScheduledTaskDto],
       dependencies: List[TaskDependencyDto],
+      description: Option[String],
   )
 
   final case class OrderRequest(
@@ -127,11 +129,18 @@ object Dtos:
       promisedDeliveryDate: String,
       priority: String,
       manufacturings: List[ManufacturingDto],
+      description: Option[String] = None,
   )
 
-  final case class OrderUpdateRequest(priority: Option[String], promisedDeliveryDate: Option[String])
+  final case class OrderUpdateRequest(priority: Option[String], promisedDeliveryDate: Option[String], description: Option[String] = None)
   final case class TransitionRequest(action: String, reason: Option[String])
   final case class TaskProgressUpdateRequest(completedHours: Option[Int], expectedHours: Option[Int])
+
+  /** Update a manufacturing's free-text description and/or its lifecycle status (`reason` used when pausing). */
+  final case class ManufacturingUpdateRequest(description: Option[String], status: Option[String], reason: Option[String])
+
+  /** Add a new scheduled task (referencing a catalog task) to a manufacturing. */
+  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID])
 
   final case class OrderResponse(
       id: UUID,
@@ -143,6 +152,7 @@ object Dtos:
       deliveryDate: String,
       promisedDeliveryDate: Option[String],
       manufacturings: List[ManufacturingResponse],
+      description: Option[String],
   )
 
   // ---- Planning ----------------------------------------------------------------------------------
@@ -252,6 +262,8 @@ object Dtos:
   given Codec[ManufacturingResponse] = deriveCodec
   given Codec[OrderRequest] = deriveCodec
   given Codec[OrderUpdateRequest] = deriveCodec
+  given Codec[ManufacturingUpdateRequest] = deriveCodec
+  given Codec[AddTaskRequest] = deriveCodec
   given Codec[TransitionRequest] = deriveCodec
   given Codec[TaskProgressUpdateRequest] = deriveCodec
   given Codec[OrderResponse] = deriveCodec

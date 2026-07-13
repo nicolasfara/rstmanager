@@ -82,6 +82,7 @@ object OrderDtos:
       completedAt: Option[String],
       pausedAt: Option[String],
       pauseReason: Option[String],
+      description: Option[String] = None,
   ):
     def toDomain(path: String, id: UUID): ValidatedNec[String, ScheduledManufacturing] =
       val taskList = tasks.zipWithIndex
@@ -93,7 +94,8 @@ object OrderDtos:
       }
 
       val info = (manufacturingCode(code), parseDate(completionDate, s"$path.completionDate"), taskList).mapN {
-        (code, expectedCompletionDate, scheduledTasks) => ScheduledManufacturingInfo(id, code, expectedCompletionDate, scheduledTasks, dependencyGraph)
+        (code, expectedCompletionDate, scheduledTasks) =>
+          ScheduledManufacturingInfo(id, code, expectedCompletionDate, scheduledTasks, dependencyGraph, description.map(_.trim.nn).filter(_.nonEmpty))
       }
 
       info.andThen { manufacturingInfo =>
@@ -138,6 +140,7 @@ object OrderDtos:
         None,
         None,
         None,
+        Some("Serramenti in alluminio per la commessa"),
       )
 
     def fromDomain(manufacturing: ScheduledManufacturing): ManufacturingResponse =
@@ -157,6 +160,7 @@ object OrderDtos:
         reason,
         info.tasks.toList.map(ScheduledTaskDto.fromDomain),
         info.dependencies.toEdgePairs.groupMap(_._1)(_._2).toList.map((taskId, dependsOn) => TaskDependencyDto(taskId, dependsOn)),
+        info.description,
       )
 
   final case class OrderRequest(
@@ -167,6 +171,7 @@ object OrderDtos:
       promisedDeliveryDate: String,
       priority: String,
       manufacturings: List[ManufacturingDto],
+      description: Option[String] = None,
   ):
     def toDomain(id: UUID, nextManufacturingId: () => UUID = () => UUID.randomUUID().nn): ValidatedNec[String, (OrderData, DateTime)] =
       val manufacturingList = manufacturings.zipWithIndex
@@ -181,7 +186,10 @@ object OrderDtos:
         priorityToDomain(priority, "priority"),
         manufacturingList,
       ).mapN { (orderNumber, createdAt, expectedDelivery, promisedDelivery, orderPriority, manufacturingNel) =>
-        (OrderData(id, orderNumber, customerId, createdAt, expectedDelivery, orderPriority, manufacturingNel), promisedDelivery)
+        (
+          OrderData(id, orderNumber, customerId, createdAt, expectedDelivery, orderPriority, manufacturingNel, description.map(_.trim.nn).filter(_.nonEmpty)),
+          promisedDelivery,
+        )
       }
 
   object OrderRequest:
@@ -196,19 +204,46 @@ object OrderDtos:
         List(ManufacturingDto.example),
       )
 
-  final case class OrderUpdateRequest(priority: Option[String], promisedDeliveryDate: Option[String]):
+  final case class OrderUpdateRequest(
+      priority: Option[String],
+      promisedDeliveryDate: Option[String],
+      description: Option[String] = None,
+  ):
     def toCommands: ValidatedNec[String, List[OrderService.Command]] =
       (
         priority.traverse(priorityToDomain(_, "priority")),
         promisedDeliveryDate.traverse(parseDate(_, "promisedDeliveryDate")),
       ).mapN { (parsedPriority, parsedDate) =>
         parsedPriority.map(OrderService.Command.ChangePriority.apply).toList ++
-          parsedDate.map(OrderService.Command.UpdatePromisedDeliveryDate.apply).toList
+          parsedDate.map(OrderService.Command.UpdatePromisedDeliveryDate.apply).toList ++
+          description.map(d => OrderService.Command.ChangeDescription(normalizeText(d))).toList
       }
 
   object OrderUpdateRequest:
     val example: OrderUpdateRequest =
-      OrderUpdateRequest(Some("urgent"), Some("2026-06-24T17:00:00.000Z"))
+      OrderUpdateRequest(Some("urgent"), Some("2026-06-24T17:00:00.000Z"), Some("Priorità rivista dopo il sopralluogo"))
+
+  /** Recalibration of a manufacturing: its free-text description and/or its lifecycle status (with optional pause reason). */
+  final case class ManufacturingUpdateRequest(description: Option[String], status: Option[String], reason: Option[String]):
+    def toCommands(manufacturingId: UUID): ValidatedNec[String, List[OrderService.Command]] =
+      status.traverse(manufacturingStatusToDomain).map { parsedStatus =>
+        description.map(d => OrderService.Command.ChangeManufacturingDescription(manufacturingId, normalizeText(d))).toList ++
+          parsedStatus.map(s => OrderService.Command.ChangeManufacturingStatus(manufacturingId, s, reason.flatMap(r => normalizeText(r)))).toList
+      }
+
+  object ManufacturingUpdateRequest:
+    val example: ManufacturingUpdateRequest = ManufacturingUpdateRequest(Some("Serramenti in alluminio"), Some("in_progress"), None)
+
+  /** Adds a new scheduled task (referencing a catalog task) to a manufacturing. */
+  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID]):
+    def toCommand(manufacturingId: UUID, taskInstanceId: UUID): ValidatedNec[String, OrderService.Command] =
+      ScheduledTask.createScheduledTask(taskInstanceId, taskId, expectedHours).map { task =>
+        OrderService.Command.AddManufacturingTask(manufacturingId, task, dependsOn)
+      }
+
+  object AddTaskRequest:
+    val example: AddTaskRequest =
+      AddTaskRequest(UUID.fromString("00000000-0000-0000-0000-000000000301").nn, 8, Nil)
 
   final case class TransitionRequest(action: String, reason: Option[String]):
     def toCommand: ValidatedNec[String, OrderService.Command] =
@@ -251,6 +286,7 @@ object OrderDtos:
       pauseReason: Option[String],
       tasks: List[ScheduledTaskDto],
       dependencies: List[TaskDependencyDto],
+      description: Option[String],
   )
 
   final case class OrderResponse(
@@ -263,6 +299,7 @@ object OrderDtos:
       deliveryDate: String,
       promisedDeliveryDate: Option[String],
       manufacturings: List[ManufacturingResponse],
+      description: Option[String],
   )
 
   object OrderResponse:
@@ -278,6 +315,7 @@ object OrderDtos:
           formatDate(data.deliveryDate),
           promised.map(formatDate),
           data.setOfManufacturing.toList.map(ManufacturingDto.fromDomain),
+          data.description,
         )
       }
 
@@ -294,6 +332,17 @@ object OrderDtos:
       case "normal" => OrderPriority.Normal.validNec
       case "urgent" => OrderPriority.Urgent.validNec
       case other => s"$path '$other' is not supported. Use normal or urgent.".invalidNec
+
+  private def manufacturingStatusToDomain(value: String): ValidatedNec[String, ManufacturingStatus] =
+    normalizeKind(value) match
+      case "not_started" | "notstarted" => ManufacturingStatus.NotStarted.validNec
+      case "in_progress" | "inprogress" => ManufacturingStatus.InProgress.validNec
+      case "paused"                     => ManufacturingStatus.Paused.validNec
+      case "completed"                  => ManufacturingStatus.Completed.validNec
+      case other => s"status '$other' is not supported. Use not_started, in_progress, paused, or completed.".invalidNec
+
+  /** Trims free text and collapses blank strings to `None`, so an empty value clears the field. */
+  private def normalizeText(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
 
   private def manufacturingCode(value: String): ValidatedNec[String, String :| ManufacturingCode] =
     value.refineValidatedNec[ManufacturingCode]
@@ -312,6 +361,8 @@ object OrderDtos:
   given Codec[ManufacturingDto] = deriveCodec
   given Codec[OrderRequest] = deriveCodec
   given Codec[OrderUpdateRequest] = deriveCodec
+  given Codec[ManufacturingUpdateRequest] = deriveCodec
+  given Codec[AddTaskRequest] = deriveCodec
   given Codec[TransitionRequest] = deriveCodec
   given Codec[TaskProgressUpdateRequest] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
@@ -322,6 +373,8 @@ object OrderDtos:
   given Schema[ManufacturingDto] = Schema.derived
   given Schema[OrderRequest] = Schema.derived
   given Schema[OrderUpdateRequest] = Schema.derived
+  given Schema[ManufacturingUpdateRequest] = Schema.derived
+  given Schema[AddTaskRequest] = Schema.derived
   given Schema[TransitionRequest] = Schema.derived
   given Schema[TaskProgressUpdateRequest] = Schema.derived
   given Schema[ManufacturingResponse] = Schema.derived

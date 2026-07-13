@@ -7,3 +7,4 @@ enum ScheduledManufacturingError derives CanEqual:
   case TaskError(error: ScheduledTaskError)
   case TaskIdNotFound(id: ScheduledTaskId)
   case ManufacturingWithNoTasks
+  case CannotCompleteWithOpenTasks

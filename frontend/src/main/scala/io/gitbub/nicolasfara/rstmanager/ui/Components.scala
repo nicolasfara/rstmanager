@@ -91,9 +91,14 @@ object Components:
 
   // ---- Data loading ------------------------------------------------------------------------------
 
-  /** Turns a `tick` signal + a loading effect into a resource signal that reloads on every tick. */
+  /** Turns a `tick` signal + a loading effect into a resource signal that reloads on every tick.
+    *
+    * Reloads happen **in place**: the previously loaded value stays visible while the new request is
+    * in flight (no spinner/empty flash), and consecutive identical results don't re-render (`distinct`).
+    * This keeps refreshes — including the automatic ones — visually smooth.
+    */
   def loadable[A](tick: Signal[Any])(load: () => Future[ApiClient.Result[A]]): Signal[Option[ApiClient.Result[A]]] =
-    tick.flatMapSwitch(_ => Signal.fromFuture(load()))
+    tick.flatMapSwitch(_ => EventStream.fromFuture(load())).toWeakSignal.distinct
 
   // ---- Modal -------------------------------------------------------------------------------------
 

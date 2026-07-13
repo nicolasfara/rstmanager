@@ -35,6 +35,8 @@ type OrderNumber = DescribedAs[Not[Empty], "The order number cannot be empty"]
  *   Order priority.
  * @param setOfManufacturing
  *   Non-empty list of scheduled manufacturings associated with the order.
+ * @param description
+ *   Optional free-text description of the order.
  */
 final case class OrderData(
     id: OrderId,
@@ -44,7 +46,12 @@ final case class OrderData(
     deliveryDate: DateTime,
     priority: OrderPriority,
     setOfManufacturing: NonEmptyList[ScheduledManufacturing],
+    description: Option[String] = None,
 ):
+  /** Sets (or clears) the order description. */
+  def withDescription(newDescription: Option[String]): OrderData =
+    this.focus(_.description).replace(newDescription)
+
   /** Appends a manufacturing to the order. */
   def addManufacturing(manufacturing: ScheduledManufacturing): OrderData =
     this.focus(_.setOfManufacturing).modify(_.append(manufacturing))

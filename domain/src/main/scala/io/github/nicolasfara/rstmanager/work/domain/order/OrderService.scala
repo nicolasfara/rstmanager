@@ -2,9 +2,9 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.Monad
 import com.github.nscala_time.time.Imports.DateTime
@@ -22,8 +22,13 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case UpdatePromisedDeliveryDate(newPromisedDeliveryDate: DateTime)
     case Reopen
     case ChangePriority(newPriority: OrderPriority)
+    case ChangeDescription(newDescription: Option[String])
     case AddManufacturing(manufacturing: ScheduledManufacturing)
     case RemoveManufacturing(manufacturingId: ScheduledManufacturingId)
+    case ChangeManufacturingDescription(manufacturingId: ScheduledManufacturingId, newDescription: Option[String])
+    case ChangeManufacturingStatus(manufacturingId: ScheduledManufacturingId, newStatus: ManufacturingStatus, reason: Option[String])
+    case AddManufacturingTask(manufacturingId: ScheduledManufacturingId, task: ScheduledTask, dependsOn: List[TaskId])
+    case RemoveManufacturingTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
     case SetTaskProgress(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedHours: TaskHours)
     case ChangeTaskExpectedHours(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedHours: TaskHours)
     case CompleteTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
@@ -51,10 +56,20 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
       App.state.decide(_.reopen).void >> publishSchedulingRecalculation
     case Command.ChangePriority(newPriority) =>
       App.state.decide(_.changePriority(newPriority)).void >> publishSchedulingRecalculation
+    case Command.ChangeDescription(newDescription) =>
+      App.state.decide(_.changeDescription(newDescription)).void >> publishSchedulingRecalculation
     case Command.AddManufacturing(manufacturing) =>
       App.state.decide(_.addManufacturing(manufacturing)).void >> publishSchedulingRecalculation
     case Command.RemoveManufacturing(manufacturingId) =>
       App.state.decide(_.removeManufacturing(manufacturingId)).void >> publishSchedulingRecalculation
+    case Command.ChangeManufacturingDescription(manufacturingId, newDescription) =>
+      App.state.decide(_.changeManufacturingDescription(manufacturingId, newDescription)).void >> publishSchedulingRecalculation
+    case Command.ChangeManufacturingStatus(manufacturingId, newStatus, reason) =>
+      App.state.decide(_.changeManufacturingStatus(manufacturingId, newStatus, reason)).void >> publishSchedulingRecalculation
+    case Command.AddManufacturingTask(manufacturingId, task, dependsOn) =>
+      App.state.decide(_.addManufacturingTask(manufacturingId, task, dependsOn)).void >> publishSchedulingRecalculation
+    case Command.RemoveManufacturingTask(manufacturingId, taskId) =>
+      App.state.decide(_.removeManufacturingTask(manufacturingId, taskId)).void >> publishSchedulingRecalculation
     case Command.SetTaskProgress(manufacturingId, taskId, completedHours) =>
       App.state.decide(_.setTaskProgress(manufacturingId, taskId, completedHours)).void >> publishSchedulingRecalculation
     case Command.ChangeTaskExpectedHours(manufacturingId, taskId, expectedHours) =>

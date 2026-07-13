@@ -1,14 +1,15 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ManufacturingStatus,
   ScheduledManufacturing,
   ScheduledManufacturingError,
   ScheduledManufacturingId,
 }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
@@ -69,7 +70,7 @@ object OrderOperations:
       taskId: ScheduledTaskId,
       completedHours: TaskHours,
   ): Either[OrderError, InProgressOrder] =
-    updateManufacturingTask(order, manufacturingId)(_.setTaskProgress(taskId, completedHours))
+    updateManufacturing(order, manufacturingId)(_.setTaskProgress(taskId, completedHours))
 
   /** Changes the total expected hours of a task inside one of the order manufacturings. */
   def changeTaskExpectedHours(
@@ -78,10 +79,44 @@ object OrderOperations:
       taskId: ScheduledTaskId,
       expectedHours: TaskHours,
   ): Either[OrderError, InProgressOrder] =
-    updateManufacturingTask(order, manufacturingId)(_.changeTaskExpectedHours(taskId, expectedHours))
+    updateManufacturing(order, manufacturingId)(_.changeTaskExpectedHours(taskId, expectedHours))
+
+  /** Sets (or clears) the description of one of the order manufacturings. */
+  def changeManufacturingDescription(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      description: Option[String],
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturing(order, manufacturingId)(_.withDescription(description).asRight)
+
+  /** Manually moves one of the order manufacturings to a new lifecycle status. */
+  def changeManufacturingStatus(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      status: ManufacturingStatus,
+      reason: Option[String],
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturing(order, manufacturingId)(_.changeStatus(status, reason))
+
+  /** Adds a task to one of the order manufacturings. */
+  def addManufacturingTask(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      task: ScheduledTask,
+      dependsOn: Set[TaskId],
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturing(order, manufacturingId)(_.addTask(task, dependsOn).asRight)
+
+  /** Removes a task from one of the order manufacturings. */
+  def removeManufacturingTask(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturing(order, manufacturingId)(_.removeTask(taskId))
 
   /** Applies a manufacturing-level update to the targeted manufacturing, keeping the order in progress. */
-  private def updateManufacturingTask(
+  private def updateManufacturing(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
   )(update: ScheduledManufacturing => Either[ScheduledManufacturingError, ScheduledManufacturing]): Either[OrderError, InProgressOrder] =

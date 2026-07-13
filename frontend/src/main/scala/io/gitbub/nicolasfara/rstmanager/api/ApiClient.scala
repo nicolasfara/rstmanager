@@ -108,6 +108,16 @@ object ApiClient:
       request: TaskProgressUpdateRequest,
   ): Future[Result[OrderResponse]] =
     sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/manufacturings/$manufacturingId/tasks/$taskId", jsonBody(request))
+  def addManufacturing(orderId: UUID, request: ManufacturingDto): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.POST, s"/orders/$orderId/manufacturings", jsonBody(request))
+  def removeManufacturing(orderId: UUID, manufacturingId: UUID): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.DELETE, s"/orders/$orderId/manufacturings/$manufacturingId", None)
+  def updateManufacturing(orderId: UUID, manufacturingId: UUID, request: ManufacturingUpdateRequest): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/manufacturings/$manufacturingId", jsonBody(request))
+  def addManufacturingTask(orderId: UUID, manufacturingId: UUID, request: AddTaskRequest): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.POST, s"/orders/$orderId/manufacturings/$manufacturingId/tasks", jsonBody(request))
+  def removeManufacturingTask(orderId: UUID, manufacturingId: UUID, taskId: UUID): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.DELETE, s"/orders/$orderId/manufacturings/$manufacturingId/tasks/$taskId", None)
   def deleteOrder(id: UUID, reason: Option[String]): Future[Result[Unit]] =
     val query = reason.filter(_.nonEmpty).fold("")(r => s"?reason=${js.URIUtils.encodeURIComponent(r)}")
     sendUnit(dom.HttpMethod.DELETE, s"/orders/$id$query", None)

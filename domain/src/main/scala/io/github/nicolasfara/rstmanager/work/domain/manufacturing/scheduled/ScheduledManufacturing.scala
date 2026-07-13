@@ -11,6 +11,10 @@ import cats.data.*
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 
+/** Lifecycle status a manufacturing can be manually moved to (see [[ScheduledManufacturing.changeStatus]]). */
+enum ManufacturingStatus derives CanEqual:
+  case NotStarted, InProgress, Paused, Completed
+
 /**
  * Scheduled execution of a manufacturing.
  *
@@ -51,6 +55,37 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
       updatedDependencies = info.dependencies.removeTask(task.taskId)
       newManufacturing = updateTasks(updatedTasks, updatedDependencies)
     yield newManufacturing
+
+  /** Sets (or clears) the free-text description. */
+  def withDescription(description: Option[String]): ScheduledManufacturing =
+    withInfo(info.copy(description = description))
+
+  /** Current lifecycle status of the manufacturing. */
+  def status: ManufacturingStatus = this match
+    case NotStartedManufacturing(_)      => ManufacturingStatus.NotStarted
+    case InProgressManufacturing(_, _)   => ManufacturingStatus.InProgress
+    case PausedManufacturing(_, _, _, _) => ManufacturingStatus.Paused
+    case CompletedManufacturing(_, _, _) => ManufacturingStatus.Completed
+
+  /**
+   * Manually moves the manufacturing to `target`, keeping the domain invariants:
+   *   - `NotStarted` / `InProgress` / `Paused` freely interconvert (pausing a not-started manufacturing first starts it);
+   *   - `Completed` is only reachable when every task is already completed, otherwise [[ScheduledManufacturingError.CannotCompleteWithOpenTasks]];
+   *   - reopening a `Completed` manufacturing returns it to `InProgress`.
+   */
+  def changeStatus(
+      target: ManufacturingStatus,
+      reason: Option[String] = None,
+  ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    val now = DateTime.now()
+    val started = getStartedAt(this)
+    target match
+      case ManufacturingStatus.NotStarted => NotStartedManufacturing(info).asRight
+      case ManufacturingStatus.InProgress => InProgressManufacturing(info, started).asRight
+      case ManufacturingStatus.Paused     => PausedManufacturing(info, reason, started, now).asRight
+      case ManufacturingStatus.Completed =>
+        if areAllTasksCompleted(this) then transitionToCompleted(this)
+        else ScheduledManufacturingError.CannotCompleteWithOpenTasks.asLeft
 
   /** Advances an in-progress task by the given amount of hours. */
   def advanceTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
@@ -121,6 +156,13 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
     val completedAt = DateTime.now()
     val completedTasks = NonEmptyList.fromListUnsafe(manufacturing.info.tasks.collect { case ct: CompletedTask => ct })
     Right(CompletedManufacturing(manufacturing.info.copy(tasks = completedTasks), getStartedAt(manufacturing), completedAt))
+
+  /** Rebuilds this manufacturing with replaced `info`, preserving its exact lifecycle state and timestamps. */
+  private def withInfo(newInfo: ScheduledManufacturingInfo): ScheduledManufacturing = this match
+    case NotStartedManufacturing(_)                       => NotStartedManufacturing(newInfo)
+    case InProgressManufacturing(_, startedAt)            => InProgressManufacturing(newInfo, startedAt)
+    case PausedManufacturing(_, reason, startedAt, paused) => PausedManufacturing(newInfo, reason, startedAt, paused)
+    case CompletedManufacturing(_, startedAt, completedAt) => CompletedManufacturing(newInfo, startedAt, completedAt)
 
   private def updateTasks(
       tasks: NonEmptyList[ScheduledTask],

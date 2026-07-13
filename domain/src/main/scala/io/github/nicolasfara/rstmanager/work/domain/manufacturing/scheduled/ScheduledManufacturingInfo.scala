@@ -28,6 +28,8 @@ object ScheduledManufacturingId:
  *   Scheduled tasks that make up the manufacturing.
  * @param dependencies
  *   Dependency graph between scheduled tasks.
+ * @param description
+ *   Optional free-text description of the manufacturing.
  */
 final case class ScheduledManufacturingInfo(
     id: ScheduledManufacturingId,
@@ -35,4 +37,5 @@ final case class ScheduledManufacturingInfo(
     completionDate: DateTime,
     tasks: NonEmptyList[ScheduledTask],
     dependencies: ManufacturingDependencies,
+    description: Option[String] = None,
 )

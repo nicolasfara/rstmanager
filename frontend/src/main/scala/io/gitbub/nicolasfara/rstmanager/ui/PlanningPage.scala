@@ -26,6 +26,20 @@ object PlanningPage:
   private def toIso(day: String): String = if day.isEmpty then "" else s"${day}T00:00:00.000Z"
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
+  /** Visual treatment for a planned task slice based on how close its day is to the manufacturing deadline. */
+  private final case class Urgency(cardCls: String, label: String, labelCls: String)
+
+  /** Maps the days between a slice's scheduled day and its manufacturing deadline to a colour scale:
+    * red = late, orange = due today, yellow = due tomorrow, sky = due soon, blue = on time.
+    */
+  private def urgencyFor(daysToDeadline: Option[Int]): Urgency = daysToDeadline match
+    case Some(d) if d < 0  => Urgency("border-rose-300 bg-rose-50", "In ritardo", "bg-rose-100 text-rose-700")
+    case Some(0)           => Urgency("border-orange-300 bg-orange-50", "Scade oggi", "bg-orange-100 text-orange-700")
+    case Some(1)           => Urgency("border-amber-300 bg-amber-50", "Scade domani", "bg-amber-100 text-amber-700")
+    case Some(d) if d <= 3 => Urgency("border-sky-300 bg-sky-50", s"Tra $d giorni", "bg-sky-100 text-sky-700")
+    case Some(_)           => Urgency("border-blue-300 bg-blue-50", "In tempo", "bg-blue-100 text-blue-700")
+    case None              => Urgency("border-slate-200 bg-white", "", "bg-slate-100 text-slate-600")
+
   /** Groups every slice of the attempt by day, whether the attempt is in progress or completed. */
   private def slicesByDay(state: PlanningStateDto): List[(String, List[ScheduledTaskSliceDto])] =
     state.result match
@@ -42,6 +56,10 @@ object PlanningPage:
       .map(r => (r.delayedOrders, r.delayedManufacturings, r.unplannedOrders, r.warnings))
       .orElse(state.inProgress.map(ip => (ip.delayedOrders, ip.delayedManufacturings, ip.unplannedOrders, ip.warnings)))
       .getOrElse((Nil, Nil, Nil, Nil))
+
+  /** After an order/employee change the backend recomputes the plan asynchronously (outbox consumer), so a
+    * re-fetch triggered right away can miss it. This is the delay before the automatic post-mount refresh. */
+  private val recalcSettleMs = 1200
 
   def apply(): HtmlElement =
     val tick = Var(0)
@@ -84,6 +102,9 @@ object PlanningPage:
     // A slice's `manufacturingId` is a scheduled-manufacturing id; its human label is the manufacturing code.
     val manufacturingCodes: Signal[Map[UUID, String]] =
       ordersList.map(orders => orders.flatMap(_.manufacturings.map(m => m.id -> m.code)).toMap)
+    // Target completion date per scheduled manufacturing, used to colour its task slices by urgency.
+    val manufacturingDeadlines: Signal[Map[UUID, String]] =
+      ordersList.map(orders => orders.flatMap(_.manufacturings.map(m => m.id -> m.completionDate)).toMap)
     // A slice's `taskId` is a scheduled-task instance id; resolve it to the catalog task name.
     val scheduledTaskNames: Signal[Map[UUID, String]] =
       Signal.combine(ordersList, catalogNames).map { case (orders, names) =>
@@ -166,8 +187,8 @@ object PlanningPage:
               case Right(_) =>
                 closeEdit()
                 tick.update(_ + 1)
-                // Recalculation runs asynchronously on the backend; refresh again shortly to pick up the new plan.
-                setTimeout(1200)(tick.update(_ + 1))
+                // Recalculation runs asynchronously on the backend; refresh again once it has settled.
+                setTimeout(recalcSettleMs)(tick.update(_ + 1))
               case Left(err) => saving.set(false); modalError.set(Some(err))
             }
       }
@@ -200,25 +221,63 @@ object PlanningPage:
 
     // ---- Board -----------------------------------------------------------------------------------
     def sliceCard(slice: ScheduledTaskSliceDto): HtmlElement =
+      // Urgency (card colour + badge) derived from the slice day vs its manufacturing deadline.
+      val urgency: Signal[Urgency] =
+        manufacturingDeadlines.map(deadlines => urgencyFor(deadlines.get(slice.manufacturingId).flatMap(deadline => Formats.daysUntil(slice.day, deadline))))
+      // The task's overall progress: (completed, expected) hours.
+      val progress: Signal[Option[(Int, Int)]] =
+        scheduledTaskById.map(_.get(slice.taskId).map(task => (task.completedHours.getOrElse(0), task.expectedHours)))
       div(
-        cls := s"rounded-lg border p-2.5 ${Formats.colorFor(slice.orderId)}",
-        cls := "cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
+        cls := "rounded-lg border p-2.5 cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
+        cls <-- urgency.map(_.cardCls),
         onClick.compose(_.sample(editLookup)) --> { case (byId, names) =>
           byId.get(slice.taskId).foreach(task => openEdit(slice, task, names.getOrElse(slice.taskId, Formats.shortId(slice.taskId))))
         },
         // Order number + hours assigned to this slice
         div(
           cls := "flex items-center justify-between gap-2",
-          span(cls := "truncate text-xs font-semibold", child.text <-- orderNames.map(_.getOrElse(slice.orderId, Formats.shortId(slice.orderId)))),
+          span(cls := "truncate text-xs font-semibold text-slate-700", child.text <-- orderNames.map(_.getOrElse(slice.orderId, Formats.shortId(slice.orderId)))),
           span(cls := "shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600", s"${slice.candidateEmployee.assignedHours}h"),
         ),
-        // Task name (prominent)
-        div(cls := "mt-1.5 text-sm font-semibold leading-snug text-slate-800", child.text <-- scheduledTaskNames.map(_.getOrElse(slice.taskId, Formats.shortId(slice.taskId)))),
+        // Task name (prominent) + urgency badge
+        div(
+          cls := "mt-1.5 flex items-start justify-between gap-2",
+          div(cls := "text-sm font-semibold leading-snug text-slate-800", child.text <-- scheduledTaskNames.map(_.getOrElse(slice.taskId, Formats.shortId(slice.taskId)))),
+          child <-- urgency.map { u =>
+            if u.label.isEmpty then emptyNode
+            else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", u.label)
+          },
+        ),
         // Associated manufacturing (its code)
         div(
           cls := "mt-0.5 flex items-baseline gap-1 text-xs",
           span(cls := "text-slate-400", "Lavorazione"),
           span(cls := "truncate font-medium text-slate-600", child.text <-- manufacturingCodes.map(_.getOrElse(slice.manufacturingId, Formats.shortId(slice.manufacturingId)))),
+        ),
+        // Task progress: completed/total hours + a small bar
+        div(
+          cls := "mt-2",
+          div(
+            cls := "flex items-center justify-between text-xs",
+            span(cls := "text-slate-400", "Ore"),
+            span(
+              cls := "font-semibold tabular-nums text-slate-700",
+              child.text <-- progress.map {
+                case Some((completed, expected)) => s"$completed/${expected}h"
+                case None                        => "—"
+              },
+            ),
+          ),
+          div(
+            cls := "mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/70",
+            div(
+              cls := "h-full rounded-full bg-slate-500/70",
+              width <-- progress.map {
+                case Some((completed, expected)) if expected > 0 => s"${math.min(100, math.max(0, completed * 100 / expected))}%"
+                case _                                           => "0%"
+              },
+            ),
+          ),
         ),
         // Employee assignment + projected remaining hours
         div(
@@ -277,6 +336,10 @@ object PlanningPage:
 
     div(
       cls := "space-y-4",
+      // An order/employee change made on another page triggers an asynchronous plan recompute; it may still be
+      // running when we land here. Refresh once after it settles so the new plan shows without a manual trigger.
+      // Reloads are in-place (see `loadable`), so this is a silent update with no flicker.
+      onMountCallback(_ => setTimeout(recalcSettleMs)(tick.update(_ + 1))),
       taskModal,
       sectionTitle("Pianificazione dei lavori"),
       attemptForm,

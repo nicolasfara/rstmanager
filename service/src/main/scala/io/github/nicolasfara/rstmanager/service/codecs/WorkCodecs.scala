@@ -1,7 +1,7 @@
 package io.github.nicolasfara.rstmanager.service.codecs
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskId, TaskService }
@@ -24,6 +24,7 @@ object WorkCodecs:
 
   // A scheduled manufacturing's `code` (`String :| ManufacturingCode`) is persisted as a plain string via iron-circe.
 
+  given Codec[ManufacturingStatus] = deriveCodec
   given Codec[ScheduledTask] = deriveCodec
   given Codec[ScheduledManufacturingInfo] = deriveCodec
   given Codec[ScheduledManufacturing] = deriveCodec

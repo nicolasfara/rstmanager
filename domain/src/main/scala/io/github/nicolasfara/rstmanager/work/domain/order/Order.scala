@@ -5,8 +5,8 @@ import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.data.ValidatedNec
 import cats.syntax.all.*
@@ -99,6 +99,50 @@ enum Order derives CanEqual:
   def changePriority(newPriority: OrderPriority): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> OrderPriorityChanged(newPriority, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Sets (or clears) the description of an active or suspended order. */
+  def changeDescription(newDescription: Option[String]): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> OrderDescriptionChanged(newDescription, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Changes the description of a manufacturing inside an active or suspended order. */
+  def changeManufacturingDescription(
+      manufacturingId: ScheduledManufacturingId,
+      newDescription: Option[String],
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingDescriptionChanged(manufacturingId, newDescription, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Manually moves a manufacturing inside an active or suspended order to a new lifecycle status. */
+  def changeManufacturingStatus(
+      manufacturingId: ScheduledManufacturingId,
+      newStatus: ManufacturingStatus,
+      reason: Option[String],
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingStatusChanged(manufacturingId, newStatus, reason, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Adds a task to a manufacturing inside an active or suspended order. */
+  def addManufacturingTask(
+      manufacturingId: ScheduledManufacturingId,
+      task: ScheduledTask,
+      dependsOn: List[TaskId],
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskAdded(manufacturingId, task, dependsOn, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Removes a task from a manufacturing inside an active or suspended order. */
+  def removeManufacturingTask(
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskRemoved(manufacturingId, taskId, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Adds a manufacturing to an active or suspended order. */
@@ -212,8 +256,21 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
         case order: InProgressOrder => order.focus(_.data.priority).replace(newPriority)
         case order: SuspendedOrder => order.focus(_.data.priority).replace(newPriority)
       }
+    case OrderDescriptionChanged(newDescription, _) =>
+      _.mustBeInProgressOrSuspended.map {
+        case order: InProgressOrder => order.focus(_.data.description).replace(newDescription)
+        case order: SuspendedOrder => order.focus(_.data.description).replace(newDescription)
+      }
     case ManufacturingAdded(manufacturing, _) => _.mustBeInProgressOrSuspended.map(addManufacturing(_, manufacturing))
     case ManufacturingRemoved(manufacturingId, _) => _.mustBeInProgressOrSuspended.map(removeManufacturing(_, manufacturingId))
+    case ManufacturingDescriptionChanged(manufacturingId, newDescription, _) =>
+      _.mustBeInProgressOrSuspended.andThen(changeManufacturingDescription(_, manufacturingId, newDescription).toValidatedNec)
+    case ManufacturingStatusChanged(manufacturingId, newStatus, reason, _) =>
+      _.mustBeInProgressOrSuspended.andThen(changeManufacturingStatus(_, manufacturingId, newStatus, reason).toValidatedNec)
+    case ManufacturingTaskAdded(manufacturingId, task, dependsOn, _) =>
+      _.mustBeInProgressOrSuspended.andThen(addManufacturingTask(_, manufacturingId, task, dependsOn.toSet).toValidatedNec)
+    case ManufacturingTaskRemoved(manufacturingId, taskId, _) =>
+      _.mustBeInProgressOrSuspended.andThen(removeManufacturingTask(_, manufacturingId, taskId).toValidatedNec)
     case ManufacturingTaskAdvanced(manufacturingId, taskId, advancedBy) =>
       _.mustBeInProgressOrSuspended.andThen(advanceTask(_, manufacturingId, taskId, advancedBy).toValidatedNec)
     case ManufacturingTaskRolledBack(manufacturingId, taskId, deAdvancedBy) =>

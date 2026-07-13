@@ -1,9 +1,9 @@
 package io.github.nicolasfara.rstmanager.work.domain.order.events
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderPriority, SuspensionReason }
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
@@ -38,11 +38,26 @@ enum OrderEvent:
   /** The order priority has changed. */
   case OrderPriorityChanged(newPriority: OrderPriority, changedOn: DateTime)
 
+  /** The order description has changed. */
+  case OrderDescriptionChanged(newDescription: Option[String], changedOn: DateTime)
+
   /** A manufacturing has been added to the order. */
   case ManufacturingAdded(manufacturing: ScheduledManufacturing, addedOn: DateTime)
 
   /** A manufacturing has been removed from the order. */
   case ManufacturingRemoved(manufacturingId: ScheduledManufacturingId, removedOn: DateTime)
+
+  /** A manufacturing's description has changed. */
+  case ManufacturingDescriptionChanged(manufacturingId: ScheduledManufacturingId, newDescription: Option[String], changedOn: DateTime)
+
+  /** A manufacturing has been manually moved to a new lifecycle status. */
+  case ManufacturingStatusChanged(manufacturingId: ScheduledManufacturingId, newStatus: ManufacturingStatus, reason: Option[String], changedOn: DateTime)
+
+  /** A task has been added to a manufacturing. */
+  case ManufacturingTaskAdded(manufacturingId: ScheduledManufacturingId, task: ScheduledTask, dependsOn: List[TaskId], addedOn: DateTime)
+
+  /** A task has been removed from a manufacturing. */
+  case ManufacturingTaskRemoved(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, removedOn: DateTime)
 
   /** Progress on a task within a manufacturing has been advanced. */
   case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: TaskHours)

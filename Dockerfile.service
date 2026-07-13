@@ -1,5 +1,5 @@
-ARG JDK_IMAGE=eclipse-temurin:21.0.11_10-jdk-jammy
-ARG RUNTIME_IMAGE=eclipse-temurin:21.0.11_10-jre-jammy
+ARG JDK_IMAGE=eclipse-temurin:25.0.3_9-jdk-jammy
+ARG RUNTIME_IMAGE=eclipse-temurin:25.0.3_9-jre-jammy
 
 FROM ${JDK_IMAGE} AS build
 

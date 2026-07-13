@@ -33,6 +33,7 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case ChangeTaskExpectedHours(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedHours: TaskHours)
     case CompleteTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
     case RevertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
+  end Command
 
   enum Notification derives CanEqual:
     case SchedulingRecalculationRequested(orderId: OrderId)

@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.hr.service
 
-import java.util.Locale
-import java.util.UUID
+import java.util.{ Locale, UUID }
 
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.service.http.ApiError
@@ -68,6 +67,7 @@ object EmployeeHttpApi:
             required(endDate, s"$path.endDate").andThen(parseDate(_, s"$path.endDate")),
           ).mapN((_, _)).andThen { case (start, end) => VacationOverride.createVacationOverride(start, end) }
         case other => s"$path.kind '$other' is not supported. Use working_day or vacation.".invalidNec
+  end HoursOverrideDto
 
   object HoursOverrideDto:
     val example: HoursOverrideDto =

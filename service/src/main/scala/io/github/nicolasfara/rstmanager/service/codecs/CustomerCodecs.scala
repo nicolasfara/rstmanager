@@ -15,4 +15,3 @@ object CustomerCodecs:
   given Codec[Customer] = deriveCodec
   given Codec[CustomerEvent] = deriveCodec
   given Codec[CustomerService.Notification] = deriveCodec
-end CustomerCodecs

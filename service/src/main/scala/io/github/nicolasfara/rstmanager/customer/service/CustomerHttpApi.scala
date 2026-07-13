@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.customer.service
 
-import java.util.Locale
-import java.util.UUID
+import java.util.{ Locale, UUID }
 
 import io.github.nicolasfara.rstmanager.customer.domain.*
 import io.github.nicolasfara.rstmanager.service.http.ApiError

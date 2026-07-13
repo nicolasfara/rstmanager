@@ -62,8 +62,8 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
 
   /** Current lifecycle status of the manufacturing. */
   def status: ManufacturingStatus = this match
-    case NotStartedManufacturing(_)      => ManufacturingStatus.NotStarted
-    case InProgressManufacturing(_, _)   => ManufacturingStatus.InProgress
+    case NotStartedManufacturing(_) => ManufacturingStatus.NotStarted
+    case InProgressManufacturing(_, _) => ManufacturingStatus.InProgress
     case PausedManufacturing(_, _, _, _) => ManufacturingStatus.Paused
     case CompletedManufacturing(_, _, _) => ManufacturingStatus.Completed
 
@@ -73,16 +73,19 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
    *   - `Completed` is only reachable when every task is already completed, otherwise [[ScheduledManufacturingError.CannotCompleteWithOpenTasks]];
    *   - reopening a `Completed` manufacturing returns it to `InProgress`.
    */
+  def changeStatus(target: ManufacturingStatus): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeStatus(target, None)
+
   def changeStatus(
       target: ManufacturingStatus,
-      reason: Option[String] = None,
+      reason: Option[String],
   ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     val now = DateTime.now()
     val started = getStartedAt(this)
     target match
       case ManufacturingStatus.NotStarted => NotStartedManufacturing(info).asRight
       case ManufacturingStatus.InProgress => InProgressManufacturing(info, started).asRight
-      case ManufacturingStatus.Paused     => PausedManufacturing(info, reason, started, now).asRight
+      case ManufacturingStatus.Paused => PausedManufacturing(info, reason, started, now).asRight
       case ManufacturingStatus.Completed =>
         if areAllTasksCompleted(this) then transitionToCompleted(this)
         else ScheduledManufacturingError.CannotCompleteWithOpenTasks.asLeft
@@ -159,8 +162,8 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
 
   /** Rebuilds this manufacturing with replaced `info`, preserving its exact lifecycle state and timestamps. */
   private def withInfo(newInfo: ScheduledManufacturingInfo): ScheduledManufacturing = this match
-    case NotStartedManufacturing(_)                       => NotStartedManufacturing(newInfo)
-    case InProgressManufacturing(_, startedAt)            => InProgressManufacturing(newInfo, startedAt)
+    case NotStartedManufacturing(_) => NotStartedManufacturing(newInfo)
+    case InProgressManufacturing(_, startedAt) => InProgressManufacturing(newInfo, startedAt)
     case PausedManufacturing(_, reason, startedAt, paused) => PausedManufacturing(newInfo, reason, startedAt, paused)
     case CompletedManufacturing(_, startedAt, completedAt) => CompletedManufacturing(newInfo, startedAt, completedAt)
 

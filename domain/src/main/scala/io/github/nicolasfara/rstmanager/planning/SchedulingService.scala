@@ -69,11 +69,10 @@ object SchedulingService:
     val openOrders = PlanningPriorityPolicy.sortOpenOrders(orders).filter(order => request.openOrderIds.contains(order.data.id))
     val initialState = PlannerState.empty(startOn)
 
-    val (planned, unplanned) = openOrders.foldLeft((initialState, Vector.empty[UnplannedOrder])) {
-      case ((state, unplannedOrders), order) =>
-        planOrder(state, order, employees) match
-          case Right(updatedState) => (updatedState, unplannedOrders)
-          case Left(unplannedOrder) => (state, unplannedOrders :+ unplannedOrder)
+    val (planned, unplanned) = openOrders.foldLeft((initialState, Vector.empty[UnplannedOrder])) { case ((state, unplannedOrders), order) =>
+      planOrder(state, order, employees) match
+        case Right(updatedState) => (updatedState, unplannedOrders)
+        case Left(unplannedOrder) => (state, unplannedOrders :+ unplannedOrder)
     }
 
     val unplannedOrderIds = unplanned.map(_.orderId).toSet
@@ -182,8 +181,9 @@ object SchedulingService:
           case Right(topologicalOrder) =>
             // `sort` puts dependents before prerequisites because edges point from task to dependency, so execution order is the reverse.
             val executionRank = topologicalOrder.reverse.zipWithIndex.toMap
-            val orderedTasks = tasks.zipWithIndex
-              .sortBy { case (task, originalIndex) => (executionRank.getOrElse(task.taskId, Int.MaxValue), originalIndex) }
+            val orderedTasks = tasks.zipWithIndex.sortBy { case (task, originalIndex) =>
+              (executionRank.getOrElse(task.taskId, Int.MaxValue), originalIndex)
+            }
               .map(_._1)
 
             val planned = orderedTasks.foldLeft(ManufacturingPlan(state, Map.empty, Set.empty, Vector.empty)) { (plan, task) =>
@@ -203,6 +203,7 @@ object SchedulingService:
             }
 
             NonEmptyList.fromList(planned.blockedTasks.toList).fold(planned.state.asRight)(_.asLeft)
+    end match
   end planManufacturing
 
   /**

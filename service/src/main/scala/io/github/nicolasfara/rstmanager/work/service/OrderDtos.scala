@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.service
 
-import java.util.Locale
-import java.util.UUID
+import java.util.{ Locale, UUID }
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies.*
@@ -54,6 +53,7 @@ object OrderDtos:
             ).mapN { (completed, completedOn) => ScheduledTask.CompletedTask(id, taskId, expected, completed, completedOn) }
           case other => s"$path.status '$other' is not supported. Use pending, in_progress, or completed.".invalidNec
       }
+  end ScheduledTaskDto
 
   object ScheduledTaskDto:
     val example: ScheduledTaskDto =
@@ -85,8 +85,7 @@ object OrderDtos:
       description: Option[String] = None,
   ):
     def toDomain(path: String, id: UUID): ValidatedNec[String, ScheduledManufacturing] =
-      val taskList = tasks.zipWithIndex
-        .traverse { case (task, index) => task.toDomain(s"$path.tasks[$index]") }
+      val taskList = tasks.zipWithIndex.traverse { case (task, index) => task.toDomain(s"$path.tasks[$index]") }
         .andThen(list => NonEmptyList.fromList(list).toValidNec(s"$path.tasks must contain at least one task"))
 
       val dependencyGraph = dependencies.foldLeft(ManufacturingDependencies()) { (current, dependency) =>
@@ -117,6 +116,8 @@ object OrderDtos:
             ).mapN { (started, completed) => ScheduledManufacturing.CompletedManufacturing(manufacturingInfo, started, completed) }
           case other => s"$path.status '$other' is not supported. Use not_started, in_progress, paused, or completed.".invalidNec
       }
+    end toDomain
+  end ManufacturingDto
 
   object ManufacturingDto:
     val example: ManufacturingDto =
@@ -162,6 +163,7 @@ object OrderDtos:
         info.dependencies.toEdgePairs.groupMap(_._1)(_._2).toList.map((taskId, dependsOn) => TaskDependencyDto(taskId, dependsOn)),
         info.description,
       )
+  end ManufacturingDto
 
   final case class OrderRequest(
       number: String,
@@ -173,9 +175,13 @@ object OrderDtos:
       manufacturings: List[ManufacturingDto],
       description: Option[String] = None,
   ):
-    def toDomain(id: UUID, nextManufacturingId: () => UUID = () => UUID.randomUUID().nn): ValidatedNec[String, (OrderData, DateTime)] =
-      val manufacturingList = manufacturings.zipWithIndex
-        .traverse { case (manufacturing, index) => manufacturing.toDomain(s"manufacturings[$index]", nextManufacturingId()) }
+    def toDomain(id: UUID): ValidatedNec[String, (OrderData, DateTime)] =
+      toDomain(id, () => UUID.randomUUID().nn)
+
+    def toDomain(id: UUID, nextManufacturingId: () => UUID): ValidatedNec[String, (OrderData, DateTime)] =
+      val manufacturingList = manufacturings.zipWithIndex.traverse { case (manufacturing, index) =>
+        manufacturing.toDomain(s"manufacturings[$index]", nextManufacturingId())
+      }
         .andThen(list => NonEmptyList.fromList(list).toValidNec("manufacturings must contain at least one manufacturing"))
 
       (
@@ -187,10 +193,21 @@ object OrderDtos:
         manufacturingList,
       ).mapN { (orderNumber, createdAt, expectedDelivery, promisedDelivery, orderPriority, manufacturingNel) =>
         (
-          OrderData(id, orderNumber, customerId, createdAt, expectedDelivery, orderPriority, manufacturingNel, description.map(_.trim.nn).filter(_.nonEmpty)),
+          OrderData(
+            id,
+            orderNumber,
+            customerId,
+            createdAt,
+            expectedDelivery,
+            orderPriority,
+            manufacturingNel,
+            description.map(_.trim.nn).filter(_.nonEmpty),
+          ),
           promisedDelivery,
         )
       }
+    end toDomain
+  end OrderRequest
 
   object OrderRequest:
     val example: OrderRequest =
@@ -326,6 +343,7 @@ object OrderDtos:
       case Order.CompletedOrder(data, _) => Some((data, "completed", None))
       case Order.DeliveredOrder(data, _, _) => Some((data, "delivered", None))
       case Order.CancelledOrder(data, _, _) => Some((data, "cancelled", None))
+  end OrderResponse
 
   private def priorityToDomain(value: String, path: String): ValidatedNec[String, OrderPriority] =
     normalizeKind(value) match
@@ -337,8 +355,8 @@ object OrderDtos:
     normalizeKind(value) match
       case "not_started" | "notstarted" => ManufacturingStatus.NotStarted.validNec
       case "in_progress" | "inprogress" => ManufacturingStatus.InProgress.validNec
-      case "paused"                     => ManufacturingStatus.Paused.validNec
-      case "completed"                  => ManufacturingStatus.Completed.validNec
+      case "paused" => ManufacturingStatus.Paused.validNec
+      case "completed" => ManufacturingStatus.Completed.validNec
       case other => s"status '$other' is not supported. Use not_started, in_progress, paused, or completed.".invalidNec
 
   /** Trims free text and collapses blank strings to `None`, so an empty value clears the field. */

@@ -59,4 +59,3 @@ object EmployeeAggregate extends DomainModel[EmployeeAggregate, EmployeeEvent, E
     case EmployeeUpdated(employee) => _.mustBeActive.map(_ => Active(employee))
     case EmployeeDeleted => _.mustBeActive.map(active => Deleted(active.employee))
   }
-end EmployeeAggregate

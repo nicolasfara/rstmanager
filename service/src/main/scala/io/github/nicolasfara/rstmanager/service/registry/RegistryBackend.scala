@@ -17,8 +17,8 @@ import skunk.Session
 /**
  * Durable index backend for one entity type.
  *
- * The registry is a singleton stream (address [[RegistryBackend.address]]) inside its own journal namespace, so different
- * entity types keep independent indexes while sharing the same [[EntityRegistry]] model.
+ * The registry is a singleton stream (address [[RegistryBackend.address]]) inside its own journal namespace, so different entity types keep
+ * independent indexes while sharing the same [[EntityRegistry]] model.
  */
 object RegistryBackend:
   given BackendCodec[EntityRegistryEvent] = CirceCodec.jsonb

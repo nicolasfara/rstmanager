@@ -10,9 +10,9 @@ import io.circe.{ Codec, Decoder, Encoder }
 /**
  * Circe codecs shared by every entity codec: `DateTime`, joda `Interval`, and the opaque refined-int budget/effort types.
  *
- * The opaque `RefinedType` companions (`TaskHours`, `WeeklyHours`, `DailyHours`) are not visible as `Int :| C` outside
- * their definition, so `iron-circe` cannot derive them; they get explicit codecs that re-validate on read. Direct
- * `A :| C` fields are handled by the `iron-circe` givens imported where needed.
+ * The opaque `RefinedType` companions (`TaskHours`, `WeeklyHours`, `DailyHours`) are not visible as `Int :| C` outside their definition, so
+ * `iron-circe` cannot derive them; they get explicit codecs that re-validate on read. Direct `A :| C` fields are handled by the `iron-circe` givens
+ * imported where needed.
  */
 object CommonCodecs:
   given Codec[DateTime] = Codec.from(

@@ -8,18 +8,19 @@ import scala.language.implicitConversions
 import scala.scalajs.js
 import scala.scalajs.js.Thenable.Implicits.*
 
+import io.circe.{ Decoder, Encoder }
 import io.circe.parser.decode
 import io.circe.syntax.*
-import io.circe.{ Decoder, Encoder }
 import org.scalajs.dom
 
 import Dtos.*
 
-/** Thin typed wrapper over the Fetch API for the RST Manager REST endpoints.
-  *
-  * Every call returns a `Future[Either[ApiError, A]]`: a `Left` carries the parsed [[Dtos.ApiError]]
-  * body (or a synthetic one for transport/decoding failures), a `Right` the decoded payload.
-  */
+/**
+ * Thin typed wrapper over the Fetch API for the RST Manager REST endpoints.
+ *
+ * Every call returns a `Future[Either[ApiError, A]]`: a `Left` carries the parsed [[Dtos.ApiError]] body (or a synthetic one for transport/decoding
+ * failures), a `Right` the decoded payload.
+ */
 object ApiClient:
   type Result[A] = Either[ApiError, A]
 
@@ -49,12 +50,11 @@ object ApiClient:
 
   private def errorMessage(err: Throwable): String = err.getMessage match
     case message: String => message
-    case _               => "Errore di rete"
+    case _ => "Errore di rete"
 
   private def sendJson[A: Decoder](method: dom.HttpMethod, path: String, body: Option[String]): Future[Result[A]] =
     rawSend(method, path, body).map { (status, text) =>
-      if isSuccess(status) then
-        decode[A](text).left.map(err => ApiError("decode-error", s"Cannot decode response: ${err.getMessage}", List(text)))
+      if isSuccess(status) then decode[A](text).left.map(err => ApiError("decode-error", s"Cannot decode response: ${err.getMessage}", List(text)))
       else Left(parseError(status, text))
     }.recover { case err => Left(ApiError("network-error", errorMessage(err), Nil)) }
 

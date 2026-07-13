@@ -8,13 +8,11 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturin
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderService.Command
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderService.Notification
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.InProgressTask
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.Id
 import cats.data.NonEmptyList
@@ -35,7 +33,10 @@ class OrderServiceTest extends AnyFlatSpecLike:
   private val templateTaskId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000105").nn
   private val otherTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000107").nn
 
-  private def orderData(manufacturings: NonEmptyList[ScheduledManufacturing] = NonEmptyList.one(manufacturing())): OrderData =
+  private def orderData(): OrderData =
+    orderData(NonEmptyList.one(manufacturing()))
+
+  private def orderData(manufacturings: NonEmptyList[ScheduledManufacturing]): OrderData =
     OrderData(
       orderId,
       "ORD-101".refineUnsafe[OrderNumber],
@@ -46,9 +47,15 @@ class OrderServiceTest extends AnyFlatSpecLike:
       manufacturings,
     )
 
+  private def manufacturing(): ScheduledManufacturing =
+    manufacturing(manufacturingId, NonEmptyList.one(task()))
+
+  private def manufacturing(tasks: NonEmptyList[ScheduledTask]): ScheduledManufacturing =
+    manufacturing(manufacturingId, tasks)
+
   private def manufacturing(
-      id: ScheduledManufacturingId = manufacturingId,
-      tasks: NonEmptyList[ScheduledTask] = NonEmptyList.one(task()),
+      id: ScheduledManufacturingId,
+      tasks: NonEmptyList[ScheduledTask],
   ): ScheduledManufacturing =
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
@@ -60,7 +67,10 @@ class OrderServiceTest extends AnyFlatSpecLike:
       ),
     )
 
-  private def task(id: ScheduledTaskId = taskId): InProgressTask =
+  private def task(): InProgressTask =
+    task(taskId)
+
+  private def task(id: ScheduledTaskId): InProgressTask =
     InProgressTask(id, templateTaskId, TaskHours(8), TaskHours(0))
 
   private def run(

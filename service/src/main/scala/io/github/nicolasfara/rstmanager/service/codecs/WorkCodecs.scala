@@ -1,7 +1,11 @@
 package io.github.nicolasfara.rstmanager.service.codecs
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingInfo }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ManufacturingStatus,
+  ScheduledManufacturing,
+  ScheduledManufacturingInfo,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskId, TaskService }

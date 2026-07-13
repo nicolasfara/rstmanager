@@ -9,4 +9,3 @@ import io.circe.generic.semiauto.deriveCodec
 object RegistryCodecs:
   given Codec[EntityRegistryEvent] = deriveCodec
   given Codec[EntityRegistryService.Notification] = deriveCodec
-end RegistryCodecs

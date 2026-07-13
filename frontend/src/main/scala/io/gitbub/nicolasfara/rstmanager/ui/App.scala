@@ -9,18 +9,18 @@ object App:
     case Planning, Orders, Employees, Customers, Tasks
 
   private def label(page: Page): String = page match
-    case Page.Planning  => "Pianificazione"
-    case Page.Orders    => "Ordini"
+    case Page.Planning => "Pianificazione"
+    case Page.Orders => "Ordini"
     case Page.Employees => "Dipendenti"
     case Page.Customers => "Clienti"
-    case Page.Tasks     => "Catalogo Task"
+    case Page.Tasks => "Catalogo Task"
 
   private def render(page: Page): HtmlElement = page match
-    case Page.Planning  => PlanningPage()
-    case Page.Orders    => OrdersPage()
+    case Page.Planning => PlanningPage()
+    case Page.Orders => OrdersPage()
     case Page.Employees => EmployeesPage()
     case Page.Customers => CustomersPage()
-    case Page.Tasks     => TasksPage()
+    case Page.Tasks => TasksPage()
 
   private def navButton(page: Page, current: Var[Page]): HtmlElement =
     button(
@@ -52,4 +52,5 @@ object App:
         child <-- current.signal.map(render),
       ),
     )
+  end apply
 end App

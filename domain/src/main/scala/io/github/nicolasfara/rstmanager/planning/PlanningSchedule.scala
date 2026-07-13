@@ -3,8 +3,7 @@ package io.github.nicolasfara.rstmanager.planning
 import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.{ NonEmptyList, Validated, ValidatedNec }

@@ -12,11 +12,14 @@ object Components:
 
   // ---- Class tokens ------------------------------------------------------------------------------
 
-  val btnPrimary = "inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-  val btnGhost = "inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+  val btnPrimary =
+    "inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+  val btnGhost =
+    "inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
   val btnSmall = "inline-flex items-center rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
   val btnDanger = "inline-flex items-center rounded-md border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50"
-  private val inputCls = "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+  private val inputCls =
+    "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
   private val labelCls = "mb-1 block text-xs font-medium text-slate-500"
 
   // ---- Layout primitives -------------------------------------------------------------------------
@@ -32,7 +35,13 @@ object Components:
 
   // ---- Form controls -----------------------------------------------------------------------------
 
-  def textInput(state: Var[String], placeholderText: String = "", inputType: String = "text"): HtmlElement =
+  def textInput(state: Var[String]): HtmlElement =
+    textInput(state, "", "text")
+
+  def textInput(state: Var[String], placeholderText: String): HtmlElement =
+    textInput(state, placeholderText, "text")
+
+  def textInput(state: Var[String], placeholderText: String, inputType: String): HtmlElement =
     input(
       typ := inputType,
       cls := inputCls,
@@ -57,12 +66,12 @@ object Components:
 
   def statusBadge(status: String): HtmlElement =
     val color = status match
-      case "completed"            => "bg-emerald-50 text-emerald-700 border-emerald-200"
-      case "in_progress"          => "bg-sky-50 text-sky-700 border-sky-200"
-      case "delivered"            => "bg-violet-50 text-violet-700 border-violet-200"
+      case "completed" => "bg-emerald-50 text-emerald-700 border-emerald-200"
+      case "in_progress" => "bg-sky-50 text-sky-700 border-sky-200"
+      case "delivered" => "bg-violet-50 text-violet-700 border-violet-200"
       case "suspended" | "paused" => "bg-amber-50 text-amber-700 border-amber-200"
       case "rejected" | "cancelled" => "bg-rose-50 text-rose-700 border-rose-200"
-      case _                      => "bg-slate-50 text-slate-600 border-slate-200"
+      case _ => "bg-slate-50 text-slate-600 border-slate-200"
     badge(status.replace('_', ' ').nn, color)
 
   def spinner: HtmlElement =
@@ -83,20 +92,20 @@ object Components:
   def renderResult[A](signal: Signal[Option[ApiClient.Result[A]]])(render: A => HtmlElement): HtmlElement =
     div(
       child <-- signal.map {
-        case None              => spinner
-        case Some(Left(err))   => errorBanner(err)
+        case None => spinner
+        case Some(Left(err)) => errorBanner(err)
         case Some(Right(data)) => render(data)
       },
     )
 
   // ---- Data loading ------------------------------------------------------------------------------
 
-  /** Turns a `tick` signal + a loading effect into a resource signal that reloads on every tick.
-    *
-    * Reloads happen **in place**: the previously loaded value stays visible while the new request is
-    * in flight (no spinner/empty flash), and consecutive identical results don't re-render (`distinct`).
-    * This keeps refreshes — including the automatic ones — visually smooth.
-    */
+  /**
+   * Turns a `tick` signal + a loading effect into a resource signal that reloads on every tick.
+   *
+   * Reloads happen **in place**: the previously loaded value stays visible while the new request is in flight (no spinner/empty flash), and
+   * consecutive identical results don't re-render (`distinct`). This keeps refreshes — including the automatic ones — visually smooth.
+   */
   def loadable[A](tick: Signal[Any])(load: () => Future[ApiClient.Result[A]]): Signal[Option[ApiClient.Result[A]]] =
     tick.flatMapSwitch(_ => EventStream.fromFuture(load())).toWeakSignal.distinct
 

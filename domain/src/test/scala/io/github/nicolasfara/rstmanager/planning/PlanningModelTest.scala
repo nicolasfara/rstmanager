@@ -114,7 +114,8 @@ class PlanningModelTest extends AnyFlatSpecLike:
     val delayedOrder = validOrFail(DelayedOrder.create(orderId, day, nextDay))
     val delayedManufacturing = validOrFail(DelayedManufacturing.create(orderId, manufacturingId, day, nextDay))
     val warning = PlanningWarning("Capacity is tight")
-    val result = validOrFail(PlanningResult.create(List(dailySchedule), List(delayedOrder), List(delayedManufacturing), List(unplannedOrder), List(warning)))
+    val result =
+      validOrFail(PlanningResult.create(List(dailySchedule), List(delayedOrder), List(delayedManufacturing), List(unplannedOrder), List(warning)))
 
     result.schedules.head.day shouldEqual day
     result.delayedOrders should contain only delayedOrder
@@ -172,7 +173,9 @@ class PlanningModelTest extends AnyFlatSpecLike:
   it should "derive a completed result with unplanned orders from accepted planning facts" in:
     val active = validOrFail(Planning.transition(PlanningRequested(request))(Planning.initial))
     val marked = validOrFail(Planning.transition(OrderMarkedUnplanned(unplannedOrder, day))(active))
-    val completed = validOrFail(Planning.transition(ScheduleComputed(validOrFail(PlanningResult.fromSlices(Nil, Nil, Nil, List(unplannedOrder), Nil)), nextDay))(marked))
+    val completed = validOrFail(
+      Planning.transition(ScheduleComputed(validOrFail(PlanningResult.fromSlices(Nil, Nil, Nil, List(unplannedOrder), Nil)), nextDay))(marked),
+    )
 
     completed match
       case CompletedPlanning(_, result, _) =>

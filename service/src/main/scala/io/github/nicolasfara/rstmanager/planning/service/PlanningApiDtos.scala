@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.planning.service
 
-import java.util.Locale
-import java.util.UUID
+import java.util.{ Locale, UUID }
 
 import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
@@ -11,7 +10,7 @@ import cats.data.ValidatedNec
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import edomata.backend.eventsourcing.AggregateState
-import io.circe.{ Codec as CirceCodec }
+import io.circe.Codec as CirceCodec
 import io.circe.generic.semiauto.deriveCodec
 import sttp.tapir.Schema
 
@@ -129,6 +128,7 @@ object PlanningApiDtos:
             None,
             Some(formatDate(rejectedOn)),
           )
+  end PlanningStateDto
 
   final case class PlanningRequestDto(id: UUID, startOn: String, trigger: PlanningTriggerDto, requestedOn: String, openOrderIds: List[UUID])
 
@@ -162,8 +162,8 @@ object PlanningApiDtos:
         case "workforce_capacity_changed" | "workforcecapacitychanged" => PlanningTrigger.WorkforceCapacityChanged.validNec
         case "manual_recovery" | "manualrecovery" => PlanningTrigger.ManualRecovery.validNec
         case other =>
-          s"$path.kind '$other' is not supported. Use daily_planning, order_changed, manufacturing_changed, task_changed, workforce_capacity_changed, or manual_recovery."
-            .invalidNec
+          s"$path.kind '$other' is not supported. Use daily_planning, order_changed, manufacturing_changed, task_changed, workforce_capacity_changed, or manual_recovery.".invalidNec
+  end PlanningTriggerDto
 
   object PlanningTriggerDto:
     def fromDomain(trigger: PlanningTrigger): PlanningTriggerDto =
@@ -281,7 +281,13 @@ object PlanningApiDtos:
     def fromDomain(reason: UnplannedReason): UnplannedReasonDto =
       reason match
         case UnplannedReason.NoFutureCapacity(requiredHours) =>
-          UnplannedReasonDto("no_future_capacity", s"No future production day can provide ${requiredHours.value} hours.", Some(requiredHours.value), Nil, None)
+          UnplannedReasonDto(
+            "no_future_capacity",
+            s"No future production day can provide ${requiredHours.value} hours.",
+            Some(requiredHours.value),
+            Nil,
+            None,
+          )
         case UnplannedReason.DependencyCycle(cycle) =>
           UnplannedReasonDto("dependency_cycle", "The manufacturing dependency graph contains a cycle.", None, cycle.toList.sortBy(_.toString), None)
         case UnplannedReason.MissingDependency(dependency) =>
@@ -300,7 +306,10 @@ object PlanningApiDtos:
     def fromDomain(error: PlanningError): PlanningDomainErrorDto =
       error match
         case PlanningError.InvalidEmployeeAssignment(availableHours, assignedHours) =>
-          PlanningDomainErrorDto("invalid_employee_assignment", s"Assigned hours ${assignedHours.value} exceed available hours ${availableHours.value}.")
+          PlanningDomainErrorDto(
+            "invalid_employee_assignment",
+            s"Assigned hours ${assignedHours.value} exceed available hours ${availableHours.value}.",
+          )
         case PlanningError.InvalidOrderDelay(orderId, expectedDeliveryDate, promisedDeliveryDate) =>
           PlanningDomainErrorDto(
             "invalid_order_delay",
@@ -332,6 +341,7 @@ object PlanningApiDtos:
           PlanningDomainErrorDto("planning_already_in_progress", s"Planning request $requestId is already in progress.")
         case PlanningError.PlanningMustBeInProgress =>
           PlanningDomainErrorDto("planning_must_be_in_progress", "Planning must be in progress for this operation.")
+  end PlanningDomainErrorDto
 
   private def parseDate(value: String, path: String): ValidatedNec[String, DateTime] =
     Either

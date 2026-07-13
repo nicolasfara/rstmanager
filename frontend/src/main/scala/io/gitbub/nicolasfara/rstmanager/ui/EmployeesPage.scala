@@ -20,15 +20,15 @@ object EmployeesPage:
   private def toIso(day: String): String = if day.isEmpty then "" else s"${day}T00:00:00.000Z"
 
   private def describeContract(c: EmployeeContractDto): String = c.kind match
-    case "full_time"  => s"Tempo pieno · dal ${Formats.date(c.startDate)}"
+    case "full_time" => s"Tempo pieno · dal ${Formats.date(c.startDate)}"
     case "fixed_term" => s"Determinato · ${Formats.date(c.startDate)} → ${c.endDate.map(Formats.date).getOrElse("?")}"
-    case "part_time"  => s"Part-time · ${c.weeklyHours.getOrElse(0)}h/sett · dal ${Formats.date(c.startDate)}"
-    case other        => other
+    case "part_time" => s"Part-time · ${c.weeklyHours.getOrElse(0)}h/sett · dal ${Formats.date(c.startDate)}"
+    case other => other
 
   private def describeOverride(o: HoursOverrideDto): String = o.kind match
     case "working_day" => s"${o.hours.getOrElse(0)}h il ${o.day.map(Formats.date).getOrElse("?")}${o.reason.map(r => s" · $r").getOrElse("")}"
-    case "vacation"    => s"Ferie ${o.startDate.map(Formats.date).getOrElse("?")} → ${o.endDate.map(Formats.date).getOrElse("?")}"
-    case other         => other
+    case "vacation" => s"Ferie ${o.startDate.map(Formats.date).getOrElse("?")} → ${o.endDate.map(Formats.date).getOrElse("?")}"
+    case other => other
 
   def apply(): HtmlElement =
     val tick = Var(0)
@@ -49,13 +49,13 @@ object EmployeesPage:
 
     def buildContract(): EmployeeContractDto = contractKind.now() match
       case "fixed_term" => EmployeeContractDto("fixed_term", toIso(startDate.now()), Some(toIso(endDate.now())), None)
-      case "part_time"  => EmployeeContractDto("part_time", toIso(startDate.now()), None, weeklyHours.now().toIntOption)
-      case _            => EmployeeContractDto("full_time", toIso(startDate.now()), None, None)
+      case "part_time" => EmployeeContractDto("part_time", toIso(startDate.now()), None, weeklyHours.now().toIntOption)
+      case _ => EmployeeContractDto("full_time", toIso(startDate.now()), None, None)
 
     def createEmployee(): Unit =
       val request = EmployeeRequest(name.now().trim.nn, surname.now().trim.nn, buildContract(), budget.now().toIntOption.getOrElse(0), Nil)
       ApiClient.createEmployee(request).foreach {
-        case Right(_)  => resetCreate(); pageError.set(None); tick.update(_ + 1)
+        case Right(_) => resetCreate(); pageError.set(None); tick.update(_ + 1)
         case Left(err) => pageError.set(Some(err))
       }
 
@@ -75,21 +75,29 @@ object EmployeesPage:
     def addOverride(): Unit =
       val entry = ovKind.now() match
         case "vacation" => HoursOverrideDto("vacation", None, None, None, Some(toIso(ovStart.now())), Some(toIso(ovEnd.now())))
-        case _          => HoursOverrideDto("working_day", ovHours.now().toIntOption, Some(ovReason.now().trim.nn).filter(_.nonEmpty), Some(toIso(ovDay.now())), None, None)
+        case _ =>
+          HoursOverrideDto(
+            "working_day",
+            ovHours.now().toIntOption,
+            Some(ovReason.now().trim.nn).filter(_.nonEmpty),
+            Some(toIso(ovDay.now())),
+            None,
+            None,
+          )
       workingOverrides.update(_ :+ entry)
       ovHours.set("8"); ovReason.set(""); ovDay.set(""); ovStart.set(""); ovEnd.set("")
 
     def saveOverrides(): Unit = editing.now().foreach { emp =>
       val request = EmployeeRequest(emp.name, emp.surname, emp.contract, emp.budgetWeeklyHours, workingOverrides.now())
       ApiClient.updateEmployee(emp.id, request).foreach {
-        case Right(_)  => editing.set(None); tick.update(_ + 1)
+        case Right(_) => editing.set(None); tick.update(_ + 1)
         case Left(err) => pageError.set(Some(err))
       }
     }
 
     def deleteEmployee(id: UUID): Unit =
       ApiClient.deleteEmployee(id).foreach {
-        case Right(_)  => tick.update(_ + 1)
+        case Right(_) => tick.update(_ + 1)
         case Left(err) => pageError.set(Some(err))
       }
 
@@ -103,12 +111,12 @@ object EmployeesPage:
           div(),
           child <-- ovKind.signal.map {
             case "vacation" =>
-              div(cls := "col-span-2 grid grid-cols-2 gap-2", field("Da", textInput(ovStart, inputType = "date")), field("A", textInput(ovEnd, inputType = "date")))
+              div(cls := "col-span-2 grid grid-cols-2 gap-2", field("Da", textInput(ovStart, "", "date")), field("A", textInput(ovEnd, "", "date")))
             case _ =>
               div(
                 cls := "col-span-2 grid grid-cols-3 gap-2",
-                field("Ore", textInput(ovHours, inputType = "number")),
-                field("Giorno", textInput(ovDay, inputType = "date")),
+                field("Ore", textInput(ovHours, "", "number")),
+                field("Giorno", textInput(ovDay, "", "date")),
                 field("Motivo", textInput(ovReason, "Opzionale")),
               )
           },
@@ -123,13 +131,19 @@ object EmployeesPage:
           cls := "flex flex-wrap gap-2",
           children <-- workingOverrides.signal.map { list =>
             if list.isEmpty then List(span(cls := "text-xs text-slate-400", "Nessun override."))
-            else list.zipWithIndex.map { case (o, index) =>
-              span(
-                cls := "inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600",
-                describeOverride(o),
-                button(tpe := "button", cls := "text-slate-400 hover:text-rose-600", "✕", onClick --> (_ => workingOverrides.update(_.patch(index, Nil, 1)))),
-              )
-            }
+            else
+              list.zipWithIndex.map { case (o, index) =>
+                span(
+                  cls := "inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600",
+                  describeOverride(o),
+                  button(
+                    tpe := "button",
+                    cls := "text-slate-400 hover:text-rose-600",
+                    "✕",
+                    onClick --> (_ => workingOverrides.update(_.patch(index, Nil, 1))),
+                  ),
+                )
+              }
           },
         ),
         overrideForm(),
@@ -152,13 +166,13 @@ object EmployeesPage:
           field("Nome", textInput(name)),
           field("Cognome", textInput(surname)),
           field("Contratto", staticSelect(contractKind, contractOptions)),
-          field("Inizio", textInput(startDate, inputType = "date")),
+          field("Inizio", textInput(startDate, "", "date")),
           child <-- contractKind.signal.map {
-            case "fixed_term" => field("Fine", textInput(endDate, inputType = "date"))
-            case "part_time"  => field("Ore/sett.", textInput(weeklyHours, inputType = "number"))
-            case _            => div()
+            case "fixed_term" => field("Fine", textInput(endDate, "", "date"))
+            case "part_time" => field("Ore/sett.", textInput(weeklyHours, "", "number"))
+            case _ => div()
           },
-          field("Budget ore/sett.", textInput(budget, inputType = "number")),
+          field("Budget ore/sett.", textInput(budget, "", "number")),
         ),
         child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
         div(cls := "mt-3", button(tpe := "button", cls := btnPrimary, "Crea dipendente", onClick --> (_ => createEmployee()))),
@@ -193,4 +207,5 @@ object EmployeesPage:
         },
       ),
     )
+  end apply
 end EmployeesPage

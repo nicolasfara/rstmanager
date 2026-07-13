@@ -18,4 +18,3 @@ object HrCodecs:
   given Codec[Employee] = deriveCodec
   given Codec[EmployeeEvent] = deriveCodec
   given Codec[EmployeeService.Notification] = deriveCodec
-end HrCodecs

@@ -42,21 +42,29 @@ object CustomersPage:
 
     def submit(): Unit =
       val request = CustomerRequest(
-        name.now().trim.nn, surname.now().trim.nn, email.now().trim.nn, phone.now().trim.nn,
-        street.now().trim.nn, city.now().trim.nn, postalCode.now().trim.nn, country.now().trim.nn,
-        fiscalCode.now().trim.nn, customerType.now(),
+        name.now().trim.nn,
+        surname.now().trim.nn,
+        email.now().trim.nn,
+        phone.now().trim.nn,
+        street.now().trim.nn,
+        city.now().trim.nn,
+        postalCode.now().trim.nn,
+        country.now().trim.nn,
+        fiscalCode.now().trim.nn,
+        customerType.now(),
       )
       val effect = editingId.now() match
         case Some(id) => ApiClient.updateCustomer(id, request)
-        case None     => ApiClient.createCustomer(request)
+        case None => ApiClient.createCustomer(request)
       effect.foreach {
-        case Right(_)  => resetForm(); tick.update(_ + 1)
+        case Right(_) => resetForm(); tick.update(_ + 1)
         case Left(err) => formError.set(Some(err))
       }
+    end submit
 
     def delete(id: UUID): Unit =
       ApiClient.deleteCustomer(id).foreach {
-        case Right(_)  => tick.update(_ + 1)
+        case Right(_) => tick.update(_ + 1)
         case Left(err) => formError.set(Some(err))
       }
 
@@ -71,7 +79,7 @@ object CustomersPage:
           cls := "mt-3 grid grid-cols-2 gap-3",
           field("Nome", textInput(name)),
           field("Cognome", textInput(surname)),
-          field("Email", textInput(email, inputType = "email")),
+          field("Email", textInput(email, "", "email")),
           field("Telefono", textInput(phone)),
           field("Via", textInput(street)),
           field("Città", textInput(city)),
@@ -102,7 +110,11 @@ object CustomersPage:
                 customers.map { c =>
                   tr(
                     cls := "border-b border-slate-100 last:border-0",
-                    td(cls := "px-4 py-2", div(cls := "font-medium text-slate-800", s"${c.name} ${c.surname}"), div(cls := "text-xs text-slate-400", s"${c.city}, ${c.country}")),
+                    td(
+                      cls := "px-4 py-2",
+                      div(cls := "font-medium text-slate-800", s"${c.name} ${c.surname}"),
+                      div(cls := "text-xs text-slate-400", s"${c.city}, ${c.country}"),
+                    ),
                     td(cls := "px-4 py-2 text-slate-500", div(c.email), div(cls := "text-xs", c.phone)),
                     td(cls := "px-4 py-2", statusBadge(c.customerType)),
                     td(
@@ -120,4 +132,5 @@ object CustomersPage:
         },
       ),
     )
+  end apply
 end CustomersPage

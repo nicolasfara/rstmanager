@@ -7,4 +7,3 @@ enum TaskError derives CanEqual:
 
   /** An update or delete was attempted on an id that does not exist (or was deleted). */
   case TaskNotFound
-end TaskError

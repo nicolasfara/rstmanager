@@ -96,8 +96,8 @@ enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedHour
   def setProgress(completed: TaskHours): ScheduledTask = withHours(expectedHours, completed)
 
   /**
-   * Changes the total expected hours while preserving the completed hours, re-deriving the task state accordingly
-   * (a task whose completed hours now cover the new estimate becomes completed, and vice versa).
+   * Changes the total expected hours while preserving the completed hours, re-deriving the task state accordingly (a task whose completed hours now
+   * cover the new estimate becomes completed, and vice versa).
    */
   def changeExpectedHours(newExpectedHours: TaskHours): ScheduledTask = withHours(newExpectedHours, completedHours)
 

@@ -16,4 +16,3 @@ enum CustomerEvent derives CanEqual:
 
   /** The customer record was deleted. */
   case CustomerDeleted
-end CustomerEvent

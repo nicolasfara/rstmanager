@@ -8,9 +8,13 @@ import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.planning.Planning.CompletedPlanning
 import io.github.nicolasfara.rstmanager.planning.PlanningService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ScheduledManufacturing,
+  ScheduledManufacturingId,
+  ScheduledManufacturingInfo,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
@@ -36,11 +40,20 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
   private val otherOrderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000003").nn
   private val manufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000004").nn
 
+  private def employee(id: EmployeeId): Employee =
+    employee(id, 40, Nil, Contract.FullTime(monday.minusYears(1).nn))
+
+  private def employee(id: EmployeeId, overrides: List[HoursOverride]): Employee =
+    employee(id, 40, overrides, Contract.FullTime(monday.minusYears(1).nn))
+
+  private def employee(id: EmployeeId, contract: Contract): Employee =
+    employee(id, 40, Nil, contract)
+
   private def employee(
       id: EmployeeId,
-      weeklyHours: Int = 40,
-      overrides: List[HoursOverride] = Nil,
-      contract: Contract = Contract.FullTime(monday.minusYears(1).nn),
+      weeklyHours: Int,
+      overrides: List[HoursOverride],
+      contract: Contract,
   ): Employee =
     Employee(
       id,
@@ -56,7 +69,14 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       id: ScheduledManufacturingId,
       completionDate: DateTime,
       tasks: NonEmptyList[ScheduledTask],
-      dependencies: ManufacturingDependencies = ManufacturingDependencies(),
+  ): ScheduledManufacturing =
+    manufacturing(id, completionDate, tasks, ManufacturingDependencies())
+
+  private def manufacturing(
+      id: ScheduledManufacturingId,
+      completionDate: DateTime,
+      tasks: NonEmptyList[ScheduledTask],
+      dependencies: ManufacturingDependencies,
   ): ScheduledManufacturing =
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
@@ -72,7 +92,14 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       id: OrderId,
       deliveryDate: DateTime,
       manufacturings: NonEmptyList[ScheduledManufacturing],
-      priority: OrderPriority = OrderPriority.Normal,
+  ): InProgressOrder =
+    order(id, deliveryDate, manufacturings, OrderPriority.Normal)
+
+  private def order(
+      id: OrderId,
+      deliveryDate: DateTime,
+      manufacturings: NonEmptyList[ScheduledManufacturing],
+      priority: OrderPriority,
   ): InProgressOrder =
     InProgressOrder(
       OrderData(
@@ -211,7 +238,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val urgent =
       order(orderId, friday, NonEmptyList.one(manufacturing(urgentManufacturingId, friday, NonEmptyList.one(urgentTask))), OrderPriority.Urgent)
     val normal = order(otherOrderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(normalTask))))
-    val outcome = scheduleOrFail(request(monday, List(orderId, otherOrderId)), List(normal, urgent), List(employee(employeeA, contract = limitedContract)))
+    val outcome =
+      scheduleOrFail(request(monday, List(orderId, otherOrderId)), List(normal, urgent), List(employee(employeeA, contract = limitedContract)))
 
     outcome.slices.map(slice => (slice.orderId, slice.day, slice.candidateEmployee.assignedHours.value)) shouldEqual
       List((orderId, monday, 8), (orderId, tuesday, 8))

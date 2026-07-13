@@ -95,4 +95,5 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
       ),
       monday.plusDays(5).nn,
     )
+  end openOrder
 end PlanningRecalculationServiceTest

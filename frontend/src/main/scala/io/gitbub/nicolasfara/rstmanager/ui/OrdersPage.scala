@@ -12,10 +12,11 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
-/** Orders: filterable list with lifecycle transitions, a nested create form, and a full edit modal covering
-  * order data (priority, promised date, description), per-manufacturing description/status and add/remove of
-  * manufacturings and tasks. Completing or delivering an order asks for an explicit acknowledgement first.
-  */
+/**
+ * Orders: filterable list with lifecycle transitions, a nested create form, and a full edit modal covering order data (priority, promised date,
+ * description), per-manufacturing description/status and add/remove of manufacturings and tasks. Completing or delivering an order asks for an
+ * explicit acknowledgement first.
+ */
 object OrdersPage:
 
   private val priorityOptions = List("normal" -> "Normale", "urgent" -> "Urgente")
@@ -43,7 +44,7 @@ object OrdersPage:
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
   /** `java.util.UUID.randomUUID` is unavailable on Scala.js (needs SecureRandom); use the Web Crypto API. */
-  private def randomUuid(): UUID = UUID.fromString(js.Dynamic.global.crypto.randomUUID().asInstanceOf[String]).nn
+  private def randomUuid(): UUID = UUID.fromString(js.Dynamic.global.crypto.randomUUID().toString).nn
 
   /** Only in-progress and suspended orders accept data/task edits (see the domain `Order` aggregate). */
   private def isEditable(status: String): Boolean = status == "in_progress" || status == "suspended"
@@ -52,15 +53,15 @@ object OrdersPage:
   private def normalizeStr(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
 
   private def statusLabel(status: String): String = status match
-    case "pending"     => "In attesa"
+    case "pending" => "In attesa"
     case "in_progress" => "In corso"
-    case "completed"   => "Completato"
+    case "completed" => "Completato"
     case "not_started" => "Non iniziata"
-    case "paused"      => "In pausa"
-    case "suspended"   => "Sospeso"
-    case "delivered"   => "Consegnato"
-    case "cancelled"   => "Annullato"
-    case other         => other
+    case "paused" => "In pausa"
+    case "suspended" => "Sospeso"
+    case "delivered" => "Consegnato"
+    case "cancelled" => "Annullato"
+    case other => other
 
   private val chipBase = "rounded-full px-3 py-1 text-xs font-medium border transition-colors"
   private def chipCls(active: Boolean): String =
@@ -69,7 +70,7 @@ object OrdersPage:
 
   private def priorityBadge(priority: String): HtmlElement = priority match
     case "urgent" => badge("Urgente", "bg-rose-50 text-rose-700 border-rose-200")
-    case _        => badge("Normale", "bg-slate-50 text-slate-600 border-slate-200")
+    case _ => badge("Normale", "bg-slate-50 text-slate-600 border-slate-200")
 
   private def readField(labelText: String, valueNode: Modifier[HtmlElement]): HtmlElement =
     div(
@@ -110,7 +111,8 @@ object OrdersPage:
     val showCreate = Var(false)
     val statusFilter = Var("")
     var keyCounter = 0
-    def nextKey(): Int = { keyCounter += 1; keyCounter }
+    def nextKey(): Int =
+      keyCounter += 1; keyCounter
 
     val ordersData = loadable(tick.signal)(() => ApiClient.listOrders())
     val customersData = loadable(tick.signal)(() => ApiClient.listCustomers())
@@ -118,19 +120,19 @@ object OrdersPage:
 
     val customersMap: Signal[Map[UUID, String]] = customersData.map {
       case Some(Right(list)) => list.map(c => c.id -> s"${c.name} ${c.surname}").toMap
-      case _                 => Map.empty
+      case _ => Map.empty
     }
     val tasksMap: Signal[Map[UUID, String]] = tasksData.map {
       case Some(Right(list)) => list.map(t => t.id -> t.name).toMap
-      case _                 => Map.empty
+      case _ => Map.empty
     }
     val customerOptions: Signal[List[(String, String)]] = customersData.map {
       case Some(Right(list)) => ("" -> "— seleziona cliente —") :: list.map(c => c.id.toString -> s"${c.name} ${c.surname}")
-      case _                 => List("" -> "—")
+      case _ => List("" -> "—")
     }
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
       case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
-      case _                 => List("" -> "—")
+      case _ => List("" -> "—")
     }
 
     // ---- Create form state -----------------------------------------------------------------------
@@ -160,7 +162,18 @@ object OrdersPage:
                 ScheduledTaskDto(randomUuid(), taskId, "pending", t.hours.now().toIntOption.getOrElse(0), Some(0), None)
               }
             }
-            ManufacturingDto(m.code.now().trim.nn, toIso(m.completionDate.now()), "not_started", tasks, Nil, None, None, None, None, normalizeStr(m.description.now()))
+            ManufacturingDto(
+              m.code.now().trim.nn,
+              toIso(m.completionDate.now()),
+              "not_started",
+              tasks,
+              Nil,
+              None,
+              None,
+              None,
+              None,
+              normalizeStr(m.description.now()),
+            )
           }
           val request = OrderRequest(
             number.now().trim.nn,
@@ -173,7 +186,7 @@ object OrdersPage:
             normalizeStr(orderDescription.now()),
           )
           ApiClient.createOrder(request).foreach {
-            case Right(_)  => resetCreate(); showCreate.set(false); tick.update(_ + 1)
+            case Right(_) => resetCreate(); showCreate.set(false); tick.update(_ + 1)
             case Left(err) => pageError.set(Some(err))
           }
 
@@ -200,7 +213,8 @@ object OrdersPage:
     val addTaskMfgId = Var(Option.empty[UUID])
     val addTaskId = Var("")
     val addTaskHours = Var("8")
-    def resetAddTask(): Unit = { addTaskMfgId.set(None); addTaskId.set(""); addTaskHours.set("8") }
+    def resetAddTask(): Unit =
+      addTaskMfgId.set(None); addTaskId.set(""); addTaskHours.set("8")
 
     def openEdit(order: OrderResponse): Unit =
       editPriority.set(order.priority)
@@ -227,7 +241,7 @@ object OrdersPage:
       effects.foldLeft(Future.successful[ApiClient.Result[Unit]](Right(()))) { (acc, effect) =>
         acc.flatMap {
           case Left(err) => Future.successful(Left(err))
-          case Right(_)  => effect()
+          case Right(_) => effect()
         }
       }
 
@@ -235,7 +249,7 @@ object OrdersPage:
     def applyStructural(effect: => Future[ApiClient.Result[OrderResponse]]): Unit =
       effect.foreach {
         case Right(updated) => openEdit(updated); tick.update(_ + 1)
-        case Left(err)      => editError.set(Some(err))
+        case Left(err) => editError.set(Some(err))
       }
 
     def saveEdit(): Unit = editing.now().foreach { order =>
@@ -286,7 +300,7 @@ object OrdersPage:
       if effects.isEmpty then editing.set(None)
       else
         runSequential(effects).foreach {
-          case Right(_)  => editing.set(None); tick.update(_ + 1)
+          case Right(_) => editing.set(None); tick.update(_ + 1)
           case Left(err) => editError.set(Some(err))
         }
     }
@@ -323,36 +337,48 @@ object OrdersPage:
 
     def transition(id: UUID, action: String): Unit =
       ApiClient.orderTransition(id, TransitionRequest(action, None)).foreach {
-        case Right(_)  => tick.update(_ + 1)
+        case Right(_) => tick.update(_ + 1)
         case Left(err) => pageError.set(Some(err))
       }
 
     /** Completing/delivering is irreversible, so it goes through an acknowledgement modal first. */
     def requestTransition(order: OrderResponse, action: String): Unit = action match
       case "complete" =>
-        confirm.set(Some(ConfirmData(
-          order.id, action, "Completare l'ordine?",
-          s"Stai per segnare l'ordine ${order.number} come completato. Verifica che tutte le lavorazioni siano concluse.",
-        )))
+        confirm.set(
+          Some(
+            ConfirmData(
+              order.id,
+              action,
+              "Completare l'ordine?",
+              s"Stai per segnare l'ordine ${order.number} come completato. Verifica che tutte le lavorazioni siano concluse.",
+            ),
+          ),
+        )
       case "deliver" =>
-        confirm.set(Some(ConfirmData(
-          order.id, action, "Confermare la consegna?",
-          s"Stai per segnare l'ordine ${order.number} come consegnato. L'operazione è definitiva.",
-        )))
+        confirm.set(
+          Some(
+            ConfirmData(
+              order.id,
+              action,
+              "Confermare la consegna?",
+              s"Stai per segnare l'ordine ${order.number} come consegnato. L'operazione è definitiva.",
+            ),
+          ),
+        )
       case _ => transition(order.id, action)
 
     def delete(id: UUID): Unit =
       ApiClient.deleteOrder(id, None).foreach {
-        case Right(_)  => tick.update(_ + 1)
+        case Right(_) => tick.update(_ + 1)
         case Left(err) => pageError.set(Some(err))
       }
 
     def transitionButtons(order: OrderResponse): List[HtmlElement] =
       val actions = order.status match
         case "in_progress" => List("suspend" -> "Sospendi", "complete" -> "Completa")
-        case "suspended"   => List("reactivate" -> "Riattiva", "complete" -> "Completa")
-        case "completed"   => List("deliver" -> "Consegna")
-        case _             => Nil
+        case "suspended" => List("reactivate" -> "Riattiva", "complete" -> "Completa")
+        case "completed" => List("deliver" -> "Consegna")
+        case _ => Nil
       actions.map { case (action, label) =>
         button(tpe := "button", cls := btnSmall, label, onClick --> (_ => requestTransition(order, action)))
       }
@@ -362,7 +388,7 @@ object OrdersPage:
       div(
         cls := "flex items-end gap-2",
         div(cls := "flex-1", field("Task", selectInput(t.taskId, taskOptions))),
-        div(cls := "w-20", field("Ore", textInput(t.hours, inputType = "number"))),
+        div(cls := "w-20", field("Ore", textInput(t.hours, "", "number"))),
         button(tpe := "button", cls := s"$btnDanger mb-0.5", "✕", onClick --> (_ => m.tasks.update(_.filterNot(_.key == t.key)))),
       )
 
@@ -372,7 +398,7 @@ object OrdersPage:
         div(
           cls := "flex items-end gap-2",
           div(cls := "flex-1", field("Codice lavorazione", textInput(m.code, "MFG-2026-001"))),
-          div(cls := "w-40", field("Completamento", textInput(m.completionDate, inputType = "date"))),
+          div(cls := "w-40", field("Completamento", textInput(m.completionDate, "", "date"))),
           button(tpe := "button", cls := s"$btnDanger mb-0.5", "Rimuovi", onClick --> (_ => mfgs.update(_.filterNot(_.key == m.key)))),
         ),
         div(cls := "mt-2", field("Descrizione lavorazione", textInput(m.description, "Opzionale"))),
@@ -387,9 +413,9 @@ object OrdersPage:
           cls := "grid grid-cols-2 gap-3",
           field("Numero ordine", textInput(number, "ORD-2026-001")),
           field("Cliente", selectInput(customerId, customerOptions)),
-          field("Creazione", textInput(creationDate, inputType = "date")),
-          field("Consegna prevista", textInput(deliveryDate, inputType = "date")),
-          field("Consegna promessa", textInput(promisedDate, inputType = "date")),
+          field("Creazione", textInput(creationDate, "", "date")),
+          field("Consegna prevista", textInput(deliveryDate, "", "date")),
+          field("Consegna promessa", textInput(promisedDate, "", "date")),
           field("Priorità", staticSelect(priority, priorityOptions)),
         ),
         field("Descrizione ordine", textInput(orderDescription, "Opzionale")),
@@ -424,8 +450,8 @@ object OrdersPage:
                 div(cls := "text-sm text-slate-700", nameNode),
                 div(cls := "text-xs text-slate-400", statusLabel(t.status)),
               ),
-              div(cls := "w-20", field("Previste", textInput(row.expected, inputType = "number"))),
-              div(cls := "w-20", field("Fatte", textInput(row.completed, inputType = "number"))),
+              div(cls := "w-20", field("Previste", textInput(row.expected, "", "number"))),
+              div(cls := "w-20", field("Fatte", textInput(row.completed, "", "number"))),
               button(
                 tpe := "button",
                 cls := s"$btnDanger mb-0.5",
@@ -443,6 +469,8 @@ object OrdersPage:
                 s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${statusLabel(t.status)}",
               ),
             )
+        end match
+      end renderTaskEdit
 
       def addTaskForm(m: ManufacturingResponse): HtmlElement =
         div(
@@ -452,11 +480,19 @@ object OrdersPage:
               div(
                 cls := "flex items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2",
                 div(cls := "flex-1", field("Task", selectInput(addTaskId, taskOptions))),
-                div(cls := "w-20", field("Ore", textInput(addTaskHours, inputType = "number"))),
+                div(cls := "w-20", field("Ore", textInput(addTaskHours, "", "number"))),
                 button(tpe := "button", cls := s"$btnSmall mb-0.5", "Aggiungi", onClick --> (_ => submitAddTask(m.id))),
                 button(tpe := "button", cls := s"$btnGhost mb-0.5", "Annulla", onClick --> (_ => resetAddTask())),
               )
-            else button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => { resetAddTask(); addTaskMfgId.set(Some(m.id)) }))
+            else
+              button(
+                tpe := "button",
+                cls := btnSmall,
+                "+ Task",
+                onClick --> (_ =>
+                  resetAddTask(); addTaskMfgId.set(Some(m.id))
+                ),
+              )
           },
         )
 
@@ -481,14 +517,18 @@ object OrdersPage:
                   field("Stato", staticSelect(row.status, mfgStatusOptions)),
                 )
               case None => emptyNode
-          else
-            m.description.map(d => div(cls := "mb-2 text-sm text-slate-600", d)).getOrElse(emptyNode),
+          else m.description.map(d => div(cls := "mb-2 text-sm text-slate-600", d)).getOrElse(emptyNode),
           div(cls := "space-y-2", m.tasks.map(t => renderTaskEdit(m, t))),
           if editable then addTaskForm(m) else emptyNode,
           if editable && order.manufacturings.size > 1 then
             div(
               cls := "mt-2 flex justify-end",
-              button(tpe := "button", cls := btnDanger, "Rimuovi lavorazione", onClick --> (_ => applyStructural(ApiClient.removeManufacturing(order.id, m.id)))),
+              button(
+                tpe := "button",
+                cls := btnDanger,
+                "Rimuovi lavorazione",
+                onClick --> (_ => applyStructural(ApiClient.removeManufacturing(order.id, m.id))),
+              ),
             )
           else emptyNode,
         )
@@ -503,21 +543,36 @@ object OrdersPage:
                 div(
                   cls := "grid grid-cols-2 gap-2",
                   field("Codice lavorazione", textInput(addMfgCode, "MFG-2026-002")),
-                  field("Completamento", textInput(addMfgDate, inputType = "date")),
+                  field("Completamento", textInput(addMfgDate, "", "date")),
                 ),
                 field("Descrizione", textInput(addMfgDescription, "Opzionale")),
                 div(
                   cls := "grid grid-cols-[1fr_5rem] gap-2",
                   field("Primo task", selectInput(addMfgTaskId, taskOptions)),
-                  field("Ore", textInput(addMfgHours, inputType = "number")),
+                  field("Ore", textInput(addMfgHours, "", "number")),
                 ),
                 div(
                   cls := "flex justify-end gap-2",
-                  button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => { showAddMfg.set(false); resetAddMfg() })),
+                  button(
+                    tpe := "button",
+                    cls := btnGhost,
+                    "Annulla",
+                    onClick --> (_ =>
+                      showAddMfg.set(false); resetAddMfg()
+                    ),
+                  ),
                   button(tpe := "button", cls := btnSmall, "Aggiungi lavorazione", onClick --> (_ => submitAddMfg())),
                 ),
               )
-            else button(tpe := "button", cls := btnGhost, "+ Lavorazione", onClick --> (_ => { resetAddMfg(); showAddMfg.set(true) }))
+            else
+              button(
+                tpe := "button",
+                cls := btnGhost,
+                "+ Lavorazione",
+                onClick --> (_ =>
+                  resetAddMfg(); showAddMfg.set(true)
+                ),
+              )
           },
         )
 
@@ -536,7 +591,7 @@ object OrdersPage:
             div(
               cls := "grid grid-cols-2 gap-3",
               field("Priorità", staticSelect(editPriority, priorityOptions)),
-              field("Consegna promessa", textInput(editPromised, inputType = "date")),
+              field("Consegna promessa", textInput(editPromised, "", "date")),
             ),
             field("Descrizione ordine", textInput(editDescription, "Opzionale")),
           )
@@ -548,7 +603,8 @@ object OrdersPage:
               cls := "rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500",
               "Questo ordine non è in uno stato modificabile: solo gli ordini in corso o sospesi possono essere modificati.",
             ),
-          ),
+          )
+        ,
         div(
           cls := "space-y-2",
           div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Lavorazioni e task"),
@@ -562,6 +618,7 @@ object OrdersPage:
           if editable then button(tpe := "button", cls := btnPrimary, "Salva modifiche", onClick --> (_ => saveEdit())) else emptyNode,
         ),
       )
+    end editContent
 
     val editModal =
       div(
@@ -574,7 +631,9 @@ object OrdersPage:
               cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
               h2(
                 cls := "text-sm font-semibold text-slate-800",
-                child.text <-- editing.signal.map(_.map(o => s"${if isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse("")),
+                child.text <-- editing.signal.map(
+                  _.map(o => s"${if isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse(""),
+                ),
               ),
               button(cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => editing.set(None))),
             ),
@@ -591,7 +650,10 @@ object OrdersPage:
         div(
           cls := "mt-24 w-full max-w-md",
           card(
-            div(cls := "border-b border-slate-100 px-4 py-3", h2(cls := "text-sm font-semibold text-slate-800", child.text <-- confirm.signal.map(_.map(_.title).getOrElse("")))),
+            div(
+              cls := "border-b border-slate-100 px-4 py-3",
+              h2(cls := "text-sm font-semibold text-slate-800", child.text <-- confirm.signal.map(_.map(_.title).getOrElse(""))),
+            ),
             div(
               cls := "space-y-4 p-4",
               p(cls := "text-sm text-slate-600", child.text <-- confirm.signal.map(_.map(_.message).getOrElse(""))),
@@ -635,6 +697,7 @@ object OrdersPage:
           ),
         ),
       )
+    end renderRow
 
     val filterBar =
       div(
@@ -679,7 +742,14 @@ object OrdersPage:
       div(
         cls := "mb-4 flex items-center justify-between",
         sectionTitle("Ordini"),
-        button(tpe := "button", cls := btnPrimary, "+ Nuovo ordine", onClick --> (_ => { resetCreate(); showCreate.set(true) })),
+        button(
+          tpe := "button",
+          cls := btnPrimary,
+          "+ Nuovo ordine",
+          onClick --> (_ =>
+            resetCreate(); showCreate.set(true)
+          ),
+        ),
       ),
       child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mb-4", errorBanner(e)))),
       filterBar,
@@ -694,4 +764,5 @@ object OrdersPage:
       editModal,
       confirmModal,
     )
+  end apply
 end OrdersPage

@@ -10,16 +10,16 @@ import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.Plannin
 import io.github.nicolasfara.rstmanager.planning.service.PlanningEndpoints
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
-import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ OrderRequest, OrderUpdateRequest, TaskProgressUpdateRequest, TransitionRequest }
 import io.github.nicolasfara.rstmanager.work.service.{ OrderHttpApi, TaskHttpApi }
+import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ OrderRequest, OrderUpdateRequest, TaskProgressUpdateRequest, TransitionRequest }
 import io.github.nicolasfara.rstmanager.work.service.TaskHttpApi.TaskRequest
 
 import cats.data.ValidatedNec
 import com.github.nscala_time.time.Imports.DateTime
-import sttp.apispec.openapi.circe.yaml.*
-import sttp.tapir.docs.openapi.OpenAPIDocsInterpreter
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
+import sttp.apispec.openapi.circe.yaml.*
+import sttp.tapir.docs.openapi.OpenAPIDocsInterpreter
 
 class OpenApiExamplesTest extends AnyFlatSpecLike:
   private val id: UUID = UUID.fromString("00000000-0000-0000-0000-000000000999").nn

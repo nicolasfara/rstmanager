@@ -98,4 +98,5 @@ object PlanningRecalculationService:
           s"Planning recalculation could not load open orders: ${ids.mkString(", ")}"
         case PlanningEntityGateway.LoadError.UnknownEmployees(ids) =>
           s"Planning recalculation could not load employees: ${ids.mkString(", ")}"
+  end DefaultPlanningRecalculator
 end PlanningRecalculationService

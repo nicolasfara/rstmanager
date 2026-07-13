@@ -16,4 +16,3 @@ enum EmployeeEvent derives CanEqual:
 
   /** The employee record was deleted. */
   case EmployeeDeleted
-end EmployeeEvent

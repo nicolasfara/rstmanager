@@ -7,4 +7,3 @@ enum CustomerError derives CanEqual:
 
   /** An update or delete was attempted on an id that does not exist (or was deleted). */
   case CustomerNotFound
-end CustomerError

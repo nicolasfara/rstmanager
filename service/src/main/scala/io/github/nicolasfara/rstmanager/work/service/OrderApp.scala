@@ -21,8 +21,8 @@ import io.github.iltotore.iron.*
 import skunk.Session
 
 /**
- * Application backend for the order CRUD API, wired to the existing event-sourced [[OrderService]] plus a durable id
- * registry. "Delete" maps to the domain `Cancel` transition and removes the order from the collection index.
+ * Application backend for the order CRUD API, wired to the existing event-sourced [[OrderService]] plus a durable id registry. "Delete" maps to the
+ * domain `Cancel` transition and removes the order from the collection index.
  */
 object OrderApp:
   given BackendCodec[OrderEvent] = CirceCodec.jsonb

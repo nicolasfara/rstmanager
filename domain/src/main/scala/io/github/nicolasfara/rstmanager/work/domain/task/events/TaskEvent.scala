@@ -16,4 +16,3 @@ enum TaskEvent derives CanEqual:
 
   /** The task definition was deleted. */
   case TaskDeleted
-end TaskEvent

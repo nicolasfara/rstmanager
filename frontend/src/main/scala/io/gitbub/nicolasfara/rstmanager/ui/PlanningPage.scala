@@ -11,9 +11,10 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
-/** Work-planning board: the current planning attempt shown as day columns of task→employee slices,
-  * plus a form to trigger a new planning attempt. This is the focus screen of the app.
-  */
+/**
+ * Work-planning board: the current planning attempt shown as day columns of task→employee slices, plus a form to trigger a new planning attempt. This
+ * is the focus screen of the app.
+ */
 object PlanningPage:
 
   private val triggerOptions = List(
@@ -29,16 +30,17 @@ object PlanningPage:
   /** Visual treatment for a planned task slice based on how close its day is to the manufacturing deadline. */
   private final case class Urgency(cardCls: String, label: String, labelCls: String)
 
-  /** Maps the days between a slice's scheduled day and its manufacturing deadline to a colour scale:
-    * red = late, orange = due today, yellow = due tomorrow, sky = due soon, blue = on time.
-    */
+  /**
+   * Maps the days between a slice's scheduled day and its manufacturing deadline to a colour scale: red = late, orange = due today, yellow = due
+   * tomorrow, sky = due soon, blue = on time.
+   */
   private def urgencyFor(daysToDeadline: Option[Int]): Urgency = daysToDeadline match
-    case Some(d) if d < 0  => Urgency("border-rose-300 bg-rose-50", "In ritardo", "bg-rose-100 text-rose-700")
-    case Some(0)           => Urgency("border-orange-300 bg-orange-50", "Scade oggi", "bg-orange-100 text-orange-700")
-    case Some(1)           => Urgency("border-amber-300 bg-amber-50", "Scade domani", "bg-amber-100 text-amber-700")
+    case Some(d) if d < 0 => Urgency("border-rose-300 bg-rose-50", "In ritardo", "bg-rose-100 text-rose-700")
+    case Some(0) => Urgency("border-orange-300 bg-orange-50", "Scade oggi", "bg-orange-100 text-orange-700")
+    case Some(1) => Urgency("border-amber-300 bg-amber-50", "Scade domani", "bg-amber-100 text-amber-700")
     case Some(d) if d <= 3 => Urgency("border-sky-300 bg-sky-50", s"Tra $d giorni", "bg-sky-100 text-sky-700")
-    case Some(_)           => Urgency("border-blue-300 bg-blue-50", "In tempo", "bg-blue-100 text-blue-700")
-    case None              => Urgency("border-slate-200 bg-white", "", "bg-slate-100 text-slate-600")
+    case Some(_) => Urgency("border-blue-300 bg-blue-50", "In tempo", "bg-blue-100 text-blue-700")
+    case None => Urgency("border-slate-200 bg-white", "", "bg-slate-100 text-slate-600")
 
   /** Groups every slice of the attempt by day, whether the attempt is in progress or completed. */
   private def slicesByDay(state: PlanningStateDto): List[(String, List[ScheduledTaskSliceDto])] =
@@ -47,7 +49,7 @@ object PlanningPage:
       case None =>
         state.inProgress match
           case Some(inProgress) => inProgress.slices.groupBy(_.day).toList.sortBy(_._1)
-          case None             => Nil
+          case None => Nil
 
   private def diagnostics(
       state: PlanningStateDto,
@@ -57,8 +59,10 @@ object PlanningPage:
       .orElse(state.inProgress.map(ip => (ip.delayedOrders, ip.delayedManufacturings, ip.unplannedOrders, ip.warnings)))
       .getOrElse((Nil, Nil, Nil, Nil))
 
-  /** After an order/employee change the backend recomputes the plan asynchronously (outbox consumer), so a
-    * re-fetch triggered right away can miss it. This is the delay before the automatic post-mount refresh. */
+  /**
+   * After an order/employee change the backend recomputes the plan asynchronously (outbox consumer), so a re-fetch triggered right away can miss it.
+   * This is the delay before the automatic post-mount refresh.
+   */
   private val recalcSettleMs = 1200
 
   def apply(): HtmlElement =
@@ -84,20 +88,20 @@ object PlanningPage:
 
     val orderNames: Signal[Map[UUID, String]] = ordersData.map {
       case Some(Right(list)) => list.map(o => o.id -> o.number).toMap
-      case _                 => Map.empty
+      case _ => Map.empty
     }
     val employeeNames: Signal[Map[UUID, String]] = employeesData.map {
       case Some(Right(list)) => list.map(e => e.id -> s"${e.name} ${e.surname}").toMap
-      case _                 => Map.empty
+      case _ => Map.empty
     }
     val ordersList: Signal[List[OrderResponse]] = ordersData.map {
       case Some(Right(list)) => list
-      case _                 => Nil
+      case _ => Nil
     }
     // Catalog task id -> task name (from the task catalog).
     val catalogNames: Signal[Map[UUID, String]] = tasksData.map {
       case Some(Right(list)) => list.map(t => t.id -> t.name).toMap
-      case _                 => Map.empty
+      case _ => Map.empty
     }
     // A slice's `manufacturingId` is a scheduled-manufacturing id; its human label is the manufacturing code.
     val manufacturingCodes: Signal[Map[UUID, String]] =
@@ -112,7 +116,7 @@ object PlanningPage:
       }
     val orderOptions: Signal[List[(String, String)]] = ordersData.map {
       case Some(Right(list)) => ("" -> "— seleziona ordine —") :: list.map(o => o.id.toString -> o.number)
-      case _                 => List("" -> "—")
+      case _ => List("" -> "—")
     }
     // Resolve a slice's scheduled-task instance id to its current progress/estimate, so the modal opens pre-filled.
     val scheduledTaskById: Signal[Map[UUID, ScheduledTaskDto]] =
@@ -128,10 +132,10 @@ object PlanningPage:
     def launchAttempt(): Unit =
       val trigger = triggerKind.now() match
         case "order_changed" => PlanningTriggerDto("order_changed", parseUuid(triggerOrderId.now()), None, None)
-        case other           => PlanningTriggerDto(other, None, None, None)
+        case other => PlanningTriggerDto(other, None, None, None)
       val request = PlanningAttemptRequest(None, toIso(startOn.now()), trigger, None, None, None)
       ApiClient.createPlanningAttempt(request).foreach {
-        case Right(_)  => pageError.set(None); tick.update(_ + 1)
+        case Right(_) => pageError.set(None); tick.update(_ + 1)
         case Left(err) => pageError.set(Some(err))
       }
 
@@ -140,11 +144,11 @@ object PlanningPage:
         cls := "p-4",
         div(
           cls := "flex flex-wrap items-end gap-3",
-          div(cls := "w-44", field("Data inizio", textInput(startOn, inputType = "date"))),
+          div(cls := "w-44", field("Data inizio", textInput(startOn, "", "date"))),
           div(cls := "w-56", field("Trigger", staticSelect(triggerKind, triggerOptions))),
           child <-- triggerKind.signal.map {
             case "order_changed" => div(cls := "w-56", field("Ordine", selectInput(triggerOrderId, orderOptions)))
-            case _               => emptyNode
+            case _ => emptyNode
           },
           button(tpe := "button", cls := btnPrimary, "Calcola pianificazione", onClick --> (_ => launchAttempt())),
           button(tpe := "button", cls := btnGhost, "Aggiorna", onClick --> (_ => tick.update(_ + 1))),
@@ -191,6 +195,7 @@ object PlanningPage:
                 setTimeout(recalcSettleMs)(tick.update(_ + 1))
               case Left(err) => saving.set(false); modalError.set(Some(err))
             }
+        end if
       }
 
     val taskModal =
@@ -200,10 +205,13 @@ object PlanningPage:
           div(cls := "text-sm font-semibold text-slate-800", child.text <-- editName.signal),
           div(
             cls := "grid grid-cols-2 gap-3",
-            field("Ore svolte", textInput(editCompleted, inputType = "number")),
-            field("Ore totali", textInput(editExpected, inputType = "number")),
+            field("Ore svolte", textInput(editCompleted, "", "number")),
+            field("Ore totali", textInput(editExpected, "", "number")),
           ),
-          p(cls := "text-xs text-slate-400", "Le ore svolte pari o superiori alle ore totali completano il task. La pianificazione si aggiorna in automatico."),
+          p(
+            cls := "text-xs text-slate-400",
+            "Le ore svolte pari o superiori alle ore totali completano il task. La pianificazione si aggiorna in automatico.",
+          ),
           child.maybe <-- modalError.signal.map(_.map(errorBanner)),
           div(
             cls := "flex justify-end gap-2 pt-1",
@@ -223,7 +231,9 @@ object PlanningPage:
     def sliceCard(slice: ScheduledTaskSliceDto): HtmlElement =
       // Urgency (card colour + badge) derived from the slice day vs its manufacturing deadline.
       val urgency: Signal[Urgency] =
-        manufacturingDeadlines.map(deadlines => urgencyFor(deadlines.get(slice.manufacturingId).flatMap(deadline => Formats.daysUntil(slice.day, deadline))))
+        manufacturingDeadlines.map(deadlines =>
+          urgencyFor(deadlines.get(slice.manufacturingId).flatMap(deadline => Formats.daysUntil(slice.day, deadline))),
+        )
       // The task's overall progress: (completed, expected) hours.
       val progress: Signal[Option[(Int, Int)]] =
         scheduledTaskById.map(_.get(slice.taskId).map(task => (task.completedHours.getOrElse(0), task.expectedHours)))
@@ -236,13 +246,22 @@ object PlanningPage:
         // Order number + hours assigned to this slice
         div(
           cls := "flex items-center justify-between gap-2",
-          span(cls := "truncate text-xs font-semibold text-slate-700", child.text <-- orderNames.map(_.getOrElse(slice.orderId, Formats.shortId(slice.orderId)))),
-          span(cls := "shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600", s"${slice.candidateEmployee.assignedHours}h"),
+          span(
+            cls := "truncate text-xs font-semibold text-slate-700",
+            child.text <-- orderNames.map(_.getOrElse(slice.orderId, Formats.shortId(slice.orderId))),
+          ),
+          span(
+            cls := "shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600",
+            s"${slice.candidateEmployee.assignedHours}h",
+          ),
         ),
         // Task name (prominent) + urgency badge
         div(
           cls := "mt-1.5 flex items-start justify-between gap-2",
-          div(cls := "text-sm font-semibold leading-snug text-slate-800", child.text <-- scheduledTaskNames.map(_.getOrElse(slice.taskId, Formats.shortId(slice.taskId)))),
+          div(
+            cls := "text-sm font-semibold leading-snug text-slate-800",
+            child.text <-- scheduledTaskNames.map(_.getOrElse(slice.taskId, Formats.shortId(slice.taskId))),
+          ),
           child <-- urgency.map { u =>
             if u.label.isEmpty then emptyNode
             else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", u.label)
@@ -252,7 +271,10 @@ object PlanningPage:
         div(
           cls := "mt-0.5 flex items-baseline gap-1 text-xs",
           span(cls := "text-slate-400", "Lavorazione"),
-          span(cls := "truncate font-medium text-slate-600", child.text <-- manufacturingCodes.map(_.getOrElse(slice.manufacturingId, Formats.shortId(slice.manufacturingId)))),
+          span(
+            cls := "truncate font-medium text-slate-600",
+            child.text <-- manufacturingCodes.map(_.getOrElse(slice.manufacturingId, Formats.shortId(slice.manufacturingId))),
+          ),
         ),
         // Task progress: completed/total hours + a small bar
         div(
@@ -264,7 +286,7 @@ object PlanningPage:
               cls := "font-semibold tabular-nums text-slate-700",
               child.text <-- progress.map {
                 case Some((completed, expected)) => s"$completed/${expected}h"
-                case None                        => "—"
+                case None => "—"
               },
             ),
           ),
@@ -274,7 +296,7 @@ object PlanningPage:
               cls := "h-full rounded-full bg-slate-500/70",
               width <-- progress.map {
                 case Some((completed, expected)) if expected > 0 => s"${math.min(100, math.max(0, completed * 100 / expected))}%"
-                case _                                           => "0%"
+                case _ => "0%"
               },
             ),
           ),
@@ -282,10 +304,18 @@ object PlanningPage:
         // Employee assignment + projected remaining hours
         div(
           cls := "mt-2 flex items-center justify-between gap-2 border-t border-white/60 pt-1.5 text-xs",
-          span(cls := "flex min-w-0 items-center gap-1 text-slate-600", span(cls := "text-slate-400", "◍"), span(cls := "truncate", child.text <-- employeeNames.map(_.getOrElse(slice.candidateEmployee.employeeId, Formats.shortId(slice.candidateEmployee.employeeId))))),
+          span(
+            cls := "flex min-w-0 items-center gap-1 text-slate-600",
+            span(cls := "text-slate-400", "◍"),
+            span(
+              cls := "truncate",
+              child.text <-- employeeNames.map(_.getOrElse(slice.candidateEmployee.employeeId, Formats.shortId(slice.candidateEmployee.employeeId))),
+            ),
+          ),
           span(cls := "shrink-0 tabular-nums text-slate-400", s"resta ${slice.remainingHoursAfterSlice}h"),
         ),
       )
+    end sliceCard
 
     def dayColumn(day: String, slices: List[ScheduledTaskSliceDto]): HtmlElement =
       div(
@@ -324,8 +354,12 @@ object PlanningPage:
     def diagnosticsSection(state: PlanningStateDto): HtmlElement =
       val (delayedOrders, delayedManufacturings, unplannedOrders, warnings) = diagnostics(state)
       val unplannedItems = unplannedOrders.flatMap(o => o.blockedTasks.map(t => s"${Formats.shortId(o.orderId)} · ${t.reason.message}"))
-      val delayedOrderItems = delayedOrders.map(d => s"${Formats.shortId(d.orderId)}: previsto ${Formats.date(d.expectedDeliveryDate)} → promesso ${Formats.date(d.promisedDeliveryDate)}")
-      val delayedMfgItems = delayedManufacturings.map(d => s"${Formats.shortId(d.manufacturingId)}: ${Formats.date(d.expectedCompletionDate)} → ${Formats.date(d.computedCompletionDate)}")
+      val delayedOrderItems = delayedOrders.map(d =>
+        s"${Formats.shortId(d.orderId)}: previsto ${Formats.date(d.expectedDeliveryDate)} → promesso ${Formats.date(d.promisedDeliveryDate)}",
+      )
+      val delayedMfgItems = delayedManufacturings.map(d =>
+        s"${Formats.shortId(d.manufacturingId)}: ${Formats.date(d.expectedCompletionDate)} → ${Formats.date(d.computedCompletionDate)}",
+      )
       div(
         cls := "grid gap-3 md:grid-cols-2 xl:grid-cols-4",
         panel("Ordini in ritardo", delayedOrderItems, "text-amber-600"),
@@ -353,4 +387,5 @@ object PlanningPage:
         )
       },
     )
+  end apply
 end PlanningPage

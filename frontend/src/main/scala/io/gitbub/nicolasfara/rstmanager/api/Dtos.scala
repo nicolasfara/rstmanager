@@ -5,12 +5,12 @@ import java.util.UUID
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
 
-/** DTOs mirroring the RST Manager REST API JSON payloads.
-  *
-  * These duplicate the shapes defined in the `service` module on purpose: the frontend is a Scala.js
-  * module and cannot link against the JVM `domain`/`service` classes, so the JSON contract is restated
-  * here with circe codecs. Optional JSON fields are modelled as [[scala.Option]].
-  */
+/**
+ * DTOs mirroring the RST Manager REST API JSON payloads.
+ *
+ * These duplicate the shapes defined in the `service` module on purpose: the frontend is a Scala.js module and cannot link against the JVM
+ * `domain`/`service` classes, so the JSON contract is restated here with circe codecs. Optional JSON fields are modelled as [[scala.Option]].
+ */
 object Dtos:
 
   // ---- Shared / system ---------------------------------------------------------------------------

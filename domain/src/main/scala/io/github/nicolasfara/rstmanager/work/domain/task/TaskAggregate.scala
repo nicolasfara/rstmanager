@@ -59,4 +59,3 @@ object TaskAggregate extends DomainModel[TaskAggregate, TaskEvent, TaskError]:
     case TaskUpdated(task) => _.mustBeActive.map(_ => Active(task))
     case TaskDeleted => _.mustBeActive.map(active => Deleted(active.task))
   }
-end TaskAggregate

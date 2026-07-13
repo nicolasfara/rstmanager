@@ -59,4 +59,3 @@ object CustomerAggregate extends DomainModel[CustomerAggregate, CustomerEvent, C
     case CustomerUpdated(customer) => _.mustBeActive.map(_ => Active(customer))
     case CustomerDeleted => _.mustBeActive.map(active => Deleted(active.customer))
   }
-end CustomerAggregate

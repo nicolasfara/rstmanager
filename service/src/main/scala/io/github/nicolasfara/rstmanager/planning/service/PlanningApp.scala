@@ -11,9 +11,9 @@ import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.PlanningService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 
@@ -117,7 +117,7 @@ object DemoScenario:
         UUID.randomUUID().nn,
         "MFG-2026-001".refineUnsafe[ManufacturingCode],
         today.plusDays(7).nn,
-        tasks, 
+        tasks,
         dependencies,
       ),
     )
@@ -140,6 +140,7 @@ object DemoScenario:
     )
     val request = PlanningRequest(UUID.randomUUID().nn, today, PlanningTrigger.DailyPlanning, today, List(orderId))
     Scenario(request, List(order), employees)
+  end create
 
   private def employee(name: String, surname: String, weeklyHours: Int): Employee =
     Employee(

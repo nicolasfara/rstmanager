@@ -269,6 +269,7 @@ object OrderHttpApi:
       case Left(failure) => IO.pure(failure.asLeft)
       case Right(()) => respondWith(store, id)
     }
+  end runCommands
 
   private def respondWith(store: OrderApp.Store, id: UUID): IO[Either[ApiFailure, OrderResponse]] =
     OrderApp.get(store, id).attempt.map {

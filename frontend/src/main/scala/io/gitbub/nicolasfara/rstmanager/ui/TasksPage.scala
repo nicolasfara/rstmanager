@@ -34,15 +34,15 @@ object TasksPage:
       val request = TaskRequest(name.now().trim.nn, Some(description.now().trim.nn).filter(_.nonEmpty), hours.now().toIntOption.getOrElse(0))
       val effect = editingId.now() match
         case Some(id) => ApiClient.updateTask(id, request)
-        case None     => ApiClient.createTask(request)
+        case None => ApiClient.createTask(request)
       effect.foreach {
-        case Right(_)  => resetForm(); tick.update(_ + 1)
+        case Right(_) => resetForm(); tick.update(_ + 1)
         case Left(err) => formError.set(Some(err))
       }
 
     def delete(id: UUID): Unit =
       ApiClient.deleteTask(id).foreach {
-        case Right(_)  => tick.update(_ + 1)
+        case Right(_) => tick.update(_ + 1)
         case Left(err) => formError.set(Some(err))
       }
 
@@ -61,7 +61,12 @@ object TasksPage:
           child.maybe <-- formError.signal.map(_.map(errorBanner)),
           div(
             cls := "flex gap-2",
-            button(tpe := "button", cls := btnPrimary, child.text <-- editingId.signal.map(_.fold("Crea")(_ => "Salva")), onClick --> (_ => submit())),
+            button(
+              tpe := "button",
+              cls := btnPrimary,
+              child.text <-- editingId.signal.map(_.fold("Crea")(_ => "Salva")),
+              onClick --> (_ => submit()),
+            ),
             child.maybe <-- editingId.signal.map(_.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
           ),
         ),
@@ -99,4 +104,5 @@ object TasksPage:
         },
       ),
     )
+  end apply
 end TasksPage

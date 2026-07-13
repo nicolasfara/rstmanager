@@ -21,8 +21,7 @@ import skunk.Session
 /**
  * Application backend for the employee CRUD API: an [[EmployeeAggregate]] stream per id plus a durable id registry.
  *
- * `create`/`delete` keep the registry in sync after a successful entity command; `list` reads the registry then loads
- * each active record.
+ * `create`/`delete` keep the registry in sync after a successful entity command; `list` reads the registry then loads each active record.
  */
 object EmployeeApp:
   given BackendCodec[EmployeeEvent] = CirceCodec.jsonb

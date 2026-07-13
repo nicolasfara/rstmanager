@@ -51,7 +51,12 @@ enum OrderEvent:
   case ManufacturingDescriptionChanged(manufacturingId: ScheduledManufacturingId, newDescription: Option[String], changedOn: DateTime)
 
   /** A manufacturing has been manually moved to a new lifecycle status. */
-  case ManufacturingStatusChanged(manufacturingId: ScheduledManufacturingId, newStatus: ManufacturingStatus, reason: Option[String], changedOn: DateTime)
+  case ManufacturingStatusChanged(
+      manufacturingId: ScheduledManufacturingId,
+      newStatus: ManufacturingStatus,
+      reason: Option[String],
+      changedOn: DateTime,
+  )
 
   /** A task has been added to a manufacturing. */
   case ManufacturingTaskAdded(manufacturingId: ScheduledManufacturingId, task: ScheduledTask, dependsOn: List[TaskId], addedOn: DateTime)

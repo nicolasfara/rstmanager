@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     environment:
       POSTGRES_DB: ${RSTMANAGER_DB_NAME:-rstmanager}
       POSTGRES_USER: ${RSTMANAGER_DB_USER:-rstmanager}

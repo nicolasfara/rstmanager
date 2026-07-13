@@ -42,11 +42,17 @@ object EmployeeApp:
       registry <- RegistryBackend.build("employee_index", pool)
     yield Store(entity, registry)
 
+  /**
+   * The id is registered *before* dispatching: the creation notification triggers the workforce planning recalculation (outbox consumer), which reads
+   * the employees through this index — registering afterwards would race it and plan without the new employee. A rejected create deregisters the id
+   * again; in the meantime the dangling id is harmless because [[list]] drops ids without a valid aggregate.
+   */
   def create(store: Store, employee: Employee): IO[Either[EmployeeError, Unit]] =
-    dispatch(store, employee.id, EmployeeService.Command.Create(employee)).flatTap {
-      case Right(_) => RegistryBackend.register(store.registry, employee.id)
-      case Left(_) => IO.unit
-    }
+    RegistryBackend.register(store.registry, employee.id) *>
+      dispatch(store, employee.id, EmployeeService.Command.Create(employee)).flatTap {
+        case Right(_) => IO.unit
+        case Left(_) => RegistryBackend.deregister(store.registry, employee.id)
+      }
 
   def update(store: Store, employee: Employee): IO[Either[EmployeeError, Unit]] =
     dispatch(store, employee.id, EmployeeService.Command.Update(employee))

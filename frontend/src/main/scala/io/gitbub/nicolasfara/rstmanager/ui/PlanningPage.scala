@@ -3,8 +3,7 @@ package io.gitbub.nicolasfara.rstmanager.ui
 import java.util.UUID
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.scalajs.js.timers.setTimeout
-import scala.util.Try
+import scala.scalajs.js.timers.{ clearInterval, setInterval, SetIntervalHandle }
 
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
@@ -12,20 +11,20 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /**
- * Work-planning board: the current planning attempt shown as day columns of task→employee slices, plus a form to trigger a new planning attempt. This
- * is the focus screen of the app.
+ * Work-planning board: the current plan shown as day columns of task→employee slices, plus a section of completed tasks that can be brought back into
+ * planning. This is the focus screen of the app.
+ *
+ * There is no manual "recalculate" control: the backend recomputes the plan on every order/workforce change, and this page converges on the new plan
+ * through the global [[AppBus]] refreshes and a silent poll while it stays mounted.
  */
 object PlanningPage:
 
-  private val triggerOptions = List(
-    "daily_planning" -> "Pianificazione giornaliera",
-    "workforce_capacity_changed" -> "Capacità forza lavoro",
-    "manual_recovery" -> "Recupero manuale",
-    "order_changed" -> "Ordine modificato",
-  )
+  /** Interval of the silent background poll that keeps the plan fresh while the page is open. */
+  private val pollIntervalMs = 15000
 
-  private def toIso(day: String): String = if day.isEmpty then "" else s"${day}T00:00:00.000Z"
-  private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
+  /** What the task modal is doing: adjusting the progress of a planned task, or reactivating a completed one. */
+  private enum EditKind derives CanEqual:
+    case Progress, Reactivate
 
   /** Visual treatment for a planned task slice based on how close its day is to the manufacturing deadline. */
   private final case class Urgency(cardCls: String, label: String, labelCls: String)
@@ -59,19 +58,27 @@ object PlanningPage:
       .orElse(state.inProgress.map(ip => (ip.delayedOrders, ip.delayedManufacturings, ip.unplannedOrders, ip.warnings)))
       .getOrElse((Nil, Nil, Nil, Nil))
 
-  /**
-   * After an order/employee change the backend recomputes the plan asynchronously (outbox consumer), so a re-fetch triggered right away can miss it.
-   * This is the delay before the automatic post-mount refresh.
-   */
-  private val recalcSettleMs = 1200
+  /** A completed scheduled task flattened with its order/manufacturing context, for the completed-tasks section. */
+  private final case class CompletedRow(order: OrderResponse, manufacturing: ManufacturingResponse, task: ScheduledTaskDto)
+
+  /** Completed tasks across all non-cancelled orders, most recently completed first. */
+  private def completedRows(orders: List[OrderResponse]): List[CompletedRow] =
+    val rows =
+      for
+        order <- orders if order.status != "cancelled"
+        manufacturing <- order.manufacturings
+        task <- manufacturing.tasks if task.status == "completed"
+      yield CompletedRow(order, manufacturing, task)
+    rows.sortBy(_.task.completionDate.getOrElse(""))(using Ordering[String].reverse)
+
+  /** Only in-progress and suspended orders accept task edits (see the domain `Order` aggregate). */
+  private def isOrderEditable(status: String): Boolean = status == "in_progress" || status == "suspended"
 
   def apply(): HtmlElement =
-    val tick = Var(0)
-    val pageError = Var(Option.empty[ApiError])
-
-    // ---- Task-update modal state -----------------------------------------------------------------
+    // ---- Task modal state (shared by progress editing and reactivation) ---------------------------
     // The scheduled task instance being edited: (orderId, manufacturingId, taskInstanceId).
     val editing = Var(Option.empty[(UUID, UUID, UUID)])
+    val editKind = Var(EditKind.Progress)
     val editName = Var("")
     val editCompleted = Var("")
     val editExpected = Var("")
@@ -81,10 +88,10 @@ object PlanningPage:
     val modalError = Var(Option.empty[ApiError])
     val saving = Var(false)
 
-    val planningData = loadable(tick.signal)(() => ApiClient.currentPlanning())
-    val ordersData = loadable(tick.signal)(() => ApiClient.listOrders())
-    val employeesData = loadable(tick.signal)(() => ApiClient.listEmployees())
-    val tasksData = loadable(tick.signal)(() => ApiClient.listTasks())
+    val planningData = loadable(AppBus.ticks)(() => ApiClient.currentPlanning())
+    val ordersData = loadable(AppBus.ticks)(() => ApiClient.listOrders())
+    val employeesData = loadable(AppBus.ticks)(() => ApiClient.listEmployees())
+    val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
 
     val orderNames: Signal[Map[UUID, String]] = ordersData.map {
       case Some(Right(list)) => list.map(o => o.id -> o.number).toMap
@@ -114,57 +121,34 @@ object PlanningPage:
       Signal.combine(ordersList, catalogNames).map { case (orders, names) =>
         orders.flatMap(_.manufacturings.flatMap(_.tasks.map(t => t.id -> names.getOrElse(t.taskId, Formats.shortId(t.taskId))))).toMap
       }
-    val orderOptions: Signal[List[(String, String)]] = ordersData.map {
-      case Some(Right(list)) => ("" -> "— seleziona ordine —") :: list.map(o => o.id.toString -> o.number)
-      case _ => List("" -> "—")
-    }
     // Resolve a slice's scheduled-task instance id to its current progress/estimate, so the modal opens pre-filled.
     val scheduledTaskById: Signal[Map[UUID, ScheduledTaskDto]] =
       ordersList.map(_.flatMap(_.manufacturings.flatMap(_.tasks.map(t => t.id -> t))).toMap)
     val editLookup: Signal[(Map[UUID, ScheduledTaskDto], Map[UUID, String])] =
       scheduledTaskById.combineWith(scheduledTaskNames)
 
-    // ---- Attempt form ----------------------------------------------------------------------------
-    val startOn = Var("")
-    val triggerKind = Var("daily_planning")
-    val triggerOrderId = Var("")
-
-    def launchAttempt(): Unit =
-      val trigger = triggerKind.now() match
-        case "order_changed" => PlanningTriggerDto("order_changed", parseUuid(triggerOrderId.now()), None, None)
-        case other => PlanningTriggerDto(other, None, None, None)
-      val request = PlanningAttemptRequest(None, toIso(startOn.now()), trigger, None, None, None)
-      ApiClient.createPlanningAttempt(request).foreach {
-        case Right(_) => pageError.set(None); tick.update(_ + 1)
-        case Left(err) => pageError.set(Some(err))
-      }
-
-    val attemptForm =
-      card(
-        cls := "p-4",
-        div(
-          cls := "flex flex-wrap items-end gap-3",
-          div(cls := "w-44", field("Data inizio", textInput(startOn, "", "date"))),
-          div(cls := "w-56", field("Trigger", staticSelect(triggerKind, triggerOptions))),
-          child <-- triggerKind.signal.map {
-            case "order_changed" => div(cls := "w-56", field("Ordine", selectInput(triggerOrderId, orderOptions)))
-            case _ => emptyNode
-          },
-          button(tpe := "button", cls := btnPrimary, "Calcola pianificazione", onClick --> (_ => launchAttempt())),
-          button(tpe := "button", cls := btnGhost, "Aggiorna", onClick --> (_ => tick.update(_ + 1))),
-        ),
-        child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
-      )
-
-    // ---- Task-update modal -----------------------------------------------------------------------
+    // ---- Task modal ------------------------------------------------------------------------------
     def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String): Unit =
       val completed = task.completedHours.getOrElse(0)
       editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
+      editKind.set(EditKind.Progress)
       editName.set(name)
       editCompleted.set(completed.toString)
       editExpected.set(task.expectedHours.toString)
       origCompleted.set(completed)
       origExpected.set(task.expectedHours)
+      modalError.set(None)
+      modalOpen.set(true)
+
+    def openReactivate(row: CompletedRow, name: String): Unit =
+      editing.set(Some((row.order.id, row.manufacturing.id, row.task.id)))
+      editKind.set(EditKind.Reactivate)
+      editName.set(name)
+      // The task is completed, so its recorded hours cover the estimate: ask for the hours actually done.
+      editCompleted.set("")
+      editExpected.set(row.task.expectedHours.toString)
+      origCompleted.set(row.task.completedHours.getOrElse(0))
+      origExpected.set(row.task.expectedHours)
       modalError.set(None)
       modalOpen.set(true)
 
@@ -175,8 +159,13 @@ object PlanningPage:
       editing.now().foreach { case (orderId, manufacturingId, taskId) =>
         val completed = editCompleted.now().trim.nn.toIntOption
         val expected = editExpected.now().trim.nn.toIntOption
+        val reactivating = editKind.now() == EditKind.Reactivate
         if completed.exists(_ < 0) then modalError.set(Some(ApiError("invalid", "Le ore svolte non possono essere negative.", Nil)))
         else if expected.exists(_ < 1) then modalError.set(Some(ApiError("invalid", "Le ore totali devono essere almeno 1.", Nil)))
+        else if reactivating && !completed.zip(expected).exists((done, total) => done < total) then
+          modalError.set(
+            Some(ApiError("invalid", "Per riportare il task in lavorazione le ore svolte devono essere inferiori alle ore totali.", Nil)),
+          )
         else
           // Send only the fields the user actually changed, so we don't emit redundant events.
           val request = TaskProgressUpdateRequest(
@@ -190,16 +179,24 @@ object PlanningPage:
             ApiClient.updateScheduledTask(orderId, manufacturingId, taskId, request).foreach {
               case Right(_) =>
                 closeEdit()
-                tick.update(_ + 1)
-                // Recalculation runs asynchronously on the backend; refresh again once it has settled.
-                setTimeout(recalcSettleMs)(tick.update(_ + 1))
+                AppBus.mutated()
               case Left(err) => saving.set(false); modalError.set(Some(err))
             }
         end if
       }
 
+    /** Quick action: completes the task by aligning the hours done to the total. */
+    def markCompleted(): Unit =
+      editCompleted.set(editExpected.now())
+      save()
+
+    val modalTitle = editKind.signal.map {
+      case EditKind.Progress => "Aggiorna task"
+      case EditKind.Reactivate => "Riattiva task"
+    }
+
     val taskModal =
-      modal(modalOpen, "Aggiorna task")(
+      modal(modalOpen, modalTitle)(
         div(
           cls := "space-y-3",
           div(cls := "text-sm font-semibold text-slate-800", child.text <-- editName.signal),
@@ -210,18 +207,41 @@ object PlanningPage:
           ),
           p(
             cls := "text-xs text-slate-400",
-            "Le ore svolte pari o superiori alle ore totali completano il task. La pianificazione si aggiorna in automatico.",
+            child.text <-- editKind.signal.map {
+              case EditKind.Progress =>
+                "Le ore svolte pari o superiori alle ore totali completano il task. La pianificazione si aggiorna in automatico."
+              case EditKind.Reactivate =>
+                "Indica le ore effettivamente svolte: se inferiori alle ore totali il task torna attivo e rientra nella pianificazione."
+            },
           ),
           child.maybe <-- modalError.signal.map(_.map(errorBanner)),
           div(
-            cls := "flex justify-end gap-2 pt-1",
-            button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => closeEdit())),
-            button(
-              tpe := "button",
-              cls := btnPrimary,
-              disabled <-- saving.signal,
-              child.text <-- saving.signal.map(s => if s then "Salvataggio…" else "Salva"),
-              onClick --> (_ => save()),
+            cls := "flex items-center justify-between gap-2 pt-1",
+            child <-- editKind.signal.map {
+              case EditKind.Progress =>
+                button(
+                  tpe := "button",
+                  cls := btnGhost,
+                  disabled <-- saving.signal,
+                  "Segna completato",
+                  onClick --> (_ => markCompleted()),
+                )
+              case EditKind.Reactivate => emptyNode
+            },
+            div(
+              cls := "flex gap-2",
+              button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => closeEdit())),
+              button(
+                tpe := "button",
+                cls := btnPrimary,
+                disabled <-- saving.signal,
+                child.text <-- saving.signal.combineWith(editKind.signal).map {
+                  case (true, _) => "Salvataggio…"
+                  case (false, EditKind.Progress) => "Salva"
+                  case (false, EditKind.Reactivate) => "Riattiva"
+                },
+                onClick --> (_ => save()),
+              ),
             ),
           ),
         ),
@@ -330,9 +350,71 @@ object PlanningPage:
 
     def board(state: PlanningStateDto): HtmlElement =
       val days = slicesByDay(state)
-      if days.isEmpty then emptyState("Nessuno slice pianificato in questo attempt.")
+      if days.isEmpty then
+        emptyState("Nessun task pianificato. La pianificazione si ricalcola automaticamente quando ordini, task o forza lavoro cambiano.")
       else div(cls := "flex gap-4 overflow-x-auto pb-2", days.map((day, slices) => dayColumn(day, slices)))
 
+    // ---- Completed tasks -------------------------------------------------------------------------
+    def completedRow(row: CompletedRow): HtmlElement =
+      tr(
+        cls := "border-b border-slate-100 last:border-0",
+        td(
+          cls := "px-4 py-2 font-medium text-slate-800",
+          child.text <-- catalogNames.map(_.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId))),
+        ),
+        td(cls := "px-4 py-2 text-slate-600", row.order.number),
+        td(cls := "px-4 py-2 text-slate-500", row.manufacturing.code),
+        td(cls := "px-4 py-2 tabular-nums text-slate-600", s"${row.task.completedHours.getOrElse(0)}/${row.task.expectedHours}h"),
+        td(cls := "px-4 py-2 text-slate-500", row.task.completionDate.map(Formats.date).getOrElse("—")),
+        td(
+          cls := "px-4 py-2 text-right",
+          if isOrderEditable(row.order.status) then
+            button(
+              tpe := "button",
+              cls := btnSmall,
+              "Riattiva",
+              onClick.compose(_.sample(catalogNames)) --> { names =>
+                openReactivate(row, names.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId)))
+              },
+            )
+          else span(cls := "text-xs text-slate-400", "ordine non modificabile"),
+        ),
+      )
+
+    def completedSection(orders: List[OrderResponse]): HtmlElement =
+      val rows = completedRows(orders)
+      card(
+        div(
+          cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
+          div(
+            div(cls := "text-sm font-semibold text-slate-800", s"Task completati (${rows.size})"),
+            div(cls := "text-xs text-slate-400", "Un task completato per errore può essere riattivato: torna tra i task pianificati."),
+          ),
+        ),
+        if rows.isEmpty then div(cls := "p-4", emptyState("Nessun task completato."))
+        else
+          div(
+            cls := "overflow-x-auto",
+            table(
+              cls := "w-full text-sm",
+              thead(
+                cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                tr(
+                  th(cls := "px-4 py-2", "Task"),
+                  th(cls := "px-4 py-2", "Ordine"),
+                  th(cls := "px-4 py-2", "Lavorazione"),
+                  th(cls := "px-4 py-2", "Ore"),
+                  th(cls := "px-4 py-2", "Completato il"),
+                  th(cls := "px-4 py-2"),
+                ),
+              ),
+              tbody(rows.map(completedRow)),
+            ),
+          ),
+      )
+    end completedSection
+
+    // ---- Diagnostics -----------------------------------------------------------------------------
     def panel(title: String, items: List[String], tone: String): com.raquo.laminar.nodes.ChildNode.Base =
       if items.isEmpty then emptyNode
       else
@@ -349,6 +431,7 @@ object PlanningPage:
         statusBadge(state.status),
         span(cls := "text-xs text-slate-400", s"versione ${state.version}"),
         span(cls := "text-xs text-slate-400", when),
+        span(cls := "text-xs text-slate-400", "· aggiornamento automatico"),
       )
 
     def diagnosticsSection(state: PlanningStateDto): HtmlElement =
@@ -368,24 +451,36 @@ object PlanningPage:
         panel("Avvisi", warnings.map(_.message), "text-slate-500"),
       )
 
+    // The backend recomputes the plan asynchronously after order/workforce changes: while this page is open, a silent
+    // in-place poll (no spinner/flicker, see `loadable`) keeps board and completed tasks converged on the latest plan.
+    var pollHandle = Option.empty[SetIntervalHandle]
+
     div(
       cls := "space-y-4",
-      // An order/employee change made on another page triggers an asynchronous plan recompute; it may still be
-      // running when we land here. Refresh once after it settles so the new plan shows without a manual trigger.
-      // Reloads are in-place (see `loadable`), so this is a silent update with no flicker.
-      onMountCallback(_ => setTimeout(recalcSettleMs)(tick.update(_ + 1))),
+      onMountUnmountCallback(
+        mount = _ => pollHandle = Some(setInterval(pollIntervalMs.toDouble)(AppBus.refresh())),
+        unmount = _ =>
+          pollHandle.foreach(clearInterval); pollHandle = None,
+      ),
       taskModal,
       sectionTitle("Pianificazione dei lavori"),
-      attemptForm,
       renderResult(planningData) { state =>
         div(
           cls := "space-y-4",
           statusHeader(state),
           panel("Errori di dominio", state.errors.map(e => e.message), "text-rose-600"),
-          card(cls := "p-4", board(state)),
+          card(
+            div(
+              cls := "border-b border-slate-100 px-4 py-3",
+              div(cls := "text-sm font-semibold text-slate-800", "Pianificazione attuale"),
+              div(cls := "text-xs text-slate-400", "Clicca un task per aggiornare ore svolte e ore totali, o per segnarlo completato."),
+            ),
+            div(cls := "p-4", board(state)),
+          ),
           diagnosticsSection(state),
         )
       },
+      child <-- ordersList.map(completedSection),
     )
   end apply
 end PlanningPage

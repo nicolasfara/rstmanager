@@ -112,6 +112,9 @@ object Components:
   // ---- Modal -------------------------------------------------------------------------------------
 
   def modal(isOpen: Var[Boolean], titleText: String)(content: HtmlElement): HtmlElement =
+    modal(isOpen, Signal.fromValue(titleText))(content)
+
+  def modal(isOpen: Var[Boolean], titleText: Signal[String])(content: HtmlElement): HtmlElement =
     div(
       cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-4",
       cls <-- isOpen.signal.map(open => if open then "flex" else "hidden"),
@@ -120,7 +123,7 @@ object Components:
         card(
           div(
             cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
-            h2(cls := "text-sm font-semibold text-slate-800", titleText),
+            h2(cls := "text-sm font-semibold text-slate-800", child.text <-- titleText),
             button(cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => isOpen.set(false))),
           ),
           div(cls := "p-4", content),

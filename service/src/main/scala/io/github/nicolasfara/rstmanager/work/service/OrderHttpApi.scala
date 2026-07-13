@@ -52,7 +52,7 @@ object OrderHttpApi:
     ApiError.base.post
       .in(collection / path[UUID]("id") / "transitions")
       .tag("Orders")
-      .summary("Apply an order lifecycle transition (suspend, reactivate, complete, deliver)")
+      .summary("Apply an order lifecycle transition (suspend, reactivate, complete, deliver, reopen)")
       .in(jsonBody[TransitionRequest].example(TransitionRequest.example))
       .out(jsonBody[OrderResponse])
 

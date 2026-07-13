@@ -43,11 +43,17 @@ object OrderApp:
       registry <- RegistryBackend.build("order_index", pool)
     yield Store(entity, registry)
 
+  /**
+   * The id is registered *before* dispatching: the creation notification triggers the planning recalculation (outbox consumer), which reads the open
+   * orders through this index — registering afterwards would race it and produce an empty plan. A rejected create deregisters the id again; in the
+   * meantime the dangling id is harmless because [[list]] drops ids without a valid aggregate.
+   */
   def create(store: Store, data: OrderData, promisedDeliveryDate: DateTime): IO[Either[OrderError, Unit]] =
-    dispatch(store, data.id, OrderService.Command.Create(data, promisedDeliveryDate)).flatTap {
-      case Right(_) => RegistryBackend.register(store.registry, data.id)
-      case Left(_) => IO.unit
-    }
+    RegistryBackend.register(store.registry, data.id) *>
+      dispatch(store, data.id, OrderService.Command.Create(data, promisedDeliveryDate)).flatTap {
+        case Right(_) => IO.unit
+        case Left(_) => RegistryBackend.deregister(store.registry, data.id)
+      }
 
   /** Dispatches any order lifecycle command (suspend, complete, deliver, change priority, …). */
   def command(store: Store, id: OrderId, command: OrderService.Command): IO[Either[OrderError, Unit]] =

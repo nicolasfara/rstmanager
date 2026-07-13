@@ -269,7 +269,8 @@ object OrderDtos:
         case "reactivate" => OrderService.Command.Reactivate.validNec
         case "complete" => OrderService.Command.Complete.validNec
         case "deliver" => OrderService.Command.Deliver.validNec
-        case other => s"action '$other' is not supported. Use suspend, reactivate, complete, or deliver.".invalidNec
+        case "reopen" => OrderService.Command.Reopen.validNec
+        case other => s"action '$other' is not supported. Use suspend, reactivate, complete, deliver, or reopen.".invalidNec
 
   object TransitionRequest:
     val example: TransitionRequest = TransitionRequest("suspend", Some("Waiting for material"))

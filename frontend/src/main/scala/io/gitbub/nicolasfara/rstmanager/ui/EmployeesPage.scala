@@ -31,7 +31,6 @@ object EmployeesPage:
     case other => other
 
   def apply(): HtmlElement =
-    val tick = Var(0)
     val pageError = Var(Option.empty[ApiError])
 
     // Create-employee form state
@@ -55,7 +54,7 @@ object EmployeesPage:
     def createEmployee(): Unit =
       val request = EmployeeRequest(name.now().trim.nn, surname.now().trim.nn, buildContract(), budget.now().toIntOption.getOrElse(0), Nil)
       ApiClient.createEmployee(request).foreach {
-        case Right(_) => resetCreate(); pageError.set(None); tick.update(_ + 1)
+        case Right(_) => resetCreate(); pageError.set(None); AppBus.mutated()
         case Left(err) => pageError.set(Some(err))
       }
 
@@ -90,14 +89,14 @@ object EmployeesPage:
     def saveOverrides(): Unit = editing.now().foreach { emp =>
       val request = EmployeeRequest(emp.name, emp.surname, emp.contract, emp.budgetWeeklyHours, workingOverrides.now())
       ApiClient.updateEmployee(emp.id, request).foreach {
-        case Right(_) => editing.set(None); tick.update(_ + 1)
+        case Right(_) => editing.set(None); AppBus.mutated()
         case Left(err) => pageError.set(Some(err))
       }
     }
 
     def deleteEmployee(id: UUID): Unit =
       ApiClient.deleteEmployee(id).foreach {
-        case Right(_) => tick.update(_ + 1)
+        case Right(_) => AppBus.mutated()
         case Left(err) => pageError.set(Some(err))
       }
 
@@ -154,7 +153,7 @@ object EmployeesPage:
         ),
       )
 
-    val data = loadable(tick.signal)(() => ApiClient.listEmployees())
+    val data = loadable(AppBus.ticks)(() => ApiClient.listEmployees())
 
     div(
       cls := "grid gap-6 lg:grid-cols-[22rem_1fr]",

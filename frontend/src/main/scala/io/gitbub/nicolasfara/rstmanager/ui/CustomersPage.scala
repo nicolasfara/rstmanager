@@ -15,7 +15,6 @@ object CustomersPage:
   private val typeOptions = List("individual" -> "Privato", "company" -> "Azienda")
 
   def apply(): HtmlElement =
-    val tick = Var(0)
     val formError = Var(Option.empty[ApiError])
     val editingId = Var(Option.empty[UUID])
     val name = Var("")
@@ -57,18 +56,18 @@ object CustomersPage:
         case Some(id) => ApiClient.updateCustomer(id, request)
         case None => ApiClient.createCustomer(request)
       effect.foreach {
-        case Right(_) => resetForm(); tick.update(_ + 1)
+        case Right(_) => resetForm(); AppBus.mutated()
         case Left(err) => formError.set(Some(err))
       }
     end submit
 
     def delete(id: UUID): Unit =
       ApiClient.deleteCustomer(id).foreach {
-        case Right(_) => tick.update(_ + 1)
+        case Right(_) => AppBus.mutated()
         case Left(err) => formError.set(Some(err))
       }
 
-    val data = loadable(tick.signal)(() => ApiClient.listCustomers())
+    val data = loadable(AppBus.ticks)(() => ApiClient.listCustomers())
 
     div(
       cls := "grid gap-6 lg:grid-cols-[24rem_1fr]",

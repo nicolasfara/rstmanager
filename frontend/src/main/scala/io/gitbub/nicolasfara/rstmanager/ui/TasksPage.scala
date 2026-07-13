@@ -13,7 +13,6 @@ import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 object TasksPage:
 
   def apply(): HtmlElement =
-    val tick = Var(0)
     val formError = Var(Option.empty[ApiError])
     val editingId = Var(Option.empty[UUID])
     val name = Var("")
@@ -36,17 +35,17 @@ object TasksPage:
         case Some(id) => ApiClient.updateTask(id, request)
         case None => ApiClient.createTask(request)
       effect.foreach {
-        case Right(_) => resetForm(); tick.update(_ + 1)
+        case Right(_) => resetForm(); AppBus.mutated()
         case Left(err) => formError.set(Some(err))
       }
 
     def delete(id: UUID): Unit =
       ApiClient.deleteTask(id).foreach {
-        case Right(_) => tick.update(_ + 1)
+        case Right(_) => AppBus.mutated()
         case Left(err) => formError.set(Some(err))
       }
 
-    val data = loadable(tick.signal)(() => ApiClient.listTasks())
+    val data = loadable(AppBus.ticks)(() => ApiClient.listTasks())
 
     div(
       cls := "grid gap-6 lg:grid-cols-[20rem_1fr]",

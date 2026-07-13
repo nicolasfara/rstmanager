@@ -106,7 +106,6 @@ object OrdersPage:
   private final case class ConfirmData(orderId: UUID, action: String, title: String, message: String)
 
   def apply(): HtmlElement =
-    val tick = Var(0)
     val pageError = Var(Option.empty[ApiError])
     val showCreate = Var(false)
     val statusFilter = Var("")
@@ -114,9 +113,9 @@ object OrdersPage:
     def nextKey(): Int =
       keyCounter += 1; keyCounter
 
-    val ordersData = loadable(tick.signal)(() => ApiClient.listOrders())
-    val customersData = loadable(tick.signal)(() => ApiClient.listCustomers())
-    val tasksData = loadable(tick.signal)(() => ApiClient.listTasks())
+    val ordersData = loadable(AppBus.ticks)(() => ApiClient.listOrders())
+    val customersData = loadable(AppBus.ticks)(() => ApiClient.listCustomers())
+    val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
 
     val customersMap: Signal[Map[UUID, String]] = customersData.map {
       case Some(Right(list)) => list.map(c => c.id -> s"${c.name} ${c.surname}").toMap
@@ -186,7 +185,7 @@ object OrdersPage:
             normalizeStr(orderDescription.now()),
           )
           ApiClient.createOrder(request).foreach {
-            case Right(_) => resetCreate(); showCreate.set(false); tick.update(_ + 1)
+            case Right(_) => resetCreate(); showCreate.set(false); AppBus.mutated()
             case Left(err) => pageError.set(Some(err))
           }
 
@@ -248,7 +247,7 @@ object OrdersPage:
     /** Applies an immediate structural change; on success refreshes the modal with the returned order and the table. */
     def applyStructural(effect: => Future[ApiClient.Result[OrderResponse]]): Unit =
       effect.foreach {
-        case Right(updated) => openEdit(updated); tick.update(_ + 1)
+        case Right(updated) => openEdit(updated); AppBus.mutated()
         case Left(err) => editError.set(Some(err))
       }
 
@@ -300,7 +299,7 @@ object OrdersPage:
       if effects.isEmpty then editing.set(None)
       else
         runSequential(effects).foreach {
-          case Right(_) => editing.set(None); tick.update(_ + 1)
+          case Right(_) => editing.set(None); AppBus.mutated()
           case Left(err) => editError.set(Some(err))
         }
     }
@@ -337,11 +336,17 @@ object OrdersPage:
 
     def transition(id: UUID, action: String): Unit =
       ApiClient.orderTransition(id, TransitionRequest(action, None)).foreach {
-        case Right(_) => tick.update(_ + 1)
+        case Right(_) => AppBus.mutated()
         case Left(err) => pageError.set(Some(err))
       }
 
-    /** Completing/delivering is irreversible, so it goes through an acknowledgement modal first. */
+    def cancelOrder(id: UUID): Unit =
+      ApiClient.deleteOrder(id, None).foreach {
+        case Right(_) => AppBus.mutated()
+        case Left(err) => pageError.set(Some(err))
+      }
+
+    /** Completing/delivering/cancelling changes the order lifecycle, so it goes through an acknowledgement modal first. */
     def requestTransition(order: OrderResponse, action: String): Unit = action match
       case "complete" =>
         confirm.set(
@@ -365,19 +370,29 @@ object OrdersPage:
             ),
           ),
         )
+      case "cancel" =>
+        confirm.set(
+          Some(
+            ConfirmData(
+              order.id,
+              action,
+              "Annullare l'ordine?",
+              s"Stai per annullare l'ordine ${order.number}: verrà tolto dalla pianificazione. Potrai riaprirlo in seguito con \"Riapri\".",
+            ),
+          ),
+        )
       case _ => transition(order.id, action)
 
-    def delete(id: UUID): Unit =
-      ApiClient.deleteOrder(id, None).foreach {
-        case Right(_) => tick.update(_ + 1)
-        case Left(err) => pageError.set(Some(err))
-      }
+    /** Runs an acknowledged action: cancellation goes through the delete endpoint, everything else is a lifecycle transition. */
+    def runConfirmed(data: ConfirmData): Unit =
+      if data.action == "cancel" then cancelOrder(data.orderId) else transition(data.orderId, data.action)
 
     def transitionButtons(order: OrderResponse): List[HtmlElement] =
       val actions = order.status match
         case "in_progress" => List("suspend" -> "Sospendi", "complete" -> "Completa")
         case "suspended" => List("reactivate" -> "Riattiva", "complete" -> "Completa")
         case "completed" => List("deliver" -> "Consegna")
+        case "cancelled" => List("reopen" -> "Riapri")
         case _ => Nil
       actions.map { case (action, label) =>
         button(tpe := "button", cls := btnSmall, label, onClick --> (_ => requestTransition(order, action)))
@@ -664,7 +679,7 @@ object OrdersPage:
                   tpe := "button",
                   cls := btnPrimary,
                   "Conferma",
-                  onClick --> (_ => confirm.now().foreach { c => transition(c.orderId, c.action); confirm.set(None) }),
+                  onClick --> (_ => confirm.now().foreach { c => runConfirmed(c); confirm.set(None) }),
                 ),
               ),
             ),
@@ -693,7 +708,8 @@ object OrdersPage:
             cls := "flex flex-wrap justify-end gap-2",
             button(tpe := "button", cls := btnSmall, if isEditable(order.status) then "Modifica" else "Dettagli", onClick --> (_ => openEdit(order))),
             transitionButtons(order),
-            button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(order.id))),
+            if order.status == "cancelled" then emptyNode
+            else button(tpe := "button", cls := btnDanger, "Annulla ordine", onClick --> (_ => requestTransition(order, "cancel"))),
           ),
         ),
       )

@@ -25,7 +25,7 @@ object ApiServer:
       EmployeeHttpApi.routes(employees) ++
         CustomerHttpApi.routes(customers) ++
         TaskHttpApi.routes(tasks) ++
-        OrderHttpApi.routes(orders, customers, tasks) ++
+        OrderHttpApi.routes(orders, customers, tasks, employees) ++
         PlanningRoutes.serverEndpoints(planningBackend, planningGateway)
 
     val documentationEndpoints = SwaggerInterpreter().fromServerEndpoints[IO](apiEndpoints, "RST Manager API", "0.1.0")

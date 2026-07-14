@@ -106,6 +106,7 @@ object Dtos:
       pausedAt: Option[String],
       pauseReason: Option[String],
       description: Option[String] = None,
+      preferredEmployeeId: Option[UUID] = None,
   )
 
   final case class ManufacturingResponse(
@@ -119,7 +120,10 @@ object Dtos:
       tasks: List[ScheduledTaskDto],
       dependencies: List[TaskDependencyDto],
       description: Option[String],
+      preferredEmployeeId: Option[UUID] = None,
   )
+
+  final case class SetPreferredEmployeeRequest(employeeId: Option[UUID])
 
   final case class OrderRequest(
       number: String,
@@ -260,6 +264,7 @@ object Dtos:
   given Codec[ScheduledTaskDto] = deriveCodec
   given Codec[ManufacturingDto] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
+  given Codec[SetPreferredEmployeeRequest] = deriveCodec
   given Codec[OrderRequest] = deriveCodec
   given Codec[OrderUpdateRequest] = deriveCodec
   given Codec[ManufacturingUpdateRequest] = deriveCodec

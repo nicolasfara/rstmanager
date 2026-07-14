@@ -197,9 +197,19 @@ object SchedulingService:
                   val earliestStart = dependencies.foldLeft(0) { (idx, dependency) =>
                     math.max(idx, plan.completionIdx.getOrElse(dependency, -1) + 1)
                   }
-                  allocateTask(plan.state, orderId, manufacturing.info.id, task.id, task.remainingHours.value, earliestStart, employees) match
+                  allocateTask(
+                    plan.state,
+                    orderId,
+                    manufacturing.info.id,
+                    task.id,
+                    task.remainingHours.value,
+                    earliestStart,
+                    employees,
+                    manufacturing.info.preferredEmployeeId,
+                  ) match
                     case Right((updatedState, lastDayIdx)) => plan.copy(state = updatedState).markCompleted(task.taskId, lastDayIdx)
                     case Left(reason) => plan.block(manufacturing.info.id, task, reason)
+              end match
             }
 
             NonEmptyList.fromList(planned.blockedTasks.toList).fold(planned.state.asRight)(_.asLeft)
@@ -243,6 +253,7 @@ object SchedulingService:
       hours: Int,
       startIdx: Int,
       employees: List[Employee],
+      preferredEmployeeId: Option[EmployeeId],
   ): Either[UnplannedReason, (PlannerState, Int)] =
     val requiredHours = TaskHours.applyUnsafe(hours)
 
@@ -259,8 +270,12 @@ object SchedulingService:
         ensureDay(current, idx, employees) match
           case None => Left(UnplannedReason.NoFutureCapacity(requiredHours))
           case Some(expanded) =>
-            val candidates = expanded.remaining(idx).toList.filter { case (_, left) => left > 0 }.sortBy { case (id, left) =>
+            val allCandidates = expanded.remaining(idx).toList.filter { case (_, left) => left > 0 }.sortBy { case (id, left) =>
               (-left, id.toString)
+            }
+            val candidates = preferredEmployeeId.fold(allCandidates) { preferred =>
+              val pref = allCandidates.filter(_._1.equals(preferred))
+              if pref.nonEmpty then pref else allCandidates
             }
             val (dayCapacity, daySlices, neededAfter) = candidates.foldLeft((expanded.remaining(idx), Vector.empty[ScheduledTaskSlice], needed)) {
               case ((capacity, acc, toPlace), (employeeId, employeeHours)) =>

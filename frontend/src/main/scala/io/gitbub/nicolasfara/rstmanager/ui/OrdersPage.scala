@@ -81,7 +81,14 @@ object OrdersPage:
 
   /** Mutable draft holders backed by `Var`s so their input elements stay stable under `split`. */
   private final case class TaskDraft(key: Int, taskId: Var[String], hours: Var[String])
-  private final case class MfgDraft(key: Int, code: Var[String], completionDate: Var[String], description: Var[String], tasks: Var[List[TaskDraft]])
+  private final case class MfgDraft(
+      key: Int,
+      code: Var[String],
+      completionDate: Var[String],
+      description: Var[String],
+      tasks: Var[List[TaskDraft]],
+      employeeId: Var[String],
+  )
 
   /** One editable scheduled-task row inside the edit modal; tracks original values to detect changes. */
   private final case class TaskEditRow(
@@ -116,6 +123,7 @@ object OrdersPage:
     val ordersData = loadable(AppBus.ticks)(() => ApiClient.listOrders())
     val customersData = loadable(AppBus.ticks)(() => ApiClient.listCustomers())
     val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
+    val employeesData = loadable(AppBus.ticks)(() => ApiClient.listEmployees())
 
     val customersMap: Signal[Map[UUID, String]] = customersData.map {
       case Some(Right(list)) => list.map(c => c.id -> s"${c.name} ${c.surname}").toMap
@@ -133,6 +141,10 @@ object OrdersPage:
       case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
       case _ => List("" -> "—")
     }
+    val employeeOptions: Signal[List[(String, String)]] = employeesData.map {
+      case Some(Right(list)) => ("" -> "— auto (pianificazione sceglie) —") :: list.map(e => e.id.toString -> s"${e.name} ${e.surname}")
+      case _ => List("" -> "—")
+    }
 
     // ---- Create form state -----------------------------------------------------------------------
     val number = Var("")
@@ -144,7 +156,7 @@ object OrdersPage:
     val orderDescription = Var("")
 
     def newTask(): TaskDraft = TaskDraft(nextKey(), Var(""), Var("8"))
-    def newMfg(): MfgDraft = MfgDraft(nextKey(), Var(""), Var(""), Var(""), Var(List(newTask())))
+    def newMfg(): MfgDraft = MfgDraft(nextKey(), Var(""), Var(""), Var(""), Var(List(newTask())), Var(""))
     val mfgs = Var(List(newMfg()))
 
     def resetCreate(): Unit =
@@ -172,6 +184,7 @@ object OrdersPage:
               None,
               None,
               normalizeStr(m.description.now()),
+              parseUuid(m.employeeId.now()),
             )
           }
           val request = OrderRequest(
@@ -205,8 +218,9 @@ object OrdersPage:
     val addMfgDescription = Var("")
     val addMfgTaskId = Var("")
     val addMfgHours = Var("8")
+    val addMfgEmployee = Var("")
     def resetAddMfg(): Unit =
-      addMfgCode.set(""); addMfgDate.set(""); addMfgDescription.set(""); addMfgTaskId.set(""); addMfgHours.set("8")
+      addMfgCode.set(""); addMfgDate.set(""); addMfgDescription.set(""); addMfgTaskId.set(""); addMfgHours.set("8"); addMfgEmployee.set("")
 
     // Inline "add task" form (targets the manufacturing whose id is held here)
     val addTaskMfgId = Var(Option.empty[UUID])
@@ -320,6 +334,7 @@ object OrdersPage:
             None,
             None,
             normalizeStr(addMfgDescription.now()),
+            parseUuid(addMfgEmployee.now()),
           )
           applyStructural(ApiClient.addManufacturing(order.id, dto))
     }
@@ -417,6 +432,7 @@ object OrdersPage:
           button(tpe := "button", cls := s"$btnDanger mb-0.5", "Rimuovi", onClick --> (_ => mfgs.update(_.filterNot(_.key == m.key)))),
         ),
         div(cls := "mt-2", field("Descrizione lavorazione", textInput(m.description, "Opzionale"))),
+        div(cls := "mt-2", field("Dipendente preferito", selectInput(m.employeeId, employeeOptions))),
         div(cls := "mt-2 space-y-2", children <-- m.tasks.signal.split(_.key)((_, initial, _) => renderTask(m, initial))),
         button(tpe := "button", cls := s"$btnSmall mt-2", "+ Task", onClick --> (_ => m.tasks.update(_ :+ newTask()))),
       )
@@ -561,6 +577,7 @@ object OrdersPage:
                   field("Completamento", textInput(addMfgDate, "", "date")),
                 ),
                 field("Descrizione", textInput(addMfgDescription, "Opzionale")),
+                field("Dipendente preferito", selectInput(addMfgEmployee, employeeOptions)),
                 div(
                   cls := "grid grid-cols-[1fr_5rem] gap-2",
                   field("Primo task", selectInput(addMfgTaskId, taskOptions)),

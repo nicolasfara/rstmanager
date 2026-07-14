@@ -83,6 +83,7 @@ object OrderDtos:
       pausedAt: Option[String],
       pauseReason: Option[String],
       description: Option[String] = None,
+      preferredEmployeeId: Option[UUID] = None,
   ):
     def toDomain(path: String, id: UUID): ValidatedNec[String, ScheduledManufacturing] =
       val taskList = tasks.zipWithIndex.traverse { case (task, index) => task.toDomain(s"$path.tasks[$index]") }
@@ -94,7 +95,15 @@ object OrderDtos:
 
       val info = (manufacturingCode(code), parseDate(completionDate, s"$path.completionDate"), taskList).mapN {
         (code, expectedCompletionDate, scheduledTasks) =>
-          ScheduledManufacturingInfo(id, code, expectedCompletionDate, scheduledTasks, dependencyGraph, description.map(_.trim.nn).filter(_.nonEmpty))
+          ScheduledManufacturingInfo(
+            id,
+            code,
+            expectedCompletionDate,
+            scheduledTasks,
+            dependencyGraph,
+            description.map(_.trim.nn).filter(_.nonEmpty),
+            preferredEmployeeId,
+          )
       }
 
       info.andThen { manufacturingInfo =>
@@ -162,7 +171,9 @@ object OrderDtos:
         info.tasks.toList.map(ScheduledTaskDto.fromDomain),
         info.dependencies.toEdgePairs.groupMap(_._1)(_._2).toList.map((taskId, dependsOn) => TaskDependencyDto(taskId, dependsOn)),
         info.description,
+        info.preferredEmployeeId,
       )
+    end fromDomain
   end ManufacturingDto
 
   final case class OrderRequest(
@@ -305,7 +316,15 @@ object OrderDtos:
       tasks: List[ScheduledTaskDto],
       dependencies: List[TaskDependencyDto],
       description: Option[String],
+      preferredEmployeeId: Option[UUID],
   )
+
+  final case class SetPreferredEmployeeRequest(employeeId: Option[UUID]):
+    def toCommand(manufacturingId: UUID): OrderService.Command =
+      OrderService.Command.SetPreferredEmployee(manufacturingId, employeeId)
+
+  object SetPreferredEmployeeRequest:
+    val example: SetPreferredEmployeeRequest = SetPreferredEmployeeRequest(None)
 
   final case class OrderResponse(
       id: UUID,
@@ -385,6 +404,7 @@ object OrderDtos:
   given Codec[TransitionRequest] = deriveCodec
   given Codec[TaskProgressUpdateRequest] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
+  given Codec[SetPreferredEmployeeRequest] = deriveCodec
   given Codec[OrderResponse] = deriveCodec
 
   given Schema[TaskDependencyDto] = Schema.derived
@@ -397,5 +417,6 @@ object OrderDtos:
   given Schema[TransitionRequest] = Schema.derived
   given Schema[TaskProgressUpdateRequest] = Schema.derived
   given Schema[ManufacturingResponse] = Schema.derived
+  given Schema[SetPreferredEmployeeRequest] = Schema.derived
   given Schema[OrderResponse] = Schema.derived
 end OrderDtos

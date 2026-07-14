@@ -38,4 +38,5 @@ final case class ScheduledManufacturingInfo(
     tasks: NonEmptyList[ScheduledTask],
     dependencies: ManufacturingDependencies,
     description: Option[String] = None,
+    preferredEmployeeId: Option[UUID] = None,
 )

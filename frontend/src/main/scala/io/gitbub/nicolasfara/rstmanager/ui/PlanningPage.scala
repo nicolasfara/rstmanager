@@ -2,6 +2,7 @@ package io.gitbub.nicolasfara.rstmanager.ui
 
 import java.util.UUID
 
+import scala.concurrent.{ ExecutionContext, Future }
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js.timers.{ clearInterval, setInterval, SetIntervalHandle }
 
@@ -84,6 +85,8 @@ object PlanningPage:
     val editExpected = Var("")
     val origCompleted = Var(0)
     val origExpected = Var(0)
+    val editEmployeeId = Var("")
+    val origEmployee = Var("")
     val modalOpen = Var(false)
     val modalError = Var(Option.empty[ApiError])
     val saving = Var(false)
@@ -103,9 +106,17 @@ object PlanningPage:
       case Some(Right(list)) => list.map(e => e.id -> s"${e.name} ${e.surname}").toMap
       case _ => Map.empty
     }
+    val employeeOptions: Signal[List[(String, String)]] = employeesData.map {
+      case Some(Right(list)) => ("" -> "— auto (pianificazione sceglie) —") :: list.map(e => e.id.toString -> s"${e.name} ${e.surname}")
+      case _ => List("" -> "—")
+    }
     val ordersList: Signal[List[OrderResponse]] = ordersData.map {
       case Some(Right(list)) => list
       case _ => Nil
+    }
+    // Maps scheduledManufacturingId -> preferredEmployeeId (from the order data).
+    val preferredByMfg: Signal[Map[UUID, Option[UUID]]] = ordersList.map { orders =>
+      orders.flatMap(_.manufacturings.map(m => m.id -> m.preferredEmployeeId)).toMap
     }
     // Catalog task id -> task name (from the task catalog).
     val catalogNames: Signal[Map[UUID, String]] = tasksData.map {
@@ -128,10 +139,12 @@ object PlanningPage:
       ordersList.map(_.flatMap(_.manufacturings.flatMap(_.tasks.map(t => t.id -> t))).toMap)
     val editLookup: Signal[(Map[UUID, ScheduledTaskDto], Map[UUID, String])] =
       scheduledTaskById.combineWith(scheduledTaskNames)
+    val editAndPref = editLookup.flatMapSwitch(el => preferredByMfg.map((el, _)))
 
     // ---- Task modal ------------------------------------------------------------------------------
-    def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String): Unit =
+    def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String, preferred: Option[UUID]): Unit =
       val completed = task.completedHours.getOrElse(0)
+      val prefStr = preferred.map(_.toString).getOrElse("")
       editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
       editKind.set(EditKind.Progress)
       editName.set(name)
@@ -139,6 +152,8 @@ object PlanningPage:
       editExpected.set(task.expectedHours.toString)
       origCompleted.set(completed)
       origExpected.set(task.expectedHours)
+      editEmployeeId.set(prefStr)
+      origEmployee.set(prefStr)
       modalError.set(None)
       modalOpen.set(true)
 
@@ -169,19 +184,29 @@ object PlanningPage:
             Some(ApiError("invalid", "Per riportare il task in lavorazione le ore svolte devono essere inferiori alle ore totali.", Nil)),
           )
         else
-          // Send only the fields the user actually changed, so we don't emit redundant events.
-          val request = TaskProgressUpdateRequest(
+          val taskRequest = TaskProgressUpdateRequest(
             completed.filter(_ != origCompleted.now()),
             expected.filter(_ != origExpected.now()),
           )
-          if request.completedHours.isEmpty && request.expectedHours.isEmpty then closeEdit()
+          val employeeChanged = !reactivating && editEmployeeId.now() != origEmployee.now()
+          val hasTaskChanges = taskRequest.completedHours.isDefined || taskRequest.expectedHours.isDefined
+
+          if !hasTaskChanges && !employeeChanged then closeEdit()
           else
             saving.set(true)
             modalError.set(None)
-            ApiClient.updateScheduledTask(orderId, manufacturingId, taskId, request).foreach {
-              case Right(_) =>
-                closeEdit()
-                AppBus.mutated()
+            val taskF: Future[ApiClient.Result[Unit]] =
+              if hasTaskChanges then ApiClient.updateScheduledTask(orderId, manufacturingId, taskId, taskRequest).map(_.map(_ => ()))
+              else Future.successful(Right(()))
+            taskF.flatMap {
+              case Left(err) => Future.successful(Left(err))
+              case Right(()) =>
+                if employeeChanged then
+                  val empId = scala.util.Try(UUID.fromString(editEmployeeId.now()).nn).toOption
+                  ApiClient.setPreferredEmployee(orderId, manufacturingId, empId).map(_.map(_ => ()))
+                else Future.successful(Right(()))
+            }.foreach {
+              case Right(_) => closeEdit(); AppBus.mutated()
               case Left(err) => saving.set(false); modalError.set(Some(err))
             }
         end if
@@ -207,6 +232,10 @@ object PlanningPage:
             field("Ore svolte", textInput(editCompleted, "", "number")),
             field("Ore totali", textInput(editExpected, "", "number")),
           ),
+          child <-- editKind.signal.map {
+            case EditKind.Progress => field("Dipendente preferito", selectInput(editEmployeeId, employeeOptions))
+            case EditKind.Reactivate => emptyNode
+          },
           p(
             cls := "text-xs text-slate-400",
             child.text <-- editKind.signal.map {
@@ -262,8 +291,12 @@ object PlanningPage:
       div(
         cls := "rounded-lg border p-2.5 cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
         cls <-- urgency.map(_.cardCls),
-        onClick.compose(_.sample(editLookup)) --> { case (byId, names) =>
-          byId.get(slice.taskId).foreach(task => openEdit(slice, task, names.getOrElse(slice.taskId, Formats.shortId(slice.taskId))))
+        onClick.compose(_.sample(editAndPref)) --> { case ((byId, names), pref) =>
+          byId
+            .get(slice.taskId)
+            .foreach(task =>
+              openEdit(slice, task, names.getOrElse(slice.taskId, Formats.shortId(slice.taskId)), pref.get(slice.manufacturingId).flatten),
+            )
         },
         // Order number + hours assigned to this slice
         div(
@@ -341,7 +374,7 @@ object PlanningPage:
 
     def dayColumn(day: String, slices: List[ScheduledTaskSliceDto]): HtmlElement =
       div(
-        cls := "w-64 shrink-0",
+        cls := "min-w-0",
         div(
           cls := "mb-2 flex items-baseline justify-between border-b border-slate-200 pb-1",
           span(cls := "text-sm font-semibold text-slate-700", Formats.date(day)),
@@ -358,7 +391,10 @@ object PlanningPage:
         val byWeek: List[List[(String, List[ScheduledTaskSliceDto])]] =
           days.groupBy((day, _) => Formats.weekKey(day)).toList.sortBy(_._1).map(_._2)
         if byWeek.size <= 1 then
-          div(cls := "flex gap-4 overflow-x-auto pb-2", days.map((day, slices) => dayColumn(day, slices)))
+          div(
+            cls := "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4",
+            days.map((day, slices) => dayColumn(day, slices)),
+          )
         else
           val totalWeeks = byWeek.size
           val clampedIdx: Signal[Int] = weekIndex.signal.map(i => math.min(i, totalWeeks - 1))
@@ -395,10 +431,13 @@ object PlanningPage:
               ),
             ),
             div(
-              cls := "flex gap-4 overflow-x-auto pb-2",
+              cls := "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4",
               children <-- currentDays.map(_.map((day, slices) => dayColumn(day, slices))),
             ),
           )
+        end if
+      end if
+    end board
 
     // ---- Completed tasks -------------------------------------------------------------------------
     def completedRow(row: CompletedRow): HtmlElement =
@@ -427,6 +466,41 @@ object PlanningPage:
         ),
       )
 
+    def completedCard(row: CompletedRow): HtmlElement =
+      div(
+        cls := "border-b border-slate-100 last:border-0 px-4 py-3 space-y-1.5",
+        div(
+          cls := "text-sm font-medium text-slate-800",
+          child.text <-- catalogNames.map(_.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId))),
+        ),
+        div(
+          cls := "flex flex-wrap gap-x-4 gap-y-0.5 text-xs",
+          span(span(cls := "text-slate-400", "Ordine "), span(cls := "text-slate-600", row.order.number)),
+          span(span(cls := "text-slate-400", "Lavorazione "), span(cls := "text-slate-600", row.manufacturing.code)),
+        ),
+        div(
+          cls := "flex flex-wrap gap-x-4 gap-y-0.5 text-xs",
+          span(
+            span(cls := "text-slate-400", "Ore "),
+            span(cls := "tabular-nums text-slate-600", s"${row.task.completedHours.getOrElse(0)}/${row.task.expectedHours}h"),
+          ),
+          span(
+            span(cls := "text-slate-400", "Completato "),
+            span(cls := "text-slate-600", row.task.completionDate.map(Formats.date).getOrElse("—")),
+          ),
+        ),
+        if isOrderEditable(row.order.status) then
+          button(
+            tpe := "button",
+            cls := btnSmall,
+            "Riattiva",
+            onClick.compose(_.sample(catalogNames)) --> { names =>
+              openReactivate(row, names.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId)))
+            },
+          )
+        else span(cls := "text-xs text-slate-400", "ordine non modificabile"),
+      )
+
     def completedSection(orders: List[OrderResponse]): HtmlElement =
       val rows = completedRows(orders)
       card(
@@ -440,21 +514,26 @@ object PlanningPage:
         if rows.isEmpty then div(cls := "p-4", emptyState("Nessun task completato."))
         else
           div(
-            cls := "overflow-x-auto",
-            table(
-              cls := "w-full text-sm",
-              thead(
-                cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                tr(
-                  th(cls := "px-4 py-2", "Task"),
-                  th(cls := "px-4 py-2", "Ordine"),
-                  th(cls := "px-4 py-2", "Lavorazione"),
-                  th(cls := "px-4 py-2", "Ore"),
-                  th(cls := "px-4 py-2", "Completato il"),
-                  th(cls := "px-4 py-2"),
+            // Mobile: card per ogni riga
+            div(cls := "sm:hidden", rows.map(completedCard)),
+            // Desktop: tabella
+            div(
+              cls := "hidden sm:block overflow-x-auto",
+              table(
+                cls := "w-full text-sm",
+                thead(
+                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                  tr(
+                    th(cls := "px-4 py-2", "Task"),
+                    th(cls := "px-4 py-2", "Ordine"),
+                    th(cls := "px-4 py-2", "Lavorazione"),
+                    th(cls := "px-4 py-2", "Ore"),
+                    th(cls := "px-4 py-2", "Completato il"),
+                    th(cls := "px-4 py-2"),
+                  ),
                 ),
+                tbody(rows.map(completedRow)),
               ),
-              tbody(rows.map(completedRow)),
             ),
           ),
       )
@@ -469,16 +548,6 @@ object PlanningPage:
           div(cls := s"text-xs font-semibold uppercase tracking-wide $tone", s"$title (${items.size})"),
           ul(cls := "mt-1 space-y-0.5 text-xs text-slate-600", items.map(item => li(item))),
         )
-
-    def statusHeader(state: PlanningStateDto): HtmlElement =
-      val when = state.completedOn.orElse(state.rejectedOn).map(Formats.dateTime).getOrElse("—")
-      div(
-        cls := "flex flex-wrap items-center gap-3",
-        statusBadge(state.status),
-        span(cls := "text-xs text-slate-400", s"versione ${state.version}"),
-        span(cls := "text-xs text-slate-400", when),
-        span(cls := "text-xs text-slate-400", "· aggiornamento automatico"),
-      )
 
     def diagnosticsSection(state: PlanningStateDto): HtmlElement =
       val (delayedOrders, delayedManufacturings, unplannedOrders, warnings) = diagnostics(state)
@@ -513,7 +582,6 @@ object PlanningPage:
       renderResult(planningData) { state =>
         div(
           cls := "space-y-4",
-          statusHeader(state),
           panel("Errori di dominio", state.errors.map(e => e.message), "text-rose-600"),
           card(
             div(

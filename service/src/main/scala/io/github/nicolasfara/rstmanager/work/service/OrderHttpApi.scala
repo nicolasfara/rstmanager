@@ -3,6 +3,7 @@ package io.github.nicolasfara.rstmanager.work.service
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.service.CustomerApp
+import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.http.ApiError
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderError, OrderService }
 
@@ -102,6 +103,14 @@ object OrderHttpApi:
       .summary("Remove a task from a manufacturing")
       .out(jsonBody[OrderResponse])
 
+  val setPreferredEmployee: PublicEndpoint[(UUID, UUID, SetPreferredEmployeeRequest), ApiFailure, OrderResponse, Any] =
+    ApiError.base.put
+      .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "employee")
+      .tag("Orders")
+      .summary("Set or clear the preferred employee for a manufacturing")
+      .in(jsonBody[SetPreferredEmployeeRequest].example(SetPreferredEmployeeRequest.example))
+      .out(jsonBody[OrderResponse])
+
   val delete: PublicEndpoint[(UUID, Option[String]), ApiFailure, Unit, Any] =
     ApiError.base.delete
       .in(collection / path[UUID]("id"))
@@ -111,12 +120,27 @@ object OrderHttpApi:
       .out(statusCode(StatusCode.NoContent))
 
   def endpoints: List[AnyEndpoint] =
-    List(create, list, read, update, transition, updateTask, addManufacturing, removeManufacturing, updateManufacturing, addTask, removeTask, delete)
+    List(
+      create,
+      list,
+      read,
+      update,
+      transition,
+      updateTask,
+      addManufacturing,
+      removeManufacturing,
+      updateManufacturing,
+      addTask,
+      removeTask,
+      setPreferredEmployee,
+      delete,
+    )
 
   def routes(
       store: OrderApp.Store,
       customers: CustomerApp.Store,
       tasks: TaskApp.Store,
+      employees: EmployeeApp.Store,
   ): List[ServerEndpoint[Any, IO]] = List(
     create.serverLogic(createLogic(store, customers, tasks)),
     list.serverLogic(_ => listLogic(store)),
@@ -129,6 +153,7 @@ object OrderHttpApi:
     updateManufacturing.serverLogic(updateManufacturingLogic(store)),
     addTask.serverLogic(addTaskLogic(store, tasks)),
     removeTask.serverLogic(removeTaskLogic(store)),
+    setPreferredEmployee.serverLogic(setPreferredEmployeeLogic(store, employees)),
     delete.serverLogic(deleteLogic(store)),
   )
 
@@ -236,6 +261,18 @@ object OrderHttpApi:
     taskIds.distinct.filterA(taskId => TaskApp.exists(tasks, taskId).map(!_)).map { missing =>
       if missing.nonEmpty then Some(ApiError.notFound("Task", missing.mkString(", "))) else None
     }
+
+  private def setPreferredEmployeeLogic(
+      store: OrderApp.Store,
+      employees: EmployeeApp.Store,
+  )(id: UUID, manufacturingId: UUID, request: SetPreferredEmployeeRequest): IO[Either[ApiFailure, OrderResponse]] =
+    request.employeeId match
+      case None => runCommands(store, id, List(request.toCommand(manufacturingId)))
+      case Some(empId) =>
+        EmployeeApp.exists(employees, empId).flatMap {
+          case false => IO.pure(ApiError.notFound("Employee", empId.toString).asLeft)
+          case true => runCommands(store, id, List(request.toCommand(manufacturingId)))
+        }
 
   private def deleteLogic(store: OrderApp.Store)(id: UUID, reason: Option[String]): IO[Either[ApiFailure, Unit]] =
     reason.traverse(_.refineValidatedNec[CancellationReason]).toEither match

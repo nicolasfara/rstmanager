@@ -1,5 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ManufacturingStatus,
   ScheduledManufacturing,
@@ -80,6 +82,14 @@ object OrderOperations:
       expectedHours: TaskHours,
   ): Either[OrderError, InProgressOrder] =
     updateManufacturing(order, manufacturingId)(_.changeTaskExpectedHours(taskId, expectedHours))
+
+  /** Sets (or clears) the preferred employee for one of the order manufacturings. */
+  def changeManufacturingPreferredEmployee(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      employeeId: Option[UUID],
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturing(order, manufacturingId)(_.withPreferredEmployee(employeeId).asRight)
 
   /** Sets (or clears) the description of one of the order manufacturings. */
   def changeManufacturingDescription(

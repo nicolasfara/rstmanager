@@ -1,5 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.order.events
 
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderPriority, SuspensionReason }
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
@@ -49,6 +51,9 @@ enum OrderEvent:
 
   /** A manufacturing's description has changed. */
   case ManufacturingDescriptionChanged(manufacturingId: ScheduledManufacturingId, newDescription: Option[String], changedOn: DateTime)
+
+  /** The preferred employee for a manufacturing has been set or cleared. */
+  case ManufacturingPreferredEmployeeChanged(manufacturingId: ScheduledManufacturingId, employeeId: Option[UUID], changedOn: DateTime)
 
   /** A manufacturing has been manually moved to a new lifecycle status. */
   case ManufacturingStatusChanged(

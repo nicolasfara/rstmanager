@@ -1,5 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
@@ -105,6 +107,15 @@ enum Order derives CanEqual:
   def changeDescription(newDescription: Option[String]): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> OrderDescriptionChanged(newDescription, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Sets (or clears) the preferred employee for a manufacturing inside an active or suspended order. */
+  def changeManufacturingPreferredEmployee(
+      manufacturingId: ScheduledManufacturingId,
+      employeeId: Option[UUID],
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingPreferredEmployeeChanged(manufacturingId, employeeId, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Changes the description of a manufacturing inside an active or suspended order. */
@@ -263,6 +274,8 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
       }
     case ManufacturingAdded(manufacturing, _) => _.mustBeInProgressOrSuspended.map(addManufacturing(_, manufacturing))
     case ManufacturingRemoved(manufacturingId, _) => _.mustBeInProgressOrSuspended.map(removeManufacturing(_, manufacturingId))
+    case ManufacturingPreferredEmployeeChanged(manufacturingId, employeeId, _) =>
+      _.mustBeInProgressOrSuspended.andThen(changeManufacturingPreferredEmployee(_, manufacturingId, employeeId).toValidatedNec)
     case ManufacturingDescriptionChanged(manufacturingId, newDescription, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingDescription(_, manufacturingId, newDescription).toValidatedNec)
     case ManufacturingStatusChanged(manufacturingId, newStatus, reason, _) =>

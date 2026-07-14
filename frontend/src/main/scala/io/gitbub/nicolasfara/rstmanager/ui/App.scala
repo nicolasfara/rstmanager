@@ -33,22 +33,53 @@ object App:
 
   def apply(): HtmlElement =
     val current = Var(Page.Planning)
+    val menuOpen = Var(false)
     div(
       cls := "min-h-screen bg-slate-50 text-slate-800",
       headerTag(
         cls := "sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur",
         div(
-          cls := "mx-auto flex max-w-7xl items-center gap-6 px-4 py-3",
+          cls := "mx-auto flex max-w-7xl items-center justify-between sm:justify-start gap-4 sm:gap-6 px-4 py-3",
           div(
             cls := "flex items-center gap-2",
             div(cls := "h-6 w-6 rounded-md bg-slate-900"),
             span(cls := "text-sm font-semibold tracking-tight text-slate-900", "RST Manager"),
           ),
-          navTag(cls := "flex flex-wrap gap-1", Page.values.toList.map(navButton(_, current))),
+          // Desktop nav
+          navTag(cls := "hidden sm:flex flex-wrap gap-1", Page.values.toList.map(navButton(_, current))),
+          // Hamburger toggle (mobile only)
+          button(
+            tpe := "button",
+            cls := "sm:hidden rounded-md p-1.5 text-slate-600 hover:bg-slate-100 transition-colors",
+            onClick --> (_ => menuOpen.update(!_)),
+            child.text <-- menuOpen.signal.map(open => if open then "✕" else "☰"),
+          ),
         ),
+        // Mobile dropdown
+        child.maybe <-- menuOpen.signal.map { open =>
+          Option.when(open)(
+            div(
+              cls := "sm:hidden border-t border-slate-200 px-4 py-2",
+              div(
+                cls := "flex flex-col gap-1",
+                Page.values.toList.map { page =>
+                  button(
+                    tpe := "button",
+                    cls := "w-full rounded-md px-3 py-2 text-left text-sm font-medium transition-colors",
+                    cls <-- current.signal.map(active => if active == page then "bg-slate-900 text-white" else "text-slate-600 hover:bg-slate-100"),
+                    label(page),
+                    onClick --> (_ =>
+                      current.set(page); menuOpen.set(false)
+                    ),
+                  )
+                },
+              ),
+            ),
+          )
+        },
       ),
       mainTag(
-        cls := "mx-auto max-w-7xl px-4 py-6",
+        cls := "mx-auto max-w-7xl px-4 sm:px-6 py-6",
         child <-- current.signal.map(render),
       ),
     )

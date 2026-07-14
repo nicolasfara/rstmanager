@@ -1,5 +1,7 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
+import java.util.UUID
+
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
@@ -59,6 +61,10 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   /** Sets (or clears) the free-text description. */
   def withDescription(description: Option[String]): ScheduledManufacturing =
     withInfo(info.copy(description = description))
+
+  /** Sets (or clears) the preferred employee for this manufacturing. */
+  def withPreferredEmployee(employeeId: Option[UUID]): ScheduledManufacturing =
+    withInfo(info.copy(preferredEmployeeId = employeeId))
 
   /** Current lifecycle status of the manufacturing. */
   def status: ManufacturingStatus = this match

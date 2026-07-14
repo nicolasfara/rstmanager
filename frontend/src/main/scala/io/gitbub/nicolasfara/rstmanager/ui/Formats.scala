@@ -30,4 +30,12 @@ object Formats:
     val to = new js.Date(toIso)
     if from.getTime().isNaN || to.getTime().isNaN then None
     else Some(math.floor((to.getTime() - from.getTime()) / 86400000.0).toInt)
+
+  /** Returns a stable `YYYY-MM-DD` key for the Monday of the week containing `iso`. Used to group planning days by week. */
+  def weekKey(iso: String): String =
+    val d = new js.Date(iso)
+    val day = d.getDay().toInt // 0=Sun, 1=Mon, …, 6=Sat
+    val diffToMonday = if day == 0 then -6 else 1 - day
+    val monday = new js.Date(d.getTime() + diffToMonday.toDouble * 86400000.0)
+    s"${monday.getFullYear().toInt}-${pad2(monday.getMonth().toInt + 1)}-${pad2(monday.getDate().toInt)}"
 end Formats

@@ -66,6 +66,10 @@ environment variables before running Compose, for example:
 RSTMANAGER_FRONTEND_PUBLISHED_PORT=3000 RSTMANAGER_HTTP_PUBLISHED_PORT=8081 RSTMANAGER_DB_PUBLISHED_PORT=5433 docker compose up --build
 ```
 
+Postgres 18 stores data in a major-version-specific directory inside the `postgres-data` volume. If you previously started this project with
+Postgres 17 and Compose reports existing data under `/var/lib/postgresql/data`, reset disposable local data with `docker compose down -v`, or
+migrate/restore the old database before starting Postgres 18.
+
 The backend image uses a multi-stage build: the build stage starts from `eclipse-temurin:17-jdk-jammy` and installs sbt `1.12.11`, while the runtime
 stage starts from `eclipse-temurin:17-jre-jammy` and runs only the assembled service jar. These can be overridden with `RSTMANAGER_JDK_IMAGE`,
 `RSTMANAGER_RUNTIME_IMAGE`, and `RSTMANAGER_SBT_VERSION`.

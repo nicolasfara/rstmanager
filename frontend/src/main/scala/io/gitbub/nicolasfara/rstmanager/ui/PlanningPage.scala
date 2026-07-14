@@ -88,6 +88,8 @@ object PlanningPage:
     val modalError = Var(Option.empty[ApiError])
     val saving = Var(false)
 
+    val weekIndex = Var(0)
+
     val planningData = loadable(AppBus.ticks)(() => ApiClient.currentPlanning())
     val ordersData = loadable(AppBus.ticks)(() => ApiClient.listOrders())
     val employeesData = loadable(AppBus.ticks)(() => ApiClient.listEmployees())
@@ -352,7 +354,51 @@ object PlanningPage:
       val days = slicesByDay(state)
       if days.isEmpty then
         emptyState("Nessun task pianificato. La pianificazione si ricalcola automaticamente quando ordini, task o forza lavoro cambiano.")
-      else div(cls := "flex gap-4 overflow-x-auto pb-2", days.map((day, slices) => dayColumn(day, slices)))
+      else
+        val byWeek: List[List[(String, List[ScheduledTaskSliceDto])]] =
+          days.groupBy((day, _) => Formats.weekKey(day)).toList.sortBy(_._1).map(_._2)
+        if byWeek.size <= 1 then
+          div(cls := "flex gap-4 overflow-x-auto pb-2", days.map((day, slices) => dayColumn(day, slices)))
+        else
+          val totalWeeks = byWeek.size
+          val clampedIdx: Signal[Int] = weekIndex.signal.map(i => math.min(i, totalWeeks - 1))
+          val currentDays: Signal[List[(String, List[ScheduledTaskSliceDto])]] =
+            clampedIdx.map(byWeek(_))
+          val weekRangeLabel: Signal[String] = currentDays.map { wd =>
+            s"${Formats.date(wd.head._1)} – ${Formats.date(wd.last._1)}"
+          }
+          div(
+            cls := "space-y-3",
+            div(
+              cls := "flex items-center justify-between gap-4",
+              button(
+                tpe := "button",
+                cls := s"$btnSmall disabled:opacity-40 disabled:cursor-not-allowed",
+                "← Settimana prec.",
+                disabled <-- clampedIdx.map(_ <= 0),
+                onClick --> (_ => weekIndex.update(i => math.max(0, i - 1))),
+              ),
+              div(
+                cls := "flex flex-col items-center gap-0.5",
+                span(cls := "text-sm font-semibold text-slate-700", child.text <-- weekRangeLabel),
+                span(
+                  cls := "text-xs text-slate-400",
+                  child.text <-- clampedIdx.map(i => s"Settimana ${i + 1} di $totalWeeks"),
+                ),
+              ),
+              button(
+                tpe := "button",
+                cls := s"$btnSmall disabled:opacity-40 disabled:cursor-not-allowed",
+                "Settimana succ. →",
+                disabled <-- clampedIdx.map(_ >= totalWeeks - 1),
+                onClick --> (_ => weekIndex.update(i => math.min(totalWeeks - 1, i + 1))),
+              ),
+            ),
+            div(
+              cls := "flex gap-4 overflow-x-auto pb-2",
+              children <-- currentDays.map(_.map((day, slices) => dayColumn(day, slices))),
+            ),
+          )
 
     // ---- Completed tasks -------------------------------------------------------------------------
     def completedRow(row: CompletedRow): HtmlElement =

@@ -6,7 +6,7 @@ import com.raquo.laminar.api.L.*
 object App:
 
   enum Page derives CanEqual:
-    case Planning, Orders, Employees, Customers, Tasks
+    case Planning, Orders, Employees, Customers, Tasks, Manufacturings
 
   private def label(page: Page): String = page match
     case Page.Planning => "Pianificazione"
@@ -14,6 +14,7 @@ object App:
     case Page.Employees => "Dipendenti"
     case Page.Customers => "Clienti"
     case Page.Tasks => "Catalogo Task"
+    case Page.Manufacturings => "Catalogo Lavorazioni"
 
   private def render(page: Page): HtmlElement = page match
     case Page.Planning => PlanningPage()
@@ -21,6 +22,7 @@ object App:
     case Page.Employees => EmployeesPage()
     case Page.Customers => CustomersPage()
     case Page.Tasks => TasksPage()
+    case Page.Manufacturings => ManufacturingsPage()
 
   private def navButton(page: Page, current: Var[Page]): HtmlElement =
     button(

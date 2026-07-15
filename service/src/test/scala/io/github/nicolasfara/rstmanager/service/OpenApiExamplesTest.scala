@@ -10,7 +10,8 @@ import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.Plannin
 import io.github.nicolasfara.rstmanager.planning.service.PlanningEndpoints
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
-import io.github.nicolasfara.rstmanager.work.service.{ OrderHttpApi, TaskHttpApi }
+import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingHttpApi, OrderHttpApi, TaskHttpApi }
+import io.github.nicolasfara.rstmanager.work.service.ManufacturingHttpApi.ManufacturingRequest
 import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ OrderRequest, OrderUpdateRequest, TaskProgressUpdateRequest, TransitionRequest }
 import io.github.nicolasfara.rstmanager.work.service.TaskHttpApi.TaskRequest
 
@@ -39,12 +40,14 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     validOrFail(EmployeeRequest.example.toDomain(id))
     validOrFail(CustomerRequest.example.toDomain(id))
     validOrFail(TaskRequest.example.toDomain(id))
+    validOrFail(ManufacturingRequest.example.toDomain(id))
 
   they should "render valid ISO date-time examples in the generated OpenAPI document" in:
     val endpoints =
       PlanningEndpoints.all ++
         CustomerHttpApi.endpoints ++
         TaskHttpApi.endpoints ++
+        ManufacturingHttpApi.endpoints ++
         OrderHttpApi.endpoints ++
         EmployeeHttpApi.endpoints
     val yaml = OpenAPIDocsInterpreter().toOpenAPI(endpoints, "RST Manager API", "0.1.0").toYaml

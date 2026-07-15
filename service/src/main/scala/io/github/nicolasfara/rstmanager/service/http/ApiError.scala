@@ -27,8 +27,8 @@ object ApiError:
   def notFound(what: String, id: String): ApiFailure =
     StatusCode.NotFound -> ApiError("not-found", s"$what $id was not found.", Nil)
 
-  def conflict(code: String, message: String): ApiFailure =
-    StatusCode.Conflict -> ApiError(code, message, Nil)
+  def conflict(code: String, message: String, details: List[String] = Nil): ApiFailure =
+    StatusCode.Conflict -> ApiError(code, message, details)
 
   def internal(error: Throwable): ApiFailure =
     StatusCode.InternalServerError -> ApiError("internal-error", "Unexpected service error.", List(error.toString))

@@ -8,6 +8,7 @@ import scala.scalajs.js
 import scala.util.Try
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
@@ -20,6 +21,8 @@ import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 object OrdersPage:
 
   private val priorityOptions = List("normal" -> "Normale", "urgent" -> "Urgente")
+
+  private val manufacturingModeOptions = List("catalog" -> "Da catalogo", "custom" -> "Personalizzata")
 
   /** Manufacturing lifecycle statuses selectable when editing: backend value -> label. */
   private val mfgStatusOptions =
@@ -83,6 +86,8 @@ object OrdersPage:
   private final case class TaskDraft(key: Int, taskId: Var[String], hours: Var[String])
   private final case class MfgDraft(
       key: Int,
+      mode: Var[String],
+      catalogId: Var[String],
       code: Var[String],
       completionDate: Var[String],
       description: Var[String],
@@ -123,7 +128,9 @@ object OrdersPage:
     val ordersData = loadable(AppBus.ticks)(() => ApiClient.listOrders())
     val customersData = loadable(AppBus.ticks)(() => ApiClient.listCustomers())
     val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
+    val manufacturingCatalogData = loadable(AppBus.ticks)(() => ApiClient.listManufacturingCatalog())
     val employeesData = loadable(AppBus.ticks)(() => ApiClient.listEmployees())
+    val manufacturingCatalogs = Var(List.empty[ManufacturingCatalogResponse])
 
     val customersMap: Signal[Map[UUID, String]] = customersData.map {
       case Some(Right(list)) => list.map(c => c.id -> s"${c.name} ${c.surname}").toMap
@@ -141,6 +148,10 @@ object OrdersPage:
       case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
       case _ => List("" -> "—")
     }
+    val manufacturingCatalogOptions: Signal[List[(String, String)]] = manufacturingCatalogData.map {
+      case Some(Right(list)) => ("" -> "— lavorazione —") :: list.map(m => m.id.toString -> s"${m.code} · ${m.name} (${m.totalRequiredHours}h)")
+      case _ => List("" -> "—")
+    }
     val employeeOptions: Signal[List[(String, String)]] = employeesData.map {
       case Some(Right(list)) => ("" -> "— auto (pianificazione sceglie) —") :: list.map(e => e.id.toString -> s"${e.name} ${e.surname}")
       case _ => List("" -> "—")
@@ -156,51 +167,84 @@ object OrdersPage:
     val orderDescription = Var("")
 
     def newTask(): TaskDraft = TaskDraft(nextKey(), Var(""), Var("8"))
-    def newMfg(): MfgDraft = MfgDraft(nextKey(), Var(""), Var(""), Var(""), Var(List(newTask())), Var(""))
+    def newMfg(): MfgDraft = MfgDraft(nextKey(), Var("custom"), Var(""), Var(""), Var(""), Var(""), Var(List(newTask())), Var(""))
     val mfgs = Var(List(newMfg()))
 
     def resetCreate(): Unit =
       number.set(""); customerId.set(""); creationDate.set(""); deliveryDate.set(""); promisedDate.set(""); priority.set("normal")
       orderDescription.set(""); mfgs.set(List(newMfg())); pageError.set(None)
 
+    def catalogById(rawId: String): Option[ManufacturingCatalogResponse] =
+      parseUuid(rawId).flatMap(id => manufacturingCatalogs.now().find(_.id == id))
+
+    def fromCatalog(template: ManufacturingCatalogResponse, completionDate: String, employeeId: String): ManufacturingDto =
+      ManufacturingDto(
+        template.code,
+        toIso(completionDate),
+        "not_started",
+        template.tasks.map(task => ScheduledTaskDto(randomUuid(), task.id, "pending", task.requiredHours, Some(0), None)),
+        template.dependencies.map(dependency => TaskDependencyDto(dependency.taskId, dependency.dependsOn)),
+        None,
+        None,
+        None,
+        None,
+        template.description,
+        parseUuid(employeeId),
+      )
+
+    def fromCustom(m: MfgDraft): ManufacturingDto =
+      val tasks = m.tasks.now().flatMap { t =>
+        parseUuid(t.taskId.now()).map { taskId =>
+          ScheduledTaskDto(randomUuid(), taskId, "pending", t.hours.now().toIntOption.getOrElse(0), Some(0), None)
+        }
+      }
+      ManufacturingDto(
+        m.code.now().trim.nn,
+        toIso(m.completionDate.now()),
+        "not_started",
+        tasks,
+        Nil,
+        None,
+        None,
+        None,
+        None,
+        normalizeStr(m.description.now()),
+        parseUuid(m.employeeId.now()),
+      )
+
+    def manufacturingFromDraft(m: MfgDraft): Either[ApiError, ManufacturingDto] =
+      if m.mode.now() == "catalog" then
+        catalogById(m.catalogId.now()).toRight(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil)).map { template =>
+          fromCatalog(template, m.completionDate.now(), m.employeeId.now())
+        }
+      else Right(fromCustom(m))
+
+    def collectManufacturings(): Either[ApiError, List[ManufacturingDto]] =
+      mfgs.now().foldLeft(Right(List.empty): Either[ApiError, List[ManufacturingDto]]) { (acc, draft) =>
+        acc.flatMap(list => manufacturingFromDraft(draft).map(list :+ _))
+      }
+
     def submitCreate(): Unit =
       parseUuid(customerId.now()) match
         case None => pageError.set(Some(ApiError("invalid-form", "Seleziona un cliente valido.", Nil)))
         case Some(cId) =>
-          val manufacturings = mfgs.now().map { m =>
-            val tasks = m.tasks.now().flatMap { t =>
-              parseUuid(t.taskId.now()).map { taskId =>
-                ScheduledTaskDto(randomUuid(), taskId, "pending", t.hours.now().toIntOption.getOrElse(0), Some(0), None)
-              }
-            }
-            ManufacturingDto(
-              m.code.now().trim.nn,
-              toIso(m.completionDate.now()),
-              "not_started",
-              tasks,
-              Nil,
-              None,
-              None,
-              None,
-              None,
-              normalizeStr(m.description.now()),
-              parseUuid(m.employeeId.now()),
-            )
-          }
-          val request = OrderRequest(
-            number.now().trim.nn,
-            cId,
-            toIso(creationDate.now()),
-            toIso(deliveryDate.now()),
-            toIso(promisedDate.now()),
-            priority.now(),
-            manufacturings,
-            normalizeStr(orderDescription.now()),
-          )
-          ApiClient.createOrder(request).foreach {
-            case Right(_) => resetCreate(); showCreate.set(false); AppBus.mutated()
+          collectManufacturings() match
             case Left(err) => pageError.set(Some(err))
-          }
+            case Right(manufacturings) =>
+              val request = OrderRequest(
+                number.now().trim.nn,
+                cId,
+                toIso(creationDate.now()),
+                toIso(deliveryDate.now()),
+                toIso(promisedDate.now()),
+                priority.now(),
+                manufacturings,
+                normalizeStr(orderDescription.now()),
+              )
+              ApiClient.createOrder(request).foreach {
+                case Right(_) => resetCreate(); showCreate.set(false); AppBus.mutated()
+                case Left(err) => pageError.set(Some(err))
+              }
 
     // ---- Edit modal state ------------------------------------------------------------------------
     val editing = Var(Option.empty[OrderResponse])
@@ -213,6 +257,8 @@ object OrdersPage:
 
     // Inline "add manufacturing" form
     val showAddMfg = Var(false)
+    val addMfgMode = Var("custom")
+    val addMfgCatalogId = Var("")
     val addMfgCode = Var("")
     val addMfgDate = Var("")
     val addMfgDescription = Var("")
@@ -220,7 +266,8 @@ object OrdersPage:
     val addMfgHours = Var("8")
     val addMfgEmployee = Var("")
     def resetAddMfg(): Unit =
-      addMfgCode.set(""); addMfgDate.set(""); addMfgDescription.set(""); addMfgTaskId.set(""); addMfgHours.set("8"); addMfgEmployee.set("")
+      addMfgMode.set("custom"); addMfgCatalogId.set(""); addMfgCode.set(""); addMfgDate.set(""); addMfgDescription.set(""); addMfgTaskId.set("")
+      addMfgHours.set("8"); addMfgEmployee.set("")
 
     // Inline "add task" form (targets the manufacturing whose id is held here)
     val addTaskMfgId = Var(Option.empty[UUID])
@@ -319,24 +366,29 @@ object OrdersPage:
     }
 
     def submitAddMfg(): Unit = editing.now().foreach { order =>
-      parseUuid(addMfgTaskId.now()) match
-        case None => editError.set(Some(ApiError("invalid-form", "Seleziona un task valido per la nuova lavorazione.", Nil)))
-        case Some(taskId) =>
-          val task = ScheduledTaskDto(randomUuid(), taskId, "pending", addMfgHours.now().toIntOption.getOrElse(0), Some(0), None)
-          val dto = ManufacturingDto(
-            addMfgCode.now().trim.nn,
-            toIso(addMfgDate.now()),
-            "not_started",
-            List(task),
-            Nil,
-            None,
-            None,
-            None,
-            None,
-            normalizeStr(addMfgDescription.now()),
-            parseUuid(addMfgEmployee.now()),
-          )
-          applyStructural(ApiClient.addManufacturing(order.id, dto))
+      if addMfgMode.now() == "catalog" then
+        catalogById(addMfgCatalogId.now()) match
+          case None => editError.set(Some(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil)))
+          case Some(template) => applyStructural(ApiClient.addManufacturing(order.id, fromCatalog(template, addMfgDate.now(), addMfgEmployee.now())))
+      else
+        parseUuid(addMfgTaskId.now()) match
+          case None => editError.set(Some(ApiError("invalid-form", "Seleziona un task valido per la nuova lavorazione.", Nil)))
+          case Some(taskId) =>
+            val task = ScheduledTaskDto(randomUuid(), taskId, "pending", addMfgHours.now().toIntOption.getOrElse(0), Some(0), None)
+            val dto = ManufacturingDto(
+              addMfgCode.now().trim.nn,
+              toIso(addMfgDate.now()),
+              "not_started",
+              List(task),
+              Nil,
+              None,
+              None,
+              None,
+              None,
+              normalizeStr(addMfgDescription.now()),
+              parseUuid(addMfgEmployee.now()),
+            )
+            applyStructural(ApiClient.addManufacturing(order.id, dto))
     }
 
     def submitAddTask(mfgId: UUID): Unit = editing.now().foreach { order =>
@@ -422,19 +474,48 @@ object OrdersPage:
         button(tpe := "button", cls := s"$btnDanger mb-0.5", "✕", onClick --> (_ => m.tasks.update(_.filterNot(_.key == t.key)))),
       )
 
+    def catalogPreview(catalogId: Var[String]): HtmlElement =
+      div(
+        child <-- catalogId.signal.combineWith(manufacturingCatalogs.signal).map { case (rawId, catalogs) =>
+          val selected = parseUuid(rawId).flatMap(id => catalogs.find(_.id == id))
+          selected match
+            case None => emptyNode
+            case Some(template) =>
+              div(
+                cls := "rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600",
+                div(cls := "font-medium text-slate-700", s"${template.code} · ${template.name}"),
+                div(cls := "mt-1", template.tasks.map(task => s"${task.name} (${task.requiredHours}h)").mkString(", ")),
+                div(cls := "mt-1 text-slate-400", s"${template.totalRequiredHours}h totali · ${template.dependencies.map(_.dependsOn.size).sum} dipendenze"),
+              )
+        },
+      )
+
     def renderMfg(m: MfgDraft): HtmlElement =
       div(
         cls := "rounded-lg border border-slate-200 p-3",
         div(
           cls := "flex items-end gap-2",
-          div(cls := "flex-1", field("Codice lavorazione", textInput(m.code, "MFG-2026-001"))),
+          div(cls := "w-44", field("Tipo", staticSelect(m.mode, manufacturingModeOptions))),
           div(cls := "w-40", field("Completamento", textInput(m.completionDate, "", "date"))),
           button(tpe := "button", cls := s"$btnDanger mb-0.5", "Rimuovi", onClick --> (_ => mfgs.update(_.filterNot(_.key == m.key)))),
         ),
-        div(cls := "mt-2", field("Descrizione lavorazione", textInput(m.description, "Opzionale"))),
         div(cls := "mt-2", field("Dipendente preferito", selectInput(m.employeeId, employeeOptions))),
-        div(cls := "mt-2 space-y-2", children <-- m.tasks.signal.split(_.key)((_, initial, _) => renderTask(m, initial))),
-        button(tpe := "button", cls := s"$btnSmall mt-2", "+ Task", onClick --> (_ => m.tasks.update(_ :+ newTask()))),
+        child <-- m.mode.signal.map {
+          case "catalog" =>
+            div(
+              cls := "mt-2 space-y-2",
+              field("Lavorazione catalogo", selectInput(m.catalogId, manufacturingCatalogOptions)),
+              catalogPreview(m.catalogId),
+            )
+          case _ =>
+            div(
+              cls := "mt-2 space-y-2",
+              field("Codice lavorazione", textInput(m.code, "MFG-2026-001")),
+              field("Descrizione lavorazione", textInput(m.description, "Opzionale")),
+              div(cls := "space-y-2", children <-- m.tasks.signal.split(_.key)((_, initial, _) => renderTask(m, initial))),
+              button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => m.tasks.update(_ :+ newTask()))),
+            )
+        },
       )
 
     val createForm =
@@ -573,16 +654,29 @@ object OrdersPage:
                 cls := "space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3",
                 div(
                   cls := "grid grid-cols-2 gap-2",
-                  field("Codice lavorazione", textInput(addMfgCode, "MFG-2026-002")),
+                  field("Tipo", staticSelect(addMfgMode, manufacturingModeOptions)),
                   field("Completamento", textInput(addMfgDate, "", "date")),
                 ),
-                field("Descrizione", textInput(addMfgDescription, "Opzionale")),
                 field("Dipendente preferito", selectInput(addMfgEmployee, employeeOptions)),
-                div(
-                  cls := "grid grid-cols-[1fr_5rem] gap-2",
-                  field("Primo task", selectInput(addMfgTaskId, taskOptions)),
-                  field("Ore", textInput(addMfgHours, "", "number")),
-                ),
+                child <-- addMfgMode.signal.map {
+                  case "catalog" =>
+                    div(
+                      cls := "space-y-2",
+                      field("Lavorazione catalogo", selectInput(addMfgCatalogId, manufacturingCatalogOptions)),
+                      catalogPreview(addMfgCatalogId),
+                    )
+                  case _ =>
+                    div(
+                      cls := "space-y-2",
+                      field("Codice lavorazione", textInput(addMfgCode, "MFG-2026-002")),
+                      field("Descrizione", textInput(addMfgDescription, "Opzionale")),
+                      div(
+                        cls := "grid grid-cols-[1fr_5rem] gap-2",
+                        field("Primo task", selectInput(addMfgTaskId, taskOptions)),
+                        field("Ore", textInput(addMfgHours, "", "number")),
+                      ),
+                    )
+                },
                 div(
                   cls := "flex justify-end gap-2",
                   button(
@@ -772,6 +866,10 @@ object OrdersPage:
 
     // ---- Page layout -----------------------------------------------------------------------------
     div(
+      manufacturingCatalogData --> {
+        case Some(Right(list)) => manufacturingCatalogs.set(list)
+        case _ => ()
+      },
       div(
         cls := "mb-4 flex items-center justify-between",
         sectionTitle("Ordini"),

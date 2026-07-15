@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.planning.service
 import io.github.nicolasfara.rstmanager.customer.service.CustomerApp
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.ApiServer
-import io.github.nicolasfara.rstmanager.work.service.{ OrderApp, TaskApp }
+import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, OrderApp, TaskApp }
 
 import cats.effect.{ IO, Resource }
 import com.comcast.ip4s.{ Host, Port }
@@ -64,11 +64,12 @@ object PlanningHttpServer:
       employees <- EmployeeApp.build(pool)
       customers <- CustomerApp.build(pool)
       tasks <- TaskApp.build(pool)
+      manufacturings <- ManufacturingApp.build(pool)
       orders <- OrderApp.build(pool)
       planningGateway = PlanningEntityGateway.fromStores(orders, employees)
       planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
       _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator)
-      routes = ApiServer.routes(planningBackend, employees, customers, tasks, orders)
+      routes = ApiServer.routes(planningBackend, employees, customers, tasks, manufacturings, orders)
       httpApp = CORS.policy.withAllowOriginAll(routes).orNotFound
       loggedHttpApp = HttpLogger.httpApp[IO](
         logHeaders = false,

@@ -1,6 +1,7 @@
 package io.github.nicolasfara.rstmanager.service.codecs
 
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingDependencies, ManufacturingService }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ManufacturingStatus,
   ScheduledManufacturing,
@@ -16,7 +17,7 @@ import io.circe.{ Codec, Decoder, Encoder }
 import io.circe.generic.semiauto.deriveCodec
 import io.github.iltotore.iron.circe.given
 
-/** Circe codecs for the task catalog and order/manufacturing graph, used to persist [[TaskEvent]] and [[OrderEvent]]. */
+/** Circe codecs for the task/manufacturing catalogs and order graph, used to persist their event streams. */
 object WorkCodecs:
   import CommonCodecs.given
 
@@ -40,4 +41,8 @@ object WorkCodecs:
   given Codec[Task] = deriveCodec
   given Codec[TaskEvent] = deriveCodec
   given taskNotificationCodec: Codec[TaskService.Notification] = deriveCodec
+
+  given Codec[Manufacturing] = deriveCodec
+  given Codec[ManufacturingEvent] = deriveCodec
+  given manufacturingNotificationCodec: Codec[ManufacturingService.Notification] = deriveCodec
 end WorkCodecs

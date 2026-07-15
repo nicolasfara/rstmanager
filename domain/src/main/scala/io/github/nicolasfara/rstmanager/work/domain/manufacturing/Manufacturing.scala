@@ -1,6 +1,8 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskHours }
+import java.util.UUID
+
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
 
 import cats.data.*
 import cats.syntax.all.*
@@ -8,6 +10,9 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.any.DescribedAs
+
+/** Unique identifier for a catalog manufacturing. */
+type ManufacturingId = UUID
 
 /** Refined constraint for a non-empty manufacturing code. */
 type ManufacturingCode = DescribedAs[Not[Empty], "The code manufacturing should be not empty"]
@@ -19,44 +24,62 @@ type ManufacturingName = DescribedAs[Not[Empty], "The manufacturing name should 
 type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing description should be not empty"]
 
 /**
- * Manufacturing template composed of tasks and dependency constraints.
+ * Manufacturing catalog template composed of live references to catalog tasks.
  *
+ * @param id
+ *   Stable manufacturing identifier.
  * @param code
  *   Unique manufacturing code.
  * @param name
  *   Human-readable manufacturing name.
  * @param description
  *   Optional textual description.
- * @param tasks
- *   Non-empty list of tasks required by the manufacturing.
+ * @param taskIds
+ *   Ordered, non-empty list of catalog task ids required by the manufacturing.
  * @param dependencies
  *   Dependency graph between tasks.
  */
 final case class Manufacturing(
+    id: ManufacturingId,
     code: String :| ManufacturingCode,
     name: String :| ManufacturingName,
     description: Option[String :| ManufacturingDescription],
-    tasks: NonEmptyList[Task],
+    taskIds: NonEmptyList[TaskId],
     dependencies: ManufacturingDependencies,
-):
-  /** Sums the estimated hours for all tasks in the manufacturing. */
-  def totalHours: TaskHours = tasks.foldLeft(TaskHours(0): TaskHours) { (acc, task) =>
-    acc + task.requiredHours
-  }
+)
 
 object Manufacturing:
-  /** Creates a `Manufacturing` aggregate from raw values and validated dependencies. */
+  /** Creates a catalog manufacturing from raw values and validated task dependency edges. */
   def createManufacturing(
+      id: UUID,
       code: String,
       name: String,
       description: Option[String],
-      tasks: List[Task],
+      taskIds: List[TaskId],
       dependencies: ManufacturingDependencies,
   ): ValidatedNec[String, Manufacturing] =
     (
+      Validated.validNec(id),
       code.refineValidatedNec[ManufacturingCode],
       name.refineValidatedNec[ManufacturingName],
       description.traverse(_.refineValidatedNec[ManufacturingDescription]),
-      NonEmptyList.fromList(tasks).toValidNec("Empty task collection provided. At least one task is required by the manufacturing"),
-      Validated.valid(dependencies),
-    ).mapN(Manufacturing(_, _, _, _, _))
+      validateTaskIds(taskIds),
+      validateDependencies(taskIds, dependencies),
+    ).mapN(Manufacturing(_, _, _, _, _, _))
+
+  private def validateTaskIds(taskIds: List[TaskId]): ValidatedNec[String, NonEmptyList[TaskId]] =
+    val duplicateIds = taskIds.groupBy(identity).collect { case (id, ids) if ids.size > 1 => id }.toList
+    (
+      NonEmptyList.fromList(taskIds).toValidNec("Empty task collection provided. At least one task is required by the manufacturing"),
+      if duplicateIds.isEmpty then ().validNec else s"Duplicate task ids are not allowed: ${duplicateIds.mkString(", ")}".invalidNec,
+    ).mapN((ids, _) => ids)
+
+  private def validateDependencies(taskIds: List[TaskId], dependencies: ManufacturingDependencies): ValidatedNec[String, ManufacturingDependencies] =
+    val allowed = taskIds.toSet
+    val outside = dependencies.toEdgePairs.flatMap((task, dependsOn) => List(task, dependsOn)).filterNot(allowed.contains).distinct
+    (
+      if outside.isEmpty then ().validNec
+      else s"Dependencies reference task ids that are not part of this manufacturing: ${outside.mkString(", ")}".invalidNec,
+      if dependencies.hasCycle then "Manufacturing dependencies cannot contain cycles.".invalidNec else ().validNec,
+    ).mapN((_, _) => dependencies)
+end Manufacturing

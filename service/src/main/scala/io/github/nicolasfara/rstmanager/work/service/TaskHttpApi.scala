@@ -68,12 +68,12 @@ object TaskHttpApi:
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
-  def routes(store: TaskApp.Store): List[ServerEndpoint[Any, IO]] = List(
+  def routes(store: TaskApp.Store, manufacturings: ManufacturingApp.Store): List[ServerEndpoint[Any, IO]] = List(
     create.serverLogic(createLogic(store)),
     list.serverLogic(_ => listLogic(store)),
     read.serverLogic(readLogic(store)),
     update.serverLogic(updateLogic(store)),
-    delete.serverLogic(deleteLogic(store)),
+    delete.serverLogic(deleteLogic(store, manufacturings)),
   )
 
   private def createLogic(store: TaskApp.Store)(request: TaskRequest): IO[Either[ApiFailure, TaskResponse]] =
@@ -109,11 +109,17 @@ object TaskHttpApi:
           case Right(Right(())) => TaskResponse.fromDomain(task).asRight
         }
 
-  private def deleteLogic(store: TaskApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
-    TaskApp.delete(store, id).attempt.map {
-      case Left(error) => ApiError.internal(error).asLeft
-      case Right(Left(TaskError.TaskNotFound)) => ApiError.notFound("Task", id.toString).asLeft
-      case Right(Left(error)) => conflict(error).asLeft
-      case Right(Right(())) => ().asRight
+  private def deleteLogic(store: TaskApp.Store, manufacturings: ManufacturingApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
+    ManufacturingApp.findByTaskId(manufacturings, id).flatMap {
+      case usedBy if usedBy.nonEmpty =>
+        val details = usedBy.map(manufacturing => s"${manufacturing.code} - ${manufacturing.name}")
+        IO.pure(ApiError.conflict("task-in-use", "Il task è usato da una o più lavorazioni a catalogo.", details).asLeft)
+      case _ =>
+        TaskApp.delete(store, id).attempt.map {
+          case Left(error) => ApiError.internal(error).asLeft
+          case Right(Left(TaskError.TaskNotFound)) => ApiError.notFound("Task", id.toString).asLeft
+          case Right(Left(error)) => conflict(error).asLeft
+          case Right(Right(())) => ().asRight
+        }
     }
 end TaskHttpApi

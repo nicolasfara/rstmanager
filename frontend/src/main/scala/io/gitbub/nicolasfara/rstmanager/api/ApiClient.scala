@@ -92,6 +92,16 @@ object ApiClient:
     sendJson(dom.HttpMethod.PUT, s"/tasks/$id", jsonBody(request))
   def deleteTask(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/tasks/$id", None)
 
+  // ---- Manufacturings (catalog) ------------------------------------------------------------------
+
+  def listManufacturingCatalog(): Future[Result[List[ManufacturingCatalogResponse]]] = sendJson(dom.HttpMethod.GET, "/manufacturings", None)
+  def readManufacturingCatalog(id: UUID): Future[Result[ManufacturingCatalogResponse]] = sendJson(dom.HttpMethod.GET, s"/manufacturings/$id", None)
+  def createManufacturingCatalog(request: ManufacturingCatalogRequest): Future[Result[ManufacturingCatalogResponse]] =
+    sendJson(dom.HttpMethod.POST, "/manufacturings", jsonBody(request))
+  def updateManufacturingCatalog(id: UUID, request: ManufacturingCatalogRequest): Future[Result[ManufacturingCatalogResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/manufacturings/$id", jsonBody(request))
+  def deleteManufacturingCatalog(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/manufacturings/$id", None)
+
   // ---- Orders ------------------------------------------------------------------------------------
 
   def listOrders(): Future[Result[List[OrderResponse]]] = sendJson(dom.HttpMethod.GET, "/orders", None)

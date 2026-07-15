@@ -82,6 +82,29 @@ object Dtos:
   final case class TaskRequest(name: String, description: Option[String], requiredHours: Int)
   final case class TaskResponse(id: UUID, name: String, description: Option[String], requiredHours: Int)
 
+  // ---- Manufacturings (catalog) ------------------------------------------------------------------
+
+  final case class ManufacturingCatalogDependencyDto(taskId: UUID, dependsOn: List[UUID])
+
+  final case class ManufacturingCatalogRequest(
+      code: String,
+      name: String,
+      description: Option[String],
+      taskIds: List[UUID],
+      dependencies: List[ManufacturingCatalogDependencyDto],
+  )
+
+  final case class ManufacturingCatalogResponse(
+      id: UUID,
+      code: String,
+      name: String,
+      description: Option[String],
+      taskIds: List[UUID],
+      tasks: List[TaskResponse],
+      dependencies: List[ManufacturingCatalogDependencyDto],
+      totalRequiredHours: Int,
+  )
+
   // ---- Orders ------------------------------------------------------------------------------------
 
   final case class TaskDependencyDto(taskId: UUID, dependsOn: List[UUID])
@@ -259,6 +282,9 @@ object Dtos:
 
   given Codec[TaskRequest] = deriveCodec
   given Codec[TaskResponse] = deriveCodec
+  given Codec[ManufacturingCatalogDependencyDto] = deriveCodec
+  given Codec[ManufacturingCatalogRequest] = deriveCodec
+  given Codec[ManufacturingCatalogResponse] = deriveCodec
 
   given Codec[TaskDependencyDto] = deriveCodec
   given Codec[ScheduledTaskDto] = deriveCodec

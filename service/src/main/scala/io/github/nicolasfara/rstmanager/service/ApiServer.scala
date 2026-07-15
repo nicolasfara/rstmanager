@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.service
 import io.github.nicolasfara.rstmanager.customer.service.{ CustomerApp, CustomerHttpApi }
 import io.github.nicolasfara.rstmanager.hr.service.{ EmployeeApp, EmployeeHttpApi }
 import io.github.nicolasfara.rstmanager.planning.service.{ PlanningApp, PlanningEntityGateway, PlanningRoutes }
-import io.github.nicolasfara.rstmanager.work.service.{ OrderApp, OrderHttpApi, TaskApp, TaskHttpApi }
+import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, ManufacturingHttpApi, OrderApp, OrderHttpApi, TaskApp, TaskHttpApi }
 
 import cats.effect.IO
 import org.http4s.HttpRoutes
@@ -18,13 +18,15 @@ object ApiServer:
       employees: EmployeeApp.Store,
       customers: CustomerApp.Store,
       tasks: TaskApp.Store,
+      manufacturings: ManufacturingApp.Store,
       orders: OrderApp.Store,
   ): HttpRoutes[IO] =
     val planningGateway = PlanningEntityGateway.fromStores(orders, employees)
     val apiEndpoints: List[ServerEndpoint[Any, IO]] =
       EmployeeHttpApi.routes(employees) ++
         CustomerHttpApi.routes(customers) ++
-        TaskHttpApi.routes(tasks) ++
+        TaskHttpApi.routes(tasks, manufacturings) ++
+        ManufacturingHttpApi.routes(manufacturings, tasks) ++
         OrderHttpApi.routes(orders, customers, tasks, employees) ++
         PlanningRoutes.serverEndpoints(planningBackend, planningGateway)
 

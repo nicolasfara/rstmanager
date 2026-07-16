@@ -124,11 +124,14 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     )
 
   private def request(start: DateTime, orderIds: List[OrderId]): PlanningRequest =
+    requestAt(start, monday, orderIds)
+
+  private def requestAt(start: DateTime, requestedOn: DateTime, orderIds: List[OrderId]): PlanningRequest =
     PlanningRequest(
       UUID.fromString("00000000-0000-0000-0000-000000000005").nn,
       start,
       PlanningTrigger.DailyPlanning,
-      monday,
+      requestedOn,
       orderIds,
     )
 
@@ -158,6 +161,31 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
     outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedHours.value, slice.remainingHoursAfterSlice.value)) shouldEqual
       List((monday, 8, 12), (tuesday, 8, 4), (wednesday, 4, 0))
+
+  it should "cap today's capacity to the hours remaining when planning is requested late in the day" in:
+    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val requestedAt5pm = requestAt(monday, monday.withTime(17, 0, 0, 0).nn, List(orderId))
+    val outcome = scheduleOrFail(requestedAt5pm, List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedHours.value, slice.remainingHoursAfterSlice.value)) shouldEqual
+      List((monday, 1, 5), (tuesday, 5, 0))
+
+  it should "not count the lunch break as time remaining when planning is requested during it" in:
+    val task = pendingTask(UUID.randomUUID().nn, 4)
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val requestedDuringLunch = requestAt(monday, monday.withTime(13, 30, 0, 0).nn, List(orderId))
+    val outcome = scheduleOrFail(requestedDuringLunch, List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedHours.value)) shouldEqual List((monday, 4))
+
+  it should "move to the next production day when planning is requested after the workday ends" in:
+    val task = pendingTask(UUID.randomUUID().nn, 4)
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val requestedAt7pm = requestAt(monday, monday.withTime(19, 0, 0, 0).nn, List(orderId))
+    val outcome = scheduleOrFail(requestedAt7pm, List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(_.day) shouldEqual List(tuesday)
 
   it should "split a task over multiple employees on the same day" in:
     val task = pendingTask(UUID.randomUUID().nn, 12)

@@ -36,6 +36,9 @@ final case class SchedulingOutcome(
  *   - each employee contributes, for every production day, the daily hours derived from the weekly budget and calendar overrides
  *     ([[io.github.nicolasfara.rstmanager.hr.domain.BudgetHours.getWorkingHoursForDay]]), skipping employees whose contract is not active on that
  *     day;
+ *   - when a production day is the same calendar day as `PlanningRequest.requestedOn`, capacity for that day is additionally capped to the working
+ *     hours still remaining in the 09:00-18:00 workday (with its 13:00-14:00 lunch break), so a plan requested late in the day does not assume a
+ *     full day is still available;
  *   - orders are visited in [[PlanningPriorityPolicy]] sequence, so urgent and earlier-due orders consume capacity first;
  *   - each order is planned atomically: if any of its remaining work cannot be placed, no capacity is consumed for that order and it is returned as
  *     an [[UnplannedOrder]];
@@ -67,7 +70,7 @@ object SchedulingService:
   ): Either[NonEmptyList[PlanningError], SchedulingOutcome] =
     val startOn = startOfDay(request.startOn)
     val openOrders = PlanningPriorityPolicy.sortOpenOrders(orders).filter(order => request.openOrderIds.contains(order.data.id))
-    val initialState = PlannerState.empty(startOn)
+    val initialState = PlannerState.empty(startOn, request.requestedOn)
 
     val (planned, unplanned) = openOrders.foldLeft((initialState, Vector.empty[UnplannedOrder])) { case ((state, unplannedOrders), order) =>
       planOrder(state, order, employees) match
@@ -91,11 +94,18 @@ object SchedulingService:
   def productionDays(startOn: DateTime): LazyList[DateTime] =
     LazyList.iterate(startOfDay(startOn))(_.plusDays(1).nn).filter(isWorkingDay)
 
-  /** Returns the daily capacity of every employee active on the given day, excluding zero-hour days. */
-  def dailyCapacity(day: DateTime, employees: List[Employee]): Map[EmployeeId, DailyHours] =
+  /**
+   * Returns the daily capacity of every employee active on the given day, excluding zero-hour days.
+   *
+   * When `day` is the same calendar day as `now`, each employee's hours are capped to the working time still remaining in the standard
+   * 09:00-18:00 workday (with its 13:00-14:00 lunch break), so capacity reflects what is actually left of the day rather than the full budgeted
+   * amount.
+   */
+  def dailyCapacity(day: DateTime, employees: List[Employee], now: DateTime): Map[EmployeeId, DailyHours] =
+    val cap = remainingWorkingHoursToday(day, now)
     employees.view
       .filter(_.isActiveAt(day))
-      .map(employee => employee.id -> employee.budgetHours.getWorkingHoursForDay(day))
+      .map(employee => employee.id -> capHours(employee.budgetHours.getWorkingHoursForDay(day), cap))
       .filter { case (_, hours) => hours.value > 0 }
       .toMap
 
@@ -104,6 +114,32 @@ object SchedulingService:
   private def startOfDay(day: DateTime): DateTime = day.withTimeAtStartOfDay().nn
 
   private def nextDay(day: DateTime): DateTime = startOfDay(day.plusDays(1).nn)
+
+  private val workdayStartMinute = 9 * 60
+  private val lunchBreakStartMinute = 13 * 60
+  private val lunchBreakEndMinute = 14 * 60
+  private val workdayEndMinute = 18 * 60
+  private val workdayMinutes = (lunchBreakStartMinute - workdayStartMinute) + (workdayEndMinute - lunchBreakEndMinute)
+
+  /**
+   * Returns the working hours left in the standard workday, or `None` when `day` is not `now`'s calendar day and therefore needs no cap.
+   *
+   * Time already spent during the 13:00-14:00 lunch break does not count against the remaining hours: at 13:30 as much as at 14:00, four working
+   * hours are still left.
+   */
+  private def remainingWorkingHoursToday(day: DateTime, now: DateTime): Option[Int] =
+    if !startOfDay(day).isEqual(startOfDay(now)) then None
+    else
+      val elapsedMinutes = now.getMinuteOfDay match
+        case m if m <= workdayStartMinute => 0
+        case m if m <= lunchBreakStartMinute => m - workdayStartMinute
+        case m if m <= lunchBreakEndMinute => lunchBreakStartMinute - workdayStartMinute
+        case m if m <= workdayEndMinute => (lunchBreakStartMinute - workdayStartMinute) + (m - lunchBreakEndMinute)
+        case _ => workdayMinutes
+      Some((workdayMinutes - elapsedMinutes) / 60)
+
+  private def capHours(hours: DailyHours, cap: Option[Int]): DailyHours =
+    cap.fold(hours)(remaining => DailyHours.applyUnsafe(math.max(0, math.min(hours.value, remaining))))
 
   private def maxDate(first: DateTime, second: DateTime): DateTime =
     if first.isAfter(second) then first else second
@@ -122,11 +158,12 @@ object SchedulingService:
       remaining: Vector[Map[EmployeeId, Int]],
       slices: Vector[ScheduledTaskSlice],
       nextSearchFrom: DateTime,
+      now: DateTime,
   )
 
   private object PlannerState:
-    def empty(startOn: DateTime): PlannerState =
-      PlannerState(Vector.empty, Vector.empty, Vector.empty, Vector.empty, startOn)
+    def empty(startOn: DateTime, now: DateTime): PlannerState =
+      PlannerState(Vector.empty, Vector.empty, Vector.empty, Vector.empty, startOn, now)
 
   private def planOrder(
       state: PlannerState,
@@ -362,7 +399,7 @@ object SchedulingService:
   private def ensureDay(state: PlannerState, idx: Int, employees: List[Employee]): Option[PlannerState] =
     if idx < state.days.length then Some(state)
     else
-      nextCapacityDay(state.nextSearchFrom, employees) match
+      nextCapacityDay(state.nextSearchFrom, employees, state.now) match
         case None => None
         case Some((day, capacity)) =>
           val remaining = capacity.map { case (employeeId, hours) => employeeId -> hours.value }
@@ -378,14 +415,14 @@ object SchedulingService:
           )
 
   @tailrec
-  private def nextCapacityDay(from: DateTime, employees: List[Employee]): Option[(DateTime, Map[EmployeeId, DailyHours])] =
+  private def nextCapacityDay(from: DateTime, employees: List[Employee], now: DateTime): Option[(DateTime, Map[EmployeeId, DailyHours])] =
     val candidate = employees.flatMap(nextCapacityDayForEmployee(from, _)).sortBy(_.getMillis).headOption
     candidate match
       case None => None
       case Some(day) =>
-        val capacity = dailyCapacity(day, employees)
+        val capacity = dailyCapacity(day, employees, now)
         if capacity.nonEmpty then Some(day -> capacity)
-        else nextCapacityDay(nextDay(day), employees)
+        else nextCapacityDay(nextDay(day), employees, now)
 
   private def nextCapacityDayForEmployee(from: DateTime, employee: Employee): Option[DateTime] =
     val firstCandidate = maxDate(startOfDay(from), startOfDay(contractStart(employee)))

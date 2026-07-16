@@ -14,9 +14,9 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /**
- * Orders: filterable list with lifecycle transitions, a nested create form, and a full edit modal covering order data (priority, promised date,
- * description), per-manufacturing description/status and add/remove of manufacturings and tasks. Completing or delivering an order asks for an
- * explicit acknowledgement first.
+ * Orders: filterable list with lifecycle transitions, a nested create form, and a full edit modal covering order data (priority, work deadline,
+ * description), per-manufacturing description/deadline/status and add/remove of manufacturings and tasks. Completing or delivering an order asks for
+ * an explicit acknowledgement first.
  */
 object OrdersPage:
 
@@ -43,6 +43,33 @@ object OrdersPage:
 
   /** Extracts the `yyyy-MM-dd` day part of an ISO-8601 instant for a date input's initial value. */
   private def dayOf(iso: String): String = iso.take(10)
+
+  private def pad2(value: Int): String = if value < 10 then s"0$value" else value.toString
+
+  private def formatDay(date: js.Date): String =
+    s"${date.getFullYear().toInt}-${pad2(date.getMonth().toInt + 1)}-${pad2(date.getDate().toInt)}"
+
+  private def parseDay(day: String): Option[js.Date] =
+    day.split("-").nn.toList.map(_.nn) match
+      case yearRaw :: monthRaw :: dayRaw :: Nil =>
+        for
+          year <- yearRaw.toIntOption
+          month <- monthRaw.toIntOption
+          dayOfMonth <- dayRaw.toIntOption
+        yield new js.Date(year, month - 1, dayOfMonth)
+      case _ => None
+
+  private def daysBefore(day: String, days: Int): String =
+    parseDay(day)
+      .map { date =>
+        val shifted = new js.Date(date.getTime())
+        shifted.setDate(date.getDate() - days.toDouble)
+        formatDay(shifted)
+      }
+      .getOrElse("")
+
+  private def todayDay(): String =
+    formatDay(new js.Date())
 
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
@@ -105,12 +132,14 @@ object OrdersPage:
       completed: Var[String],
   )
 
-  /** One editable manufacturing row inside the edit modal; tracks original description/status to detect changes. */
+  /** One editable manufacturing row inside the edit modal; tracks original values to detect changes. */
   private final case class MfgEditRow(
       id: UUID,
       originalDescription: String,
+      originalCompletionDate: String,
       originalStatus: String,
       description: Var[String],
+      completionDate: Var[String],
       status: Var[String],
   )
 
@@ -130,6 +159,7 @@ object OrdersPage:
     val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
     val manufacturingCatalogData = loadable(AppBus.ticks)(() => ApiClient.listManufacturingCatalog())
     val employeesData = loadable(AppBus.ticks)(() => ApiClient.listEmployees())
+    val ordersSnapshot = Var(List.empty[OrderResponse])
     val manufacturingCatalogs = Var(List.empty[ManufacturingCatalogResponse])
 
     val customersMap: Signal[Map[UUID, String]] = customersData.map {
@@ -158,11 +188,13 @@ object OrdersPage:
     }
 
     // ---- Create form state -----------------------------------------------------------------------
-    val number = Var("")
+    val number = Var(GeneratedCodes.next("ORD", Nil))
+    val numberManuallyEdited = Var(false)
     val customerId = Var("")
-    val creationDate = Var("")
+    val creationDate = Var(todayDay())
     val deliveryDate = Var("")
-    val promisedDate = Var("")
+    val workDeadline = Var("")
+    val workDeadlineManuallyEdited = Var(false)
     val priority = Var("normal")
     val orderDescription = Var("")
 
@@ -171,7 +203,10 @@ object OrdersPage:
     val mfgs = Var(List(newMfg()))
 
     def resetCreate(): Unit =
-      number.set(""); customerId.set(""); creationDate.set(""); deliveryDate.set(""); promisedDate.set(""); priority.set("normal")
+      numberManuallyEdited.set(false)
+      workDeadlineManuallyEdited.set(false)
+      number.set(GeneratedCodes.next("ORD", ordersSnapshot.now().map(_.number)))
+      customerId.set(""); creationDate.set(todayDay()); deliveryDate.set(""); workDeadline.set(""); priority.set("normal")
       orderDescription.set(""); mfgs.set(List(newMfg())); pageError.set(None)
 
     def catalogById(rawId: String): Option[ManufacturingCatalogResponse] =
@@ -228,23 +263,28 @@ object OrdersPage:
       parseUuid(customerId.now()) match
         case None => pageError.set(Some(ApiError("invalid-form", "Seleziona un cliente valido.", Nil)))
         case Some(cId) =>
-          collectManufacturings() match
-            case Left(err) => pageError.set(Some(err))
-            case Right(manufacturings) =>
-              val request = OrderRequest(
-                number.now().trim.nn,
-                cId,
-                toIso(creationDate.now()),
-                toIso(deliveryDate.now()),
-                toIso(promisedDate.now()),
-                priority.now(),
-                manufacturings,
-                normalizeStr(orderDescription.now()),
-              )
-              ApiClient.createOrder(request).foreach {
-                case Right(_) => resetCreate(); showCreate.set(false); AppBus.mutated()
-                case Left(err) => pageError.set(Some(err))
-              }
+          if deliveryDate.now().isEmpty then pageError.set(Some(ApiError("invalid-form", "Inserisci la consegna cliente.", Nil)))
+          else if workDeadline.now().isEmpty then pageError.set(Some(ApiError("invalid-form", "Inserisci la deadline di fine lavorazione.", Nil)))
+          else
+            collectManufacturings() match
+              case Left(err) => pageError.set(Some(err))
+              case Right(manufacturings) =>
+                val customerDeliveryDate = toIso(deliveryDate.now())
+                val workDeadlineDate = toIso(workDeadline.now())
+                val request = OrderRequest(
+                  number.now().trim.nn,
+                  cId,
+                  toIso(creationDate.now()),
+                  customerDeliveryDate,
+                  workDeadlineDate,
+                  priority.now(),
+                  manufacturings,
+                  normalizeStr(orderDescription.now()),
+                )
+                ApiClient.createOrder(request).foreach {
+                  case Right(_) => resetCreate(); showCreate.set(false); AppBus.mutated()
+                  case Left(err) => pageError.set(Some(err))
+                }
 
     // ---- Edit modal state ------------------------------------------------------------------------
     val editing = Var(Option.empty[OrderResponse])
@@ -288,7 +328,8 @@ object OrdersPage:
       })
       editMfgs.set(order.manufacturings.map { m =>
         val desc = m.description.getOrElse("")
-        MfgEditRow(m.id, desc, m.status, Var(desc), Var(m.status))
+        val completionDate = dayOf(m.completionDate)
+        MfgEditRow(m.id, desc, completionDate, m.status, Var(desc), Var(completionDate), Var(m.status))
       })
       editError.set(None)
       showAddMfg.set(false)
@@ -332,12 +373,15 @@ object OrdersPage:
 
       val mfgUpdates: List[() => Future[ApiClient.Result[Unit]]] = editMfgs.now().flatMap { row =>
         val newMfgDescription = row.description.now()
+        val newCompletionDay = row.completionDate.now()
         val newStatus = row.status.now()
         val descChanged = newMfgDescription.trim.nn != row.originalDescription
+        val completionDateChanged = newCompletionDay.nonEmpty && newCompletionDay != row.originalCompletionDate
         val statusChanged = newStatus != row.originalStatus
-        if descChanged || statusChanged then
+        if descChanged || completionDateChanged || statusChanged then
           val request = ManufacturingUpdateRequest(
             if descChanged then Some(newMfgDescription) else None,
+            if completionDateChanged then Some(toIso(newCompletionDay)) else None,
             if statusChanged then Some(newStatus) else None,
             None,
           )
@@ -468,10 +512,15 @@ object OrdersPage:
     // ---- Create form rendering -------------------------------------------------------------------
     def renderTask(m: MfgDraft, t: TaskDraft): HtmlElement =
       div(
-        cls := "flex items-end gap-2",
+        cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_auto] sm:items-end",
         div(cls := "flex-1", field("Task", selectInput(t.taskId, taskOptions))),
-        div(cls := "w-20", field("Ore", textInput(t.hours, "", "number"))),
-        button(tpe := "button", cls := s"$btnDanger mb-0.5", "✕", onClick --> (_ => m.tasks.update(_.filterNot(_.key == t.key)))),
+        field("Ore", textInput(t.hours, "", "number")),
+        button(
+          tpe := "button",
+          cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
+          "✕",
+          onClick --> (_ => m.tasks.update(_.filterNot(_.key == t.key))),
+        ),
       )
 
     def catalogPreview(catalogId: Var[String]): HtmlElement =
@@ -494,10 +543,15 @@ object OrdersPage:
       div(
         cls := "rounded-lg border border-slate-200 p-3",
         div(
-          cls := "flex items-end gap-2",
-          div(cls := "w-44", field("Tipo", staticSelect(m.mode, manufacturingModeOptions))),
-          div(cls := "w-40", field("Completamento", textInput(m.completionDate, "", "date"))),
-          button(tpe := "button", cls := s"$btnDanger mb-0.5", "Rimuovi", onClick --> (_ => mfgs.update(_.filterNot(_.key == m.key)))),
+          cls := "grid grid-cols-1 gap-2 sm:grid-cols-[11rem_10rem_auto] sm:items-end",
+          field("Tipo", staticSelect(m.mode, manufacturingModeOptions)),
+          field("Completamento", textInput(m.completionDate, "", "date")),
+          button(
+            tpe := "button",
+            cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
+            "Rimuovi",
+            onClick --> (_ => mfgs.update(_.filterNot(_.key == m.key))),
+          ),
         ),
         div(cls := "mt-2", field("Dipendente preferito", selectInput(m.employeeId, employeeOptions))),
         child <-- m.mode.signal.map {
@@ -522,12 +576,22 @@ object OrdersPage:
       div(
         cls := "space-y-4",
         div(
-          cls := "grid grid-cols-2 gap-3",
-          field("Numero ordine", textInput(number, "ORD-2026-001")),
+          cls := "grid grid-cols-1 gap-3 sm:grid-cols-2",
+          field("Numero ordine", textInput(number, "ORD-2026-001").amend(onInput.mapToValue --> (_ => numberManuallyEdited.set(true)))),
           field("Cliente", selectInput(customerId, customerOptions)),
           field("Creazione", textInput(creationDate, "", "date")),
-          field("Consegna prevista", textInput(deliveryDate, "", "date")),
-          field("Consegna promessa", textInput(promisedDate, "", "date")),
+          field(
+            "Consegna cliente",
+            textInput(deliveryDate, "", "date").amend(
+              onInput.mapToValue --> { value =>
+                if !workDeadlineManuallyEdited.now() then workDeadline.set(daysBefore(value, 5))
+              },
+            ),
+          ),
+          field(
+            "Deadline fine lavorazione",
+            textInput(workDeadline, "", "date").amend(onInput.mapToValue --> (_ => workDeadlineManuallyEdited.set(true))),
+          ),
           field("Priorità", staticSelect(priority, priorityOptions)),
         ),
         field("Descrizione ordine", textInput(orderDescription, "Opzionale")),
@@ -539,9 +603,9 @@ object OrdersPage:
         ),
         child.maybe <-- pageError.signal.map(_.map(errorBanner)),
         div(
-          cls := "flex justify-end gap-2 border-t border-slate-100 pt-3",
-          button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => showCreate.set(false))),
-          button(tpe := "button", cls := btnPrimary, "Crea ordine", onClick --> (_ => submitCreate())),
+          cls := "flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end",
+          button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => showCreate.set(false))),
+          button(tpe := "button", cls := s"$btnPrimary justify-center", "Crea ordine", onClick --> (_ => submitCreate())),
         ),
       )
 
@@ -556,17 +620,17 @@ object OrdersPage:
         rowsByTask.get(t.id) match
           case Some(row) if editable =>
             div(
-              cls := "flex items-end gap-2 border-t border-slate-100 pt-2 first:border-0 first:pt-0",
+              cls := "grid grid-cols-1 gap-2 border-t border-slate-100 pt-2 first:border-0 first:pt-0 sm:grid-cols-[minmax(0,1fr)_5rem_5rem_auto] sm:items-end",
               div(
                 cls := "flex-1",
                 div(cls := "text-sm text-slate-700", nameNode),
                 div(cls := "text-xs text-slate-400", statusLabel(t.status)),
               ),
-              div(cls := "w-20", field("Previste", textInput(row.expected, "", "number"))),
-              div(cls := "w-20", field("Fatte", textInput(row.completed, "", "number"))),
+              field("Previste", textInput(row.expected, "", "number")),
+              field("Fatte", textInput(row.completed, "", "number")),
               button(
                 tpe := "button",
-                cls := s"$btnDanger mb-0.5",
+                cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
                 disabled := m.tasks.size <= 1,
                 "✕",
                 onClick --> (_ => if m.tasks.size > 1 then applyStructural(ApiClient.removeManufacturingTask(order.id, m.id, t.id))),
@@ -574,7 +638,7 @@ object OrdersPage:
             )
           case _ =>
             div(
-              cls := "flex items-center justify-between border-t border-slate-100 pt-2 text-sm first:border-0 first:pt-0",
+              cls := "flex flex-col gap-1 border-t border-slate-100 pt-2 text-sm first:border-0 first:pt-0 sm:flex-row sm:items-center sm:justify-between",
               div(cls := "text-slate-700", nameNode),
               div(
                 cls := "text-xs text-slate-500",
@@ -590,11 +654,11 @@ object OrdersPage:
           child <-- addTaskMfgId.signal.map { target =>
             if target.contains(m.id) then
               div(
-                cls := "flex items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2",
+                cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_5rem_auto_auto] sm:items-end",
                 div(cls := "flex-1", field("Task", selectInput(addTaskId, taskOptions))),
-                div(cls := "w-20", field("Ore", textInput(addTaskHours, "", "number"))),
-                button(tpe := "button", cls := s"$btnSmall mb-0.5", "Aggiungi", onClick --> (_ => submitAddTask(m.id))),
-                button(tpe := "button", cls := s"$btnGhost mb-0.5", "Annulla", onClick --> (_ => resetAddTask())),
+                field("Ore", textInput(addTaskHours, "", "number")),
+                button(tpe := "button", cls := s"$btnSmall w-full justify-center sm:mb-0.5 sm:w-auto", "Aggiungi", onClick --> (_ => submitAddTask(m.id))),
+                button(tpe := "button", cls := s"$btnGhost w-full justify-center sm:mb-0.5 sm:w-auto", "Annulla", onClick --> (_ => resetAddTask())),
               )
             else
               button(
@@ -612,7 +676,7 @@ object OrdersPage:
         div(
           cls := "rounded-lg border border-slate-200 p-3",
           div(
-            cls := "mb-2 flex items-center justify-between gap-2",
+            cls := "mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2",
             div(cls := "font-medium text-slate-800", m.code),
             div(
               cls := "flex items-center gap-2",
@@ -624,8 +688,9 @@ object OrdersPage:
             mfgById.get(m.id) match
               case Some(row) =>
                 div(
-                  cls := "mb-2 grid grid-cols-2 gap-2",
+                  cls := "mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3",
                   field("Descrizione", textInput(row.description, "Opzionale")),
+                  field("Deadline lavorazione", textInput(row.completionDate, "", "date")),
                   field("Stato", staticSelect(row.status, mfgStatusOptions)),
                 )
               case None => emptyNode
@@ -637,7 +702,7 @@ object OrdersPage:
               cls := "mt-2 flex justify-end",
               button(
                 tpe := "button",
-                cls := btnDanger,
+                cls := s"$btnDanger w-full justify-center sm:w-auto",
                 "Rimuovi lavorazione",
                 onClick --> (_ => applyStructural(ApiClient.removeManufacturing(order.id, m.id))),
               ),
@@ -653,7 +718,7 @@ object OrdersPage:
               div(
                 cls := "space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3",
                 div(
-                  cls := "grid grid-cols-2 gap-2",
+                  cls := "grid grid-cols-1 gap-2 sm:grid-cols-2",
                   field("Tipo", staticSelect(addMfgMode, manufacturingModeOptions)),
                   field("Completamento", textInput(addMfgDate, "", "date")),
                 ),
@@ -671,23 +736,23 @@ object OrdersPage:
                       field("Codice lavorazione", textInput(addMfgCode, "MFG-2026-002")),
                       field("Descrizione", textInput(addMfgDescription, "Opzionale")),
                       div(
-                        cls := "grid grid-cols-[1fr_5rem] gap-2",
+                        cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem]",
                         field("Primo task", selectInput(addMfgTaskId, taskOptions)),
                         field("Ore", textInput(addMfgHours, "", "number")),
                       ),
                     )
                 },
                 div(
-                  cls := "flex justify-end gap-2",
+                  cls := "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
                   button(
                     tpe := "button",
-                    cls := btnGhost,
+                    cls := s"$btnGhost justify-center",
                     "Annulla",
                     onClick --> (_ =>
                       showAddMfg.set(false); resetAddMfg()
                     ),
                   ),
-                  button(tpe := "button", cls := btnSmall, "Aggiungi lavorazione", onClick --> (_ => submitAddMfg())),
+                  button(tpe := "button", cls := s"$btnSmall justify-center", "Aggiungi lavorazione", onClick --> (_ => submitAddMfg())),
                 ),
               )
             else
@@ -705,19 +770,19 @@ object OrdersPage:
       div(
         cls := "space-y-4",
         div(
-          cls := "grid grid-cols-2 gap-3",
+          cls := "grid grid-cols-1 gap-3 sm:grid-cols-2",
           readField("Numero", order.number),
           readField("Stato", statusBadge(order.status)),
           readField("Cliente", child.text <-- customersMap.map(_.getOrElse(order.customerId, Formats.shortId(order.customerId)))),
-          readField("Consegna prevista", Formats.date(order.deliveryDate)),
+          readField("Consegna cliente", Formats.date(order.deliveryDate)),
         ),
         if editable then
           div(
             cls := "space-y-3",
             div(
-              cls := "grid grid-cols-2 gap-3",
+              cls := "grid grid-cols-1 gap-3 sm:grid-cols-2",
               field("Priorità", staticSelect(editPriority, priorityOptions)),
-              field("Consegna promessa", textInput(editPromised, "", "date")),
+              field("Deadline fine lavorazione", textInput(editPromised, "", "date")),
             ),
             field("Descrizione ordine", textInput(editDescription, "Opzionale")),
           )
@@ -739,19 +804,19 @@ object OrdersPage:
         ),
         child.maybe <-- editError.signal.map(_.map(errorBanner)),
         div(
-          cls := "flex justify-end gap-2 border-t border-slate-100 pt-3",
-          button(tpe := "button", cls := btnGhost, "Chiudi", onClick --> (_ => editing.set(None))),
-          if editable then button(tpe := "button", cls := btnPrimary, "Salva modifiche", onClick --> (_ => saveEdit())) else emptyNode,
+          cls := "flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end",
+          button(tpe := "button", cls := s"$btnGhost justify-center", "Chiudi", onClick --> (_ => editing.set(None))),
+          if editable then button(tpe := "button", cls := s"$btnPrimary justify-center", "Salva modifiche", onClick --> (_ => saveEdit())) else emptyNode,
         ),
       )
     end editContent
 
     val editModal =
       div(
-        cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-4",
+        cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-2 sm:p-4",
         cls <-- editing.signal.map(o => if o.isDefined then "flex" else "hidden"),
         div(
-          cls := "mt-8 w-full max-w-2xl",
+          cls := "mt-2 w-full max-w-2xl sm:mt-8",
           card(
             div(
               cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
@@ -771,10 +836,10 @@ object OrdersPage:
     // ---- Confirmation (ACK) modal ----------------------------------------------------------------
     val confirmModal =
       div(
-        cls := "fixed inset-0 z-50 items-start justify-center overflow-y-auto bg-slate-900/50 p-4",
+        cls := "fixed inset-0 z-50 items-start justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4",
         cls <-- confirm.signal.map(c => if c.isDefined then "flex" else "hidden"),
         div(
-          cls := "mt-24 w-full max-w-md",
+          cls := "mt-12 w-full max-w-md sm:mt-24",
           card(
             div(
               cls := "border-b border-slate-100 px-4 py-3",
@@ -784,11 +849,11 @@ object OrdersPage:
               cls := "space-y-4 p-4",
               p(cls := "text-sm text-slate-600", child.text <-- confirm.signal.map(_.map(_.message).getOrElse(""))),
               div(
-                cls := "flex justify-end gap-2",
-                button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => confirm.set(None))),
+                cls := "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+                button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => confirm.set(None))),
                 button(
                   tpe := "button",
-                  cls := btnPrimary,
+                  cls := s"$btnPrimary justify-center",
                   "Conferma",
                   onClick --> (_ => confirm.now().foreach { c => runConfirmed(c); confirm.set(None) }),
                 ),
@@ -799,6 +864,45 @@ object OrdersPage:
       )
 
     // ---- Row / table rendering -------------------------------------------------------------------
+    def orderActionButtons(order: OrderResponse): List[HtmlElement] =
+      val detailsButton = button(
+        tpe := "button",
+        cls := btnSmall,
+        if isEditable(order.status) then "Modifica" else "Dettagli",
+        onClick --> (_ => openEdit(order)),
+      )
+      val cancelButton =
+        if order.status == "cancelled" then Nil
+        else List(button(tpe := "button", cls := btnDanger, "Annulla ordine", onClick --> (_ => requestTransition(order, "cancel"))))
+      detailsButton :: transitionButtons(order) ++ cancelButton
+
+    def renderOrderCard(order: OrderResponse): HtmlElement =
+      val taskCount = order.manufacturings.map(_.tasks.size).sum
+      div(
+        cls := "space-y-3 p-4",
+        div(
+          cls := "flex items-start justify-between gap-3",
+          div(
+            cls := "min-w-0",
+            div(cls := "break-words font-medium text-slate-800", order.number),
+            div(cls := "mt-1 text-sm text-slate-600", child.text <-- customersMap.map(_.getOrElse(order.customerId, Formats.shortId(order.customerId)))),
+            order.description.map(d => div(cls := "mt-1 break-words text-xs text-slate-400", d)).getOrElse(emptyNode),
+          ),
+          div(cls := "shrink-0", statusBadge(order.status)),
+        ),
+        div(
+          cls := "grid grid-cols-2 gap-3 text-sm",
+          readField("Priorità", priorityBadge(order.priority)),
+          readField("Consegna", Formats.date(order.deliveryDate)),
+          readField("Lavorazioni", s"${order.manufacturings.size} lav."),
+          readField("Task", s"$taskCount task"),
+        ),
+        div(
+          cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3",
+          orderActionButtons(order),
+        ),
+      )
+
     def renderRow(order: OrderResponse): HtmlElement =
       val taskCount = order.manufacturings.map(_.tasks.size).sum
       tr(
@@ -817,10 +921,7 @@ object OrdersPage:
           cls := "px-4 py-2",
           div(
             cls := "flex flex-wrap justify-end gap-2",
-            button(tpe := "button", cls := btnSmall, if isEditable(order.status) then "Modifica" else "Dettagli", onClick --> (_ => openEdit(order))),
-            transitionButtons(order),
-            if order.status == "cancelled" then emptyNode
-            else button(tpe := "button", cls := btnDanger, "Annulla ordine", onClick --> (_ => requestTransition(order, "cancel"))),
+            orderActionButtons(order),
           ),
         ),
       )
@@ -845,21 +946,27 @@ object OrdersPage:
           val visible = orders.filter(o => filter.isEmpty || o.status == filter)
           if visible.isEmpty then emptyState("Nessun ordine con questo stato.")
           else
-            table(
-              cls := "w-full text-sm",
-              thead(
-                cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                tr(
-                  th(cls := "px-4 py-2", "Ordine"),
-                  th(cls := "px-4 py-2", "Cliente"),
-                  th(cls := "px-4 py-2", "Stato"),
-                  th(cls := "px-4 py-2", "Priorità"),
-                  th(cls := "px-4 py-2", "Consegna"),
-                  th(cls := "px-4 py-2", "Lavorazioni"),
-                  th(cls := "px-4 py-2"),
+            div(
+              div(cls := "divide-y divide-slate-100 md:hidden", visible.map(renderOrderCard)),
+              div(
+                cls := "hidden overflow-x-auto md:block",
+                table(
+                  cls := "w-full text-sm",
+                  thead(
+                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                    tr(
+                      th(cls := "px-4 py-2", "Ordine"),
+                      th(cls := "px-4 py-2", "Cliente"),
+                      th(cls := "px-4 py-2", "Stato"),
+                      th(cls := "px-4 py-2", "Priorità"),
+                      th(cls := "px-4 py-2", "Consegna"),
+                      th(cls := "px-4 py-2", "Lavorazioni"),
+                      th(cls := "px-4 py-2"),
+                    ),
+                  ),
+                  tbody(visible.map(renderRow)),
                 ),
-              ),
-              tbody(visible.map(renderRow)),
+              )
             )
         },
       )
@@ -868,6 +975,12 @@ object OrdersPage:
     div(
       manufacturingCatalogData --> {
         case Some(Right(list)) => manufacturingCatalogs.set(list)
+        case _ => ()
+      },
+      ordersData --> {
+        case Some(Right(list)) =>
+          ordersSnapshot.set(list)
+          if showCreate.now() && !numberManuallyEdited.now() then number.set(GeneratedCodes.next("ORD", list.map(_.number)))
         case _ => ()
       },
       div(
@@ -885,7 +998,7 @@ object OrdersPage:
       child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mb-4", errorBanner(e)))),
       filterBar,
       card(
-        cls := "overflow-x-auto",
+        cls := "overflow-hidden",
         renderResult(ordersData) { orders =>
           if orders.isEmpty then emptyState("Nessun ordine. Crea il primo ordine.")
           else ordersTable(orders)

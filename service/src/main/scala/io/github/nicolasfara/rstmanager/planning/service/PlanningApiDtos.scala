@@ -313,7 +313,7 @@ object PlanningApiDtos:
         case PlanningError.InvalidOrderDelay(orderId, expectedDeliveryDate, promisedDeliveryDate) =>
           PlanningDomainErrorDto(
             "invalid_order_delay",
-            s"Order $orderId promised date ${formatDate(promisedDeliveryDate)} is not after expected date ${formatDate(expectedDeliveryDate)}.",
+            s"Order $orderId planned completion ${formatDate(promisedDeliveryDate)} is not after work deadline ${formatDate(expectedDeliveryDate)}.",
           )
         case PlanningError.InvalidManufacturingDelay(orderId, manufacturingId, expectedCompletionDate, computedCompletionDate) =>
           PlanningDomainErrorDto(

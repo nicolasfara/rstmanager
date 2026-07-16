@@ -29,7 +29,7 @@ Scheduling decisions must account for:
 - task dependencies and valid execution order
 - estimated task effort and actual progress
 - employee capacity, including weekly capacity and temporary overrides
-- expected or promised delivery dates
+- customer delivery dates and work-completion deadlines
 - order priority
 
 The scheduler optimizes only open orders. Suspended orders remain in the system but their
@@ -56,24 +56,24 @@ different manufacturings may overlap when dependencies and capacity allow it.
 When the system must choose between competing orders, it should use this tie-break policy:
 
 - higher order priority first, with `Urgent` before `Normal`
-- earlier expected or promised delivery date first
+- earlier work-completion deadline first
 - earlier order creation date first
 - stable order identifier or order number last, only to make the result deterministic
 
 This policy fits the current model because
 [[io.github.nicolasfara.rstmanager.work.domain.order.OrderData]] already carries priority,
-creation date, delivery date, and stable order identity.
+creation date, delivery date, work deadline, and stable order identity.
 
 When all open orders cannot be completed on time with the available capacity, the planning context
 must treat the schedule as infeasible. In that case, it must apply the priority policy to decide
 which orders remain planned and which orders are delayed. The same rule applies when a new order
 or mid-period change makes an existing schedule infeasible.
 
-An order is delayed when the computed delivery date is later than the expected delivery date. A
-delayed order requires updating the expected or promised delivery date to the first admissible date
-produced by the new schedule. A scheduled manufacturing is delayed when its computed completion
-date is later than its expected completion date; in other words, the manufacturing does not fit the
-schedule under the current constraints.
+An order is delayed when the computed completion date is later than the work-completion deadline.
+A delayed order records the deadline and the first admissible completion date produced by the new
+schedule. A scheduled manufacturing is delayed when its computed completion date is later than its
+expected completion date; in other words, the manufacturing does not fit the schedule under the
+current constraints.
 
 Planning failures and infeasible decisions must be explicit. The system must report the affected
 orders, manufacturings, tasks, dates, and capacity constraints to the user, and it must leave the
@@ -157,7 +157,7 @@ Planning behavior is event-sourced. The planning event model includes:
 - `PlanningRequested`: a domain change triggered a new scheduling attempt.
 - `ScheduleComputed`: a feasible schedule was computed for the open orders.
 - `ScheduleRejected`: no feasible schedule could be produced under the current constraints.
-- `OrderDelayedByPlanning`: an order received a new promised delivery date.
+- `OrderDelayedByPlanning`: an order received a new planned completion date.
 - `ManufacturingDelayedByPlanning`: a manufacturing cannot complete by its expected date.
 - `TaskSliceAssigned`: task hours were assigned to an employee for a production day.
 - `PlanningWarningRaised`: a non-fatal planning issue was detected and should be shown to users.
@@ -173,7 +173,7 @@ The remaining gaps are implementation concerns for the future scheduler:
 - the scheduling algorithm that allocates open orders into task slices
 - total daily capacity aggregation across all slices assigned to the same employee
 - persistence and integration of planning events with the application layer
-- propagation from planning delays to order promised-delivery updates
+- propagation from planning delays to order work-deadline updates
 
 ## Core ideas
 

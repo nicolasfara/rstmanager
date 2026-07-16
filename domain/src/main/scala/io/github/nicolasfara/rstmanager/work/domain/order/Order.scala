@@ -79,7 +79,7 @@ enum Order derives CanEqual:
     }
       .validate(_.mustBeCancelled)
 
-  /** Changes the promised delivery date for an active or suspended order. */
+  /** Changes the work-completion deadline for an active or suspended order. */
   def updatePromisedDeliveryDate(newPromisedDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] =
     this.decide {
       case _: InProgressOrder | _: SuspendedOrder =>
@@ -125,6 +125,15 @@ enum Order derives CanEqual:
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingDescriptionChanged(manufacturingId, newDescription, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Changes the work deadline of a manufacturing inside an active or suspended order. */
+  def changeManufacturingCompletionDate(
+      manufacturingId: ScheduledManufacturingId,
+      newCompletionDate: DateTime,
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Manually moves a manufacturing inside an active or suspended order to a new lifecycle status. */
@@ -278,6 +287,8 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingPreferredEmployee(_, manufacturingId, employeeId).toValidatedNec)
     case ManufacturingDescriptionChanged(manufacturingId, newDescription, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingDescription(_, manufacturingId, newDescription).toValidatedNec)
+    case ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, _) =>
+      _.mustBeInProgressOrSuspended.andThen(changeManufacturingCompletionDate(_, manufacturingId, newCompletionDate).toValidatedNec)
     case ManufacturingStatusChanged(manufacturingId, newStatus, reason, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingStatus(_, manufacturingId, newStatus, reason).toValidatedNec)
     case ManufacturingTaskAdded(manufacturingId, task, dependsOn, _) =>

@@ -62,6 +62,9 @@ object PlanningPage:
   /** A completed scheduled task flattened with its order/manufacturing context, for the completed-tasks section. */
   private final case class CompletedRow(order: OrderResponse, manufacturing: ManufacturingResponse, task: ScheduledTaskDto)
 
+  /** Human context for diagnostics that only carry ids. */
+  private final case class ManufacturingContext(order: OrderResponse, manufacturing: ManufacturingResponse)
+
   /** Completed tasks across all non-cancelled orders, most recently completed first. */
   private def completedRows(orders: List[OrderResponse]): List[CompletedRow] =
     val rows =
@@ -74,6 +77,25 @@ object PlanningPage:
 
   /** Only in-progress and suspended orders accept task edits (see the domain `Order` aggregate). */
   private def isOrderEditable(status: String): Boolean = status == "in_progress" || status == "suspended"
+
+  private def statusLabel(status: String): String = status match
+    case "pending" => "In attesa"
+    case "in_progress" => "In corso"
+    case "suspended" => "Sospeso"
+    case "completed" => "Completato"
+    case "delivered" => "Consegnato"
+    case "cancelled" => "Annullato"
+    case "not_started" => "Non iniziata"
+    case "paused" => "In pausa"
+    case other => other
+
+  private def delayAmount(fromIso: String, toIso: String): String =
+    Formats.daysUntil(fromIso, toIso) match
+      case Some(1) => "Slitta di 1 giorno"
+      case Some(days) if days > 1 => s"Slitta di $days giorni"
+      case Some(0) => "Data invariata"
+      case Some(days) => s"Anticipa di ${math.abs(days)} giorni"
+      case None => "Date da verificare"
 
   def apply(): HtmlElement =
     // ---- Task modal state (shared by progress editing and reactivation) ---------------------------
@@ -114,6 +136,12 @@ object PlanningPage:
       case Some(Right(list)) => list
       case _ => Nil
     }
+    val ordersById: Signal[Map[UUID, OrderResponse]] =
+      ordersList.map(_.map(order => order.id -> order).toMap)
+    val manufacturingContexts: Signal[Map[UUID, ManufacturingContext]] =
+      ordersList.map { orders =>
+        orders.flatMap(order => order.manufacturings.map(manufacturing => manufacturing.id -> ManufacturingContext(order, manufacturing))).toMap
+      }
     // Maps scheduledManufacturingId -> preferredEmployeeId (from the order data).
     val preferredByMfg: Signal[Map[UUID, Option[UUID]]] = ordersList.map { orders =>
       orders.flatMap(_.manufacturings.map(m => m.id -> m.preferredEmployeeId)).toMap
@@ -540,6 +568,89 @@ object PlanningPage:
     end completedSection
 
     // ---- Diagnostics -----------------------------------------------------------------------------
+    def datePair(fromLabel: String, fromIso: String, toLabel: String, toIso: String): HtmlElement =
+      div(
+        cls := "grid grid-cols-1 gap-2 rounded-md bg-white/80 p-2 text-xs sm:grid-cols-2",
+        div(
+          div(cls := "font-medium text-amber-700", fromLabel),
+          div(cls := "mt-0.5 tabular-nums text-slate-700", Formats.date(fromIso)),
+        ),
+        div(
+          div(cls := "font-medium text-amber-700", toLabel),
+          div(cls := "mt-0.5 tabular-nums text-slate-900", Formats.date(toIso)),
+        ),
+      )
+
+    def delayedOrderCard(delay: DelayedOrderDto, orders: Map[UUID, OrderResponse]): HtmlElement =
+      val order = orders.get(delay.orderId)
+      div(
+        cls := "rounded-lg border border-amber-200 bg-amber-50 p-3 shadow-sm",
+        div(
+          cls := "flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between",
+          div(
+            cls := "min-w-0",
+            div(cls := "text-xs font-semibold uppercase tracking-wide text-amber-700", "Ordine in ritardo"),
+            div(cls := "mt-0.5 break-words text-sm font-semibold text-slate-900", order.map(_.number).getOrElse(Formats.shortId(delay.orderId))),
+            order.flatMap(_.description).map(description => div(cls := "mt-1 break-words text-xs text-slate-600", description)).getOrElse(emptyNode),
+          ),
+          div(cls := "shrink-0 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800", delayAmount(delay.expectedDeliveryDate, delay.promisedDeliveryDate)),
+        ),
+        div(
+          cls := "mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3",
+          div(span(cls := "text-slate-500", "Stato"), div(cls := "font-medium text-slate-700", order.map(o => statusLabel(o.status)).getOrElse("Non trovato"))),
+          div(span(cls := "text-slate-500", "Priorità"), div(cls := "font-medium text-slate-700", order.map(_.priority).getOrElse("—"))),
+          div(span(cls := "text-slate-500", "Lavorazioni"), div(cls := "font-medium text-slate-700", order.map(_.manufacturings.size.toString).getOrElse("—"))),
+        ),
+        div(cls := "mt-3", datePair("Deadline fine lavorazione", delay.expectedDeliveryDate, "Fine pianificata", delay.promisedDeliveryDate)),
+      )
+
+    def delayedManufacturingCard(delay: DelayedManufacturingDto, contexts: Map[UUID, ManufacturingContext]): HtmlElement =
+      val context = contexts.get(delay.manufacturingId)
+      val manufacturing = context.map(_.manufacturing)
+      val order = context.map(_.order)
+      val taskCount = manufacturing.map(_.tasks.size)
+      val expectedHours = manufacturing.map(_.tasks.map(_.expectedHours).sum)
+      div(
+        cls := "rounded-lg border border-orange-200 bg-orange-50 p-3 shadow-sm",
+        div(
+          cls := "flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between",
+          div(
+            cls := "min-w-0",
+            div(cls := "text-xs font-semibold uppercase tracking-wide text-orange-700", "Lavorazione in ritardo"),
+            div(cls := "mt-0.5 break-words text-sm font-semibold text-slate-900", manufacturing.map(_.code).getOrElse(Formats.shortId(delay.manufacturingId))),
+            div(cls := "mt-1 text-xs text-slate-600", order.map(o => s"Ordine ${o.number}").getOrElse(s"Ordine ${Formats.shortId(delay.orderId)}")),
+            manufacturing.flatMap(_.description).map(description => div(cls := "mt-1 break-words text-xs text-slate-600", description)).getOrElse(emptyNode),
+          ),
+          div(cls := "shrink-0 rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-800", delayAmount(delay.expectedCompletionDate, delay.computedCompletionDate)),
+        ),
+        div(
+          cls := "mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3",
+          div(span(cls := "text-slate-500", "Stato"), div(cls := "font-medium text-slate-700", manufacturing.map(m => statusLabel(m.status)).getOrElse("Non trovata"))),
+          div(span(cls := "text-slate-500", "Task"), div(cls := "font-medium text-slate-700", taskCount.map(_.toString).getOrElse("—"))),
+          div(span(cls := "text-slate-500", "Ore"), div(cls := "font-medium text-slate-700", expectedHours.map(hours => s"${hours}h").getOrElse("—"))),
+        ),
+        div(cls := "mt-3", datePair("Deadline lavorazione", delay.expectedCompletionDate, "Nuova stima", delay.computedCompletionDate)),
+      )
+
+    def delaysSection(state: PlanningStateDto): HtmlElement =
+      val (delayedOrders, delayedManufacturings, _, _) = diagnostics(state)
+      div(
+        child <-- ordersById.combineWith(manufacturingContexts).map { case (orders, contexts) =>
+          val cards = delayedOrders.map(delayedOrderCard(_, orders)) ++ delayedManufacturings.map(delayedManufacturingCard(_, contexts))
+          if cards.isEmpty then emptyNode
+          else
+            card(
+              cls := "overflow-hidden border-amber-200 bg-amber-50",
+              div(
+                cls := "border-b border-amber-200 bg-amber-100/70 px-4 py-3",
+                div(cls := "text-sm font-semibold text-amber-900", s"Ritardi da verificare (${cards.size})"),
+                div(cls := "text-xs text-amber-800", "Elementi che la pianificazione ha spostato oltre la deadline o la stima corrente."),
+              ),
+              div(cls := "grid grid-cols-1 gap-3 p-3 xl:grid-cols-2", cards),
+            )
+        },
+      )
+
     def panel(title: String, items: List[String], tone: String): com.raquo.laminar.nodes.ChildNode.Base =
       if items.isEmpty then emptyNode
       else
@@ -550,18 +661,10 @@ object PlanningPage:
         )
 
     def diagnosticsSection(state: PlanningStateDto): HtmlElement =
-      val (delayedOrders, delayedManufacturings, unplannedOrders, warnings) = diagnostics(state)
+      val (_, _, unplannedOrders, warnings) = diagnostics(state)
       val unplannedItems = unplannedOrders.flatMap(o => o.blockedTasks.map(t => s"${Formats.shortId(o.orderId)} · ${t.reason.message}"))
-      val delayedOrderItems = delayedOrders.map(d =>
-        s"${Formats.shortId(d.orderId)}: previsto ${Formats.date(d.expectedDeliveryDate)} → promesso ${Formats.date(d.promisedDeliveryDate)}",
-      )
-      val delayedMfgItems = delayedManufacturings.map(d =>
-        s"${Formats.shortId(d.manufacturingId)}: ${Formats.date(d.expectedCompletionDate)} → ${Formats.date(d.computedCompletionDate)}",
-      )
       div(
-        cls := "grid gap-3 md:grid-cols-2 xl:grid-cols-4",
-        panel("Ordini in ritardo", delayedOrderItems, "text-amber-600"),
-        panel("Lavorazioni in ritardo", delayedMfgItems, "text-amber-600"),
+        cls := "grid gap-3 md:grid-cols-2",
         panel("Task non pianificabili", unplannedItems, "text-rose-600"),
         panel("Avvisi", warnings.map(_.message), "text-slate-500"),
       )
@@ -582,6 +685,7 @@ object PlanningPage:
       renderResult(planningData) { state =>
         div(
           cls := "space-y-4",
+          delaysSection(state),
           panel("Errori di dominio", state.errors.map(e => e.message), "text-rose-600"),
           card(
             div(

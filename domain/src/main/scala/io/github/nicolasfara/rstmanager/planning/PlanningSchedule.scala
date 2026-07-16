@@ -98,14 +98,14 @@ object DailySchedule:
       }
 
 /**
- * Order whose promised delivery date moved beyond its expected delivery date.
+ * Order whose planned completion moved beyond its work-completion deadline.
  *
- * The promised delivery date should be the first admissible date computed by the new schedule.
+ * The planned completion field carries the first admissible completion date computed by the new schedule.
  */
 final case class DelayedOrder(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)
 
 object DelayedOrder:
-  /** Creates an order delay when the promised delivery date is after the expected date. */
+  /** Creates an order delay when the planned completion date is after the expected work deadline. */
   def create(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime): ValidatedNec[PlanningError, DelayedOrder] =
     Validated.condNec(
       promisedDeliveryDate.isAfter(expectedDeliveryDate),
@@ -195,7 +195,7 @@ final case class PlanningWarning(message: String)
  * @param schedules
  *   Day-by-day schedules. Empty production days are omitted.
  * @param delayedOrders
- *   Orders whose promised delivery dates moved beyond their expected delivery dates.
+ *   Orders whose planned completion dates moved beyond their work deadlines.
  * @param delayedManufacturings
  *   Manufacturings whose computed completion dates exceed their expected completion dates.
  * @param unplannedOrders

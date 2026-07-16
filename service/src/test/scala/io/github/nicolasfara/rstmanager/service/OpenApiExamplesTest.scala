@@ -12,7 +12,13 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.Sche
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingHttpApi, OrderHttpApi, TaskHttpApi }
 import io.github.nicolasfara.rstmanager.work.service.ManufacturingHttpApi.ManufacturingRequest
-import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ OrderRequest, OrderUpdateRequest, TaskProgressUpdateRequest, TransitionRequest }
+import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{
+  ManufacturingUpdateRequest,
+  OrderRequest,
+  OrderUpdateRequest,
+  TaskProgressUpdateRequest,
+  TransitionRequest,
+}
 import io.github.nicolasfara.rstmanager.work.service.TaskHttpApi.TaskRequest
 
 import cats.data.ValidatedNec
@@ -35,6 +41,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     val (orderData, _) = validOrFail(OrderRequest.example.toDomain(id, () => generatedManufacturingId))
     orderData.setOfManufacturing.head.info.id shouldBe generatedManufacturingId
     validOrFail(OrderUpdateRequest.example.toCommands)
+    validOrFail(ManufacturingUpdateRequest.example.toCommands(generatedManufacturingId))
     validOrFail(TransitionRequest.example.toCommand)
     validOrFail(TaskProgressUpdateRequest.example.toCommands(generatedManufacturingId, id))
     validOrFail(EmployeeRequest.example.toDomain(id))

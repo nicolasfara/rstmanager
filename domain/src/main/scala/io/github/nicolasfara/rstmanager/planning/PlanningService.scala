@@ -14,8 +14,8 @@ import com.github.nscala_time.time.Imports.DateTime
  *
  * One `ComputePlan` command runs a full planning attempt: it starts the attempt on the aggregate, executes [[SchedulingService.computeSchedule]],
  * records every produced fact (task slices, delays, unplanned orders, warnings) as planning events, and finally completes or rejects the attempt.
- * Downstream contexts are informed through notifications, so, for example, the order service can update promised delivery dates when planning delays
- * an order.
+ * Downstream contexts are informed through notifications, so, for example, the order service can update work-completion deadlines when planning
+ * delays an order.
  *
  * The command carries the open orders and the workforce snapshot because planning combines work demand with HR capacity without reaching into other
  * aggregates; the application layer is responsible for loading them before dispatching the command.
@@ -32,7 +32,7 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
     /** The planning attempt hit terminal lifecycle or validation errors. */
     case PlanningRejected(requestId: PlanningRequestId, errors: NonEmptyList[PlanningError])
 
-    /** Planning moved the promised delivery date of an order beyond its expected delivery date. */
+    /** Planning moved the computed completion of an order beyond its work deadline. */
     case OrderDelayed(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)
 
     /** Planning computed a manufacturing completion beyond its expected completion date. */

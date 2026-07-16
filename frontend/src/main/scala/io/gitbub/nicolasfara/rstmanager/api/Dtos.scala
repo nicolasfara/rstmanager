@@ -163,8 +163,13 @@ object Dtos:
   final case class TransitionRequest(action: String, reason: Option[String])
   final case class TaskProgressUpdateRequest(completedHours: Option[Int], expectedHours: Option[Int])
 
-  /** Update a manufacturing's free-text description and/or its lifecycle status (`reason` used when pausing). */
-  final case class ManufacturingUpdateRequest(description: Option[String], status: Option[String], reason: Option[String])
+  /** Update a manufacturing's free-text description, work deadline and/or lifecycle status (`reason` used when pausing). */
+  final case class ManufacturingUpdateRequest(
+      description: Option[String],
+      completionDate: Option[String],
+      status: Option[String],
+      reason: Option[String],
+  )
 
   /** Add a new scheduled task (referencing a catalog task) to a manufacturing. */
   final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID])

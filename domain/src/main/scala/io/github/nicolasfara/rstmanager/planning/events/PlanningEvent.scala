@@ -18,7 +18,7 @@ enum PlanningEvent:
   /** Task hours were assigned to one employee for one production day. */
   case TaskSliceAssigned(slice: ScheduledTaskSlice, assignedOn: DateTime)
 
-  /** An order received a new promised delivery date from planning. */
+  /** An order received a new planned completion date from planning. */
   case OrderDelayedByPlanning(delay: DelayedOrder, delayedOn: DateTime)
 
   /** A manufacturing cannot complete by its expected date. */

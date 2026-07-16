@@ -6,6 +6,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Try
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
@@ -20,7 +21,8 @@ object ManufacturingsPage:
   def apply(): HtmlElement =
     val formError = Var(Option.empty[ApiError])
     val editingId = Var(Option.empty[UUID])
-    val code = Var("")
+    val code = Var(GeneratedCodes.next("MFG", Nil))
+    val codeManuallyEdited = Var(false)
     val name = Var("")
     val description = Var("")
     var keyCounter = 0
@@ -31,6 +33,7 @@ object ManufacturingsPage:
 
     val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
     val manufacturingsData = loadable(AppBus.ticks)(() => ApiClient.listManufacturingCatalog())
+    val manufacturingsSnapshot = Var(List.empty[ManufacturingCatalogResponse])
 
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
       case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
@@ -43,7 +46,8 @@ object ManufacturingsPage:
 
     def resetForm(): Unit =
       editingId.set(None)
-      code.set("")
+      codeManuallyEdited.set(false)
+      code.set(GeneratedCodes.next("MFG", manufacturingsSnapshot.now().map(_.code)))
       name.set("")
       description.set("")
       taskRows.set(List(newTaskRow()))
@@ -52,6 +56,7 @@ object ManufacturingsPage:
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
       val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
       editingId.set(Some(manufacturing.id))
+      codeManuallyEdited.set(false)
       code.set(manufacturing.code)
       name.set(manufacturing.name)
       description.set(manufacturing.description.getOrElse(""))
@@ -77,11 +82,16 @@ object ManufacturingsPage:
 
     def submit(): Unit =
       val request = requestFromForm()
-      val effect = editingId.now() match
+      val editedId = editingId.now()
+      val effect = editedId match
         case Some(id) => ApiClient.updateManufacturingCatalog(id, request)
         case None => ApiClient.createManufacturingCatalog(request)
       effect.foreach {
-        case Right(_) => resetForm(); AppBus.mutated()
+        case Right(saved) =>
+          editedId match
+            case Some(id) => manufacturingsSnapshot.update(_.map(manufacturing => if manufacturing.id == id then saved else manufacturing))
+            case None => manufacturingsSnapshot.update(_ :+ saved)
+          resetForm(); AppBus.mutated()
         case Left(err) => formError.set(Some(err))
       }
 
@@ -154,12 +164,18 @@ object ManufacturingsPage:
 
     div(
       cls := "grid gap-6 lg:grid-cols-[22rem_1fr]",
+      manufacturingsData --> {
+        case Some(Right(list)) =>
+          manufacturingsSnapshot.set(list)
+          if editingId.now().isEmpty && !codeManuallyEdited.now() then code.set(GeneratedCodes.next("MFG", list.map(_.code)))
+        case _ => ()
+      },
       card(
         cls := "self-start p-4",
         sectionTitle("Nuova lavorazione"),
         div(
           cls := "mt-3 space-y-3",
-          field("Codice", textInput(code, "MFG-2026-001")),
+          field("Codice", textInput(code, "MFG-2026-001").amend(onInput.mapToValue --> (_ => codeManuallyEdited.set(true)))),
           field("Nome", textInput(name, "Serramento standard")),
           field("Descrizione", textInput(description, "Opzionale")),
           div(

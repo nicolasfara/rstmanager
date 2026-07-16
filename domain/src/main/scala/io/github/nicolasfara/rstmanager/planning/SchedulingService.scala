@@ -384,8 +384,8 @@ object SchedulingService:
     openOrders.flatMap { order =>
       lastDayByOrder
         .get(order.data.id)
-        .filter(_.isAfter(order.data.deliveryDate))
-        .map(DelayedOrder(order.data.id, order.data.deliveryDate, _))
+        .filter(_.isAfter(order.promisedDeliveryDate))
+        .map(DelayedOrder(order.data.id, order.promisedDeliveryDate, _))
     }
 
   private def manufacturingDelays(openOrders: List[InProgressOrder], slices: Vector[ScheduledTaskSlice]): List[DelayedManufacturing] =

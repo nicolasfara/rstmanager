@@ -62,6 +62,10 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   def withDescription(description: Option[String]): ScheduledManufacturing =
     withInfo(info.copy(description = description))
 
+  /** Changes the work deadline. */
+  def withCompletionDate(completionDate: DateTime): ScheduledManufacturing =
+    withInfo(info.copy(completionDate = completionDate))
+
   /** Sets (or clears) the preferred employee for this manufacturing. */
   def withPreferredEmployee(employeeId: Option[UUID]): ScheduledManufacturing =
     withInfo(info.copy(preferredEmployeeId = employeeId))

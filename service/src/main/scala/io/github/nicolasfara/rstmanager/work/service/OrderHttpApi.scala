@@ -45,7 +45,7 @@ object OrderHttpApi:
     ApiError.base.put
       .in(collection / path[UUID]("id"))
       .tag("Orders")
-      .summary("Update an order priority and/or promised delivery date")
+      .summary("Update an order priority and/or work-completion deadline")
       .in(jsonBody[OrderUpdateRequest].example(OrderUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 
@@ -84,7 +84,7 @@ object OrderHttpApi:
     ApiError.base.put
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId"))
       .tag("Orders")
-      .summary("Update a manufacturing description and/or lifecycle status")
+      .summary("Update a manufacturing description, work deadline and/or lifecycle status")
       .in(jsonBody[ManufacturingUpdateRequest].example(ManufacturingUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 

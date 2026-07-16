@@ -145,6 +145,22 @@ class OrderServiceTest extends AnyFlatSpecLike:
         newState.data.setOfManufacturing.head.info.tasks.head.expectedHours shouldEqual TaskHours(16)
       case other => fail(s"Unexpected result: $other")
 
+  it should "change a manufacturing work deadline" in:
+    val data = orderData()
+    val newCompletionDate = nextDay.plusDays(2).nn
+    val result = run(Command.ChangeManufacturingCompletionDate(manufacturingId, newCompletionDate), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        events.toChain.toList match
+          case List(ManufacturingCompletionDateChanged(eventManufacturingId, eventCompletionDate, _)) =>
+            eventManufacturingId shouldEqual manufacturingId
+            eventCompletionDate shouldEqual newCompletionDate
+          case other => fail(s"Unexpected events: $other")
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+        newState.data.setOfManufacturing.head.info.completionDate shouldEqual newCompletionDate
+      case other => fail(s"Unexpected result: $other")
+
   it should "surface nested aggregate errors" in:
     val unknownManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000106").nn
     val data = orderData()

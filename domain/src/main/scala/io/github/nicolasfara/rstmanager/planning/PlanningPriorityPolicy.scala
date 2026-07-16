@@ -6,11 +6,11 @@ import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 /**
  * Priority policy used to order open orders before planning.
  *
- * Only `InProgressOrder` values are schedulable. The policy gives precedence to urgent orders, then earlier promised delivery dates, then earlier
+ * Only `InProgressOrder` values are schedulable. The policy gives precedence to urgent orders, then earlier work-completion deadlines, then earlier
  * creation dates, and finally stable order ids to keep the result deterministic.
  */
 object PlanningPriorityPolicy:
-  /** Returns only open orders, ordered by priority, promised delivery date, creation date, then stable id. */
+  /** Returns only open orders, ordered by priority, work-completion deadline, creation date, then stable id. */
   def sortOpenOrders(orders: List[Order]): List[InProgressOrder] =
     orders.collect { case order: InProgressOrder => order }.sortBy { order =>
       (

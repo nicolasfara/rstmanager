@@ -251,16 +251,26 @@ object OrderDtos:
     val example: OrderUpdateRequest =
       OrderUpdateRequest(Some("urgent"), Some("2026-06-24T17:00:00.000Z"), Some("Priorità rivista dopo il sopralluogo"))
 
-  /** Recalibration of a manufacturing: its free-text description and/or its lifecycle status (with optional pause reason). */
-  final case class ManufacturingUpdateRequest(description: Option[String], status: Option[String], reason: Option[String]):
+  /** Recalibration of a manufacturing: its description, work deadline and/or lifecycle status. */
+  final case class ManufacturingUpdateRequest(
+      description: Option[String],
+      completionDate: Option[String],
+      status: Option[String],
+      reason: Option[String],
+  ):
     def toCommands(manufacturingId: UUID): ValidatedNec[String, List[OrderService.Command]] =
-      status.traverse(manufacturingStatusToDomain).map { parsedStatus =>
+      (
+        completionDate.traverse(parseDate(_, "completionDate")),
+        status.traverse(manufacturingStatusToDomain),
+      ).mapN { (parsedCompletionDate, parsedStatus) =>
         description.map(d => OrderService.Command.ChangeManufacturingDescription(manufacturingId, normalizeText(d))).toList ++
+          parsedCompletionDate.map(date => OrderService.Command.ChangeManufacturingCompletionDate(manufacturingId, date)).toList ++
           parsedStatus.map(s => OrderService.Command.ChangeManufacturingStatus(manufacturingId, s, reason.flatMap(r => normalizeText(r)))).toList
       }
 
   object ManufacturingUpdateRequest:
-    val example: ManufacturingUpdateRequest = ManufacturingUpdateRequest(Some("Serramenti in alluminio"), Some("in_progress"), None)
+    val example: ManufacturingUpdateRequest =
+      ManufacturingUpdateRequest(Some("Serramenti in alluminio"), Some("2026-06-20T17:00:00.000Z"), Some("in_progress"), None)
 
   /** Adds a new scheduled task (referencing a catalog task) to a manufacturing. */
   final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID]):

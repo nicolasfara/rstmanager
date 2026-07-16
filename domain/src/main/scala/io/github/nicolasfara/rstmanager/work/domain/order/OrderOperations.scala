@@ -99,6 +99,14 @@ object OrderOperations:
   ): Either[OrderError, InProgressOrder] =
     updateManufacturing(order, manufacturingId)(_.withDescription(description).asRight)
 
+  /** Changes the work deadline of one of the order manufacturings. */
+  def changeManufacturingCompletionDate(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      completionDate: DateTime,
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturing(order, manufacturingId)(_.withCompletionDate(completionDate).asRight)
+
   /** Manually moves one of the order manufacturings to a new lifecycle status. */
   def changeManufacturingStatus(
       order: InProgressOrder | SuspendedOrder,

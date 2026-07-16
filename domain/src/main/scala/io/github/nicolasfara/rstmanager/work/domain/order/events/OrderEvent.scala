@@ -34,7 +34,7 @@ enum OrderEvent:
   /** The order has been delivered to the customer. */
   case OrderDelivered(deliveredOn: DateTime)
 
-  /** The promised delivery date has changed. */
+  /** The work-completion deadline has changed. */
   case OrderPromisedDeliveryDateChanged(newPromisedDeliveryDate: DateTime, changedOn: DateTime)
 
   /** The order priority has changed. */
@@ -51,6 +51,9 @@ enum OrderEvent:
 
   /** A manufacturing's description has changed. */
   case ManufacturingDescriptionChanged(manufacturingId: ScheduledManufacturingId, newDescription: Option[String], changedOn: DateTime)
+
+  /** A manufacturing's work deadline has changed. */
+  case ManufacturingCompletionDateChanged(manufacturingId: ScheduledManufacturingId, newCompletionDate: DateTime, changedOn: DateTime)
 
   /** The preferred employee for a manufacturing has been set or cleared. */
   case ManufacturingPreferredEmployeeChanged(manufacturingId: ScheduledManufacturingId, employeeId: Option[UUID], changedOn: DateTime)

@@ -26,6 +26,7 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case AddManufacturing(manufacturing: ScheduledManufacturing)
     case RemoveManufacturing(manufacturingId: ScheduledManufacturingId)
     case ChangeManufacturingDescription(manufacturingId: ScheduledManufacturingId, newDescription: Option[String])
+    case ChangeManufacturingCompletionDate(manufacturingId: ScheduledManufacturingId, newCompletionDate: DateTime)
     case SetPreferredEmployee(manufacturingId: ScheduledManufacturingId, employeeId: Option[UUID])
     case ChangeManufacturingStatus(manufacturingId: ScheduledManufacturingId, newStatus: ManufacturingStatus, reason: Option[String])
     case AddManufacturingTask(manufacturingId: ScheduledManufacturingId, task: ScheduledTask, dependsOn: List[TaskId])
@@ -66,6 +67,8 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
       App.state.decide(_.removeManufacturing(manufacturingId)).void >> publishSchedulingRecalculation
     case Command.ChangeManufacturingDescription(manufacturingId, newDescription) =>
       App.state.decide(_.changeManufacturingDescription(manufacturingId, newDescription)).void >> publishSchedulingRecalculation
+    case Command.ChangeManufacturingCompletionDate(manufacturingId, newCompletionDate) =>
+      App.state.decide(_.changeManufacturingCompletionDate(manufacturingId, newCompletionDate)).void >> publishSchedulingRecalculation
     case Command.SetPreferredEmployee(manufacturingId, employeeId) =>
       App.state.decide(_.changeManufacturingPreferredEmployee(manufacturingId, employeeId)).void >> publishSchedulingRecalculation
     case Command.ChangeManufacturingStatus(manufacturingId, newStatus, reason) =>

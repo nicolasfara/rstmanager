@@ -101,6 +101,15 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       manufacturings: NonEmptyList[ScheduledManufacturing],
       priority: OrderPriority,
   ): InProgressOrder =
+    order(id, deliveryDate, deliveryDate, manufacturings, priority)
+
+  private def order(
+      id: OrderId,
+      deliveryDate: DateTime,
+      workDeadline: DateTime,
+      manufacturings: NonEmptyList[ScheduledManufacturing],
+      priority: OrderPriority,
+  ): InProgressOrder =
     InProgressOrder(
       OrderData(
         id,
@@ -111,7 +120,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
         priority,
         manufacturings,
       ),
-      deliveryDate,
+      workDeadline,
     )
 
   private def request(start: DateTime, orderIds: List[OrderId]): PlanningRequest =
@@ -195,6 +204,14 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
     outcome.delayedManufacturings shouldEqual List(DelayedManufacturing(orderId, manufacturingId, monday, wednesday))
+    outcome.delayedOrders shouldEqual List(DelayedOrder(orderId, monday, wednesday))
+
+  it should "report order delays against the work deadline before the customer delivery date" in:
+    val task = pendingTask(UUID.randomUUID().nn, 20)
+    val theOrder = order(orderId, friday, monday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))), OrderPriority.Normal)
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.delayedManufacturings shouldBe empty
     outcome.delayedOrders shouldEqual List(DelayedOrder(orderId, monday, wednesday))
 
   it should "give urgent orders precedence over normal orders" in:

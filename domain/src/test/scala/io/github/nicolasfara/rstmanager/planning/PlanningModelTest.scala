@@ -129,7 +129,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
     result.schedules shouldBe empty
     result.unplannedOrders should contain only unplannedOrder
 
-  "DelayedOrder" should "reject dates that do not move the promised delivery after the expected date" in:
+  "DelayedOrder" should "reject dates that do not move completion after the work deadline" in:
     DelayedOrder.create(orderId, day, day).toEither.left.map(_.head) shouldEqual Left(InvalidOrderDelay(orderId, day, day))
 
   "DelayedManufacturing" should "reject dates that do not move completion after the expected date" in:

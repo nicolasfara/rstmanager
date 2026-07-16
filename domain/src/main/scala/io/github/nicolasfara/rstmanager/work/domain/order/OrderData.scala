@@ -5,6 +5,7 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
 
 import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.*
@@ -37,6 +38,8 @@ type OrderNumber = DescribedAs[Not[Empty], "The order number cannot be empty"]
  *   Non-empty list of scheduled manufacturings associated with the order.
  * @param description
  *   Optional free-text description of the order.
+ * @param dependencies
+ *   Dependency graph between the scheduled manufacturings of the order.
  */
 final case class OrderData(
     id: OrderId,
@@ -47,10 +50,15 @@ final case class OrderData(
     priority: OrderPriority,
     setOfManufacturing: NonEmptyList[ScheduledManufacturing],
     description: Option[String] = None,
+    dependencies: OrderDependencies = OrderDependencies.empty,
 ):
   /** Sets (or clears) the order description. */
   def withDescription(newDescription: Option[String]): OrderData =
     this.focus(_.description).replace(newDescription)
+
+  /** Replaces the manufacturing dependency graph. */
+  def withDependencies(newDependencies: OrderDependencies): OrderData =
+    this.focus(_.dependencies).replace(newDependencies)
 
   /** Appends a manufacturing to the order. */
   def addManufacturing(manufacturing: ScheduledManufacturing): OrderData =
@@ -60,11 +68,14 @@ final case class OrderData(
   def replaceManufacturing(manufacturing: ScheduledManufacturing): OrderData =
     this.focus(_.setOfManufacturing).modify(_.map(existing => if existing.info.id == manufacturing.info.id then manufacturing else existing))
 
-  /** Removes a manufacturing when at least one manufacturing remains afterwards. */
+  /** Removes a manufacturing (and its dependency edges) when at least one manufacturing remains afterwards. */
   def removeManufacturing(manufacturingId: ScheduledManufacturingId): OrderData =
-    this.focus(_.setOfManufacturing).modify { nel =>
-      nel.filterNot(_.info.id == manufacturingId) match
-        case Nil => nel
-        case head :: tail => NonEmptyList(head, tail)
-    }
+    this.setOfManufacturing.filterNot(_.info.id == manufacturingId) match
+      case Nil => this
+      case head :: tail =>
+        this
+          .focus(_.setOfManufacturing)
+          .replace(NonEmptyList(head, tail))
+          .focus(_.dependencies)
+          .modify(_.removeManufacturing(manufacturingId))
 end OrderData

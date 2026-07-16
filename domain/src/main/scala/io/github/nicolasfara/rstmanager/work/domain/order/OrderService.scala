@@ -2,6 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
@@ -35,6 +36,8 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case ChangeTaskExpectedHours(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedHours: TaskHours)
     case CompleteTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
     case RevertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
+    case ChangeManufacturingDependencies(dependencies: OrderDependencies)
+    case ChangeTaskDependencies(manufacturingId: ScheduledManufacturingId, dependencies: ManufacturingDependencies)
   end Command
 
   enum Notification derives CanEqual:
@@ -85,6 +88,10 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
       App.state.decide(_.completeTask(manufacturingId, taskId, withHours)).void >> publishSchedulingRecalculation
     case Command.RevertTask(manufacturingId, taskId) =>
       App.state.decide(_.revertTask(manufacturingId, taskId)).void >> publishSchedulingRecalculation
+    case Command.ChangeManufacturingDependencies(dependencies) =>
+      App.state.decide(_.changeManufacturingDependencies(dependencies)).void >> publishSchedulingRecalculation
+    case Command.ChangeTaskDependencies(manufacturingId, dependencies) =>
+      App.state.decide(_.changeTaskDependencies(manufacturingId, dependencies)).void >> publishSchedulingRecalculation
   }
 
   private def publishSchedulingRecalculation[F[_]: Monad]: App[F, Unit] =

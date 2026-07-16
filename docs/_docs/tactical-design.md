@@ -49,6 +49,7 @@ The model leans heavily on immutable value objects and refined primitives.
 - Work value objects:
   [[io.github.nicolasfara.rstmanager.work.domain.task.TaskHours]],
   [[io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies]],
+  [[io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies]],
   [[io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority]]
 - Planning value objects:
   [[io.github.nicolasfara.rstmanager.planning.PlanningWindow]],

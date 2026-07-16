@@ -109,6 +109,12 @@ object Dtos:
 
   final case class TaskDependencyDto(taskId: UUID, dependsOn: List[UUID])
 
+  /** Dependency edges of one manufacturing towards the manufacturings that must be completed before it. */
+  final case class ManufacturingDependencyDto(manufacturingId: UUID, dependsOn: List[UUID])
+
+  /** Dependency edges between the manufacturings of an order creation request, referenced by their position in `manufacturings`. */
+  final case class ManufacturingDependencyByIndexDto(manufacturingIndex: Int, dependsOnIndexes: List[Int])
+
   final case class ScheduledTaskDto(
       id: UUID,
       taskId: UUID,
@@ -157,11 +163,18 @@ object Dtos:
       priority: String,
       manufacturings: List[ManufacturingDto],
       description: Option[String] = None,
+      dependencies: Option[List[ManufacturingDependencyByIndexDto]] = None,
   )
 
   final case class OrderUpdateRequest(priority: Option[String], promisedDeliveryDate: Option[String], description: Option[String] = None)
   final case class TransitionRequest(action: String, reason: Option[String])
   final case class TaskProgressUpdateRequest(completedHours: Option[Int], expectedHours: Option[Int])
+
+  /** Replaces the dependency graph between the order manufacturings. */
+  final case class OrderDependenciesUpdateRequest(dependencies: List[ManufacturingDependencyDto])
+
+  /** Replaces the task dependency graph of a manufacturing. */
+  final case class TaskDependenciesUpdateRequest(dependencies: List[TaskDependencyDto])
 
   /** Update a manufacturing's free-text description, work deadline and/or lifecycle status (`reason` used when pausing). */
   final case class ManufacturingUpdateRequest(
@@ -185,6 +198,7 @@ object Dtos:
       promisedDeliveryDate: Option[String],
       manufacturings: List[ManufacturingResponse],
       description: Option[String],
+      dependencies: List[ManufacturingDependencyDto],
   )
 
   // ---- Planning ----------------------------------------------------------------------------------
@@ -292,6 +306,8 @@ object Dtos:
   given Codec[ManufacturingCatalogResponse] = deriveCodec
 
   given Codec[TaskDependencyDto] = deriveCodec
+  given Codec[ManufacturingDependencyDto] = deriveCodec
+  given Codec[ManufacturingDependencyByIndexDto] = deriveCodec
   given Codec[ScheduledTaskDto] = deriveCodec
   given Codec[ManufacturingDto] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
@@ -299,6 +315,8 @@ object Dtos:
   given Codec[OrderRequest] = deriveCodec
   given Codec[OrderUpdateRequest] = deriveCodec
   given Codec[ManufacturingUpdateRequest] = deriveCodec
+  given Codec[OrderDependenciesUpdateRequest] = deriveCodec
+  given Codec[TaskDependenciesUpdateRequest] = deriveCodec
   given Codec[AddTaskRequest] = deriveCodec
   given Codec[TransitionRequest] = deriveCodec
   given Codec[TaskProgressUpdateRequest] = deriveCodec

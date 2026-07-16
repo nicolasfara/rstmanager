@@ -70,6 +70,10 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   def withPreferredEmployee(employeeId: Option[UUID]): ScheduledManufacturing =
     withInfo(info.copy(preferredEmployeeId = employeeId))
 
+  /** Replaces the task dependency graph. */
+  def withDependencies(dependencies: ManufacturingDependencies): ScheduledManufacturing =
+    withInfo(info.copy(dependencies = dependencies))
+
   /** Current lifecycle status of the manufacturing. */
   def status: ManufacturingStatus = this match
     case NotStartedManufacturing(_) => ManufacturingStatus.NotStarted

@@ -2,6 +2,8 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingDependencies, ManufacturingDependencyError }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ManufacturingStatus,
   ScheduledManufacturing,
@@ -10,6 +12,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
 }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
@@ -132,6 +135,64 @@ object OrderOperations:
       taskId: ScheduledTaskId,
   ): Either[OrderError, InProgressOrder] =
     updateManufacturing(order, manufacturingId)(_.removeTask(taskId))
+
+  /** Replaces the dependency graph between the order manufacturings, validating references and acyclicity. */
+  def changeManufacturingDependencies(
+      order: InProgressOrder | SuspendedOrder,
+      newDependencies: OrderDependencies,
+  ): Either[OrderError, InProgressOrder] =
+    def change(data: OrderData, promisedDeliveryDate: DateTime): Either[OrderError, InProgressOrder] =
+      validateManufacturingDependencies(data, newDependencies).map(_ => InProgressOrder(data.withDependencies(newDependencies), promisedDeliveryDate))
+    order match
+      case InProgressOrder(data, promisedDeliveryDate) => change(data, promisedDeliveryDate)
+      case SuspendedOrder(data, promisedDeliveryDate, _, _) => change(data, promisedDeliveryDate)
+
+  /** Replaces the task dependency graph of one of the order manufacturings, validating references and acyclicity. */
+  def changeTaskDependencies(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      newDependencies: ManufacturingDependencies,
+  ): Either[OrderError, InProgressOrder] =
+    def change(data: OrderData, promisedDeliveryDate: DateTime): Either[OrderError, InProgressOrder] =
+      for
+        manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
+        _ <- validateTaskDependencies(manufacturing, newDependencies)
+        updatedData = data.replaceManufacturing(manufacturing.withDependencies(newDependencies))
+      yield InProgressOrder(updatedData, promisedDeliveryDate)
+    order match
+      case InProgressOrder(data, promisedDeliveryDate) => change(data, promisedDeliveryDate)
+      case SuspendedOrder(data, promisedDeliveryDate, _, _) => change(data, promisedDeliveryDate)
+
+  /** Validates every dependency graph carried by the order data: the manufacturing graph and each manufacturing's task graph. */
+  def validateDependencies(data: OrderData): Either[OrderError, Unit] =
+    for
+      _ <- validateManufacturingDependencies(data, data.dependencies)
+      _ <- data.setOfManufacturing.toList.traverse_(manufacturing => validateTaskDependencies(manufacturing, manufacturing.info.dependencies))
+    yield ()
+
+  /** Ensures the manufacturing graph only references manufacturings of the order and contains no cycle. */
+  private def validateManufacturingDependencies(data: OrderData, dependencies: OrderDependencies): Either[OrderError, Unit] =
+    val knownIds = data.setOfManufacturing.toList.map(_.info.id).toSet
+    val unknownIds = dependencies.referencedManufacturingIds.filterNot(knownIds.contains)
+    if unknownIds.nonEmpty then OrderError.UnknownManufacturingInDependencies(unknownIds).asLeft
+    else
+      dependencies.sort match
+        case Left(OrderDependencyError.CycleDetected(cycle)) => OrderError.ManufacturingDependencyCycle(cycle).asLeft
+        case Right(_) => ().asRight
+
+  /** Ensures the task graph only references template tasks of the manufacturing and contains no cycle. */
+  private def validateTaskDependencies(
+      manufacturing: ScheduledManufacturing,
+      dependencies: ManufacturingDependencies,
+  ): Either[OrderError, Unit] =
+    val knownIds = manufacturing.info.tasks.toList.map(_.taskId).toSet
+    val referencedIds = dependencies.toEdgePairs.flatMap((source, target) => List(source, target)).toSet
+    val unknownIds = referencedIds.filterNot(knownIds.contains)
+    if unknownIds.nonEmpty then OrderError.UnknownTaskInDependencies(manufacturing.info.id, unknownIds).asLeft
+    else
+      dependencies.sort match
+        case Left(ManufacturingDependencyError.CycleDetected(cycle)) => OrderError.TaskDependencyCycle(manufacturing.info.id, cycle).asLeft
+        case Right(_) => ().asRight
 
   /** Applies a manufacturing-level update to the targeted manufacturing, keeping the order in progress. */
   private def updateManufacturing(

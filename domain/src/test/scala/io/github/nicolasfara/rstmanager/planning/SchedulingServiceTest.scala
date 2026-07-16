@@ -208,7 +208,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   it should "report order delays against the work deadline before the customer delivery date" in:
     val task = pendingTask(UUID.randomUUID().nn, 20)
-    val theOrder = order(orderId, friday, monday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))), OrderPriority.Normal)
+    val theOrder =
+      order(orderId, friday, monday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))), OrderPriority.Normal)
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
     outcome.delayedManufacturings shouldBe empty
@@ -294,6 +295,72 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       case UnplannedReason.DependencyCycle(cycle) =>
         cycle should contain allOf (firstTemplate, secondTemplate)
       case other => fail(s"Expected a dependency cycle reason, got: $other")
+
+  it should "schedule a dependent manufacturing starting the day after its prerequisite completes" in:
+    val prerequisiteId: ScheduledManufacturingId = UUID.randomUUID().nn
+    val prerequisiteTask = pendingTask(UUID.randomUUID().nn, 8)
+    val dependentTask = pendingTask(UUID.randomUUID().nn, 4)
+    val prerequisite = manufacturing(prerequisiteId, friday, NonEmptyList.one(prerequisiteTask))
+    // The dependent has the earliest completion date: without the dependency it would be planned first.
+    val dependent = manufacturing(manufacturingId, monday, NonEmptyList.one(dependentTask))
+    val base = order(orderId, friday, NonEmptyList.of(dependent, prerequisite))
+    val dependencies = OrderDependencies.empty.addManufacturingDependencies(manufacturingId, Set(prerequisiteId))
+    val theOrder = base.copy(data = base.data.withDependencies(dependencies))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    val sliceByManufacturing = outcome.slices.groupBy(_.manufacturingId)
+    sliceByManufacturing(prerequisiteId).map(_.day) shouldEqual List(monday)
+    sliceByManufacturing(manufacturingId).map(_.day) shouldEqual List(tuesday)
+
+  it should "treat dependencies on manufacturings without remaining work as already satisfied" in:
+    val completedId: ScheduledManufacturingId = UUID.randomUUID().nn
+    val completedTask = ScheduledTask.CompletedTask(
+      UUID.randomUUID().nn: ScheduledTaskId,
+      UUID.randomUUID().nn: TaskId,
+      TaskHours.applyUnsafe(8),
+      TaskHours.applyUnsafe(8),
+      monday.minusDays(1).nn,
+    )
+    val dependentTask = pendingTask(UUID.randomUUID().nn, 4)
+    val completed = manufacturing(completedId, friday, NonEmptyList.one(completedTask))
+    val dependent = manufacturing(manufacturingId, friday, NonEmptyList.one(dependentTask))
+    val base = order(orderId, friday, NonEmptyList.of(dependent, completed))
+    val dependencies = OrderDependencies.empty.addManufacturingDependencies(manufacturingId, Set(completedId))
+    val theOrder = base.copy(data = base.data.withDependencies(dependencies))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(slice => (slice.manufacturingId, slice.day)) shouldEqual List((manufacturingId, monday))
+
+  it should "mark an order with a manufacturing dependency cycle as unplanned" in:
+    val firstId: ScheduledManufacturingId = UUID.randomUUID().nn
+    val first = manufacturing(firstId, friday, NonEmptyList.one(pendingTask(UUID.randomUUID().nn, 4)))
+    val second = manufacturing(manufacturingId, friday, NonEmptyList.one(pendingTask(UUID.randomUUID().nn, 4)))
+    val dependencies = OrderDependencies.empty
+      .addManufacturingDependencies(firstId, Set(manufacturingId))
+      .addManufacturingDependencies(manufacturingId, Set(firstId))
+    val base = order(orderId, friday, NonEmptyList.of(first, second))
+    val theOrder = base.copy(data = base.data.withDependencies(dependencies))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.slices shouldBe empty
+    outcome.unplannedOrders.map(_.orderId) shouldEqual List(orderId)
+    outcome.unplannedOrders.head.blockedTasks.head.reason match
+      case UnplannedReason.DependencyCycle(cycle) => cycle should contain allOf (firstId, manufacturingId)
+      case other => fail(s"Expected a dependency cycle reason, got: $other")
+
+  it should "mark a manufacturing depending on a missing manufacturing as unplanned" in:
+    val missingId: ScheduledManufacturingId = UUID.randomUUID().nn
+    val blockedTask = pendingTask(UUID.randomUUID().nn, 4)
+    val blocked = manufacturing(manufacturingId, friday, NonEmptyList.one(blockedTask))
+    val dependencies = OrderDependencies.empty.addManufacturingDependencies(manufacturingId, Set(missingId))
+    val base = order(orderId, friday, NonEmptyList.one(blocked))
+    val theOrder = base.copy(data = base.data.withDependencies(dependencies))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.slices shouldBe empty
+    outcome.unplannedOrders shouldEqual List(
+      UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, blockedTask.id, UnplannedReason.MissingDependency(missingId)))),
+    )
 
   it should "mark a task with a missing dependency as unplanned" in:
     val missingTemplate: TaskId = UUID.randomUUID().nn

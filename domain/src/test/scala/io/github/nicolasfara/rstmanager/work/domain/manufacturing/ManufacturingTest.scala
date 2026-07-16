@@ -60,22 +60,30 @@ class ManufacturingTest extends AnyFlatSpecLike:
     }
 
   it should "reject an empty task composition" in:
-    Manufacturing.createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies()).isValid shouldEqual false
+    Manufacturing
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies())
+      .isValid shouldEqual false
 
   it should "reject duplicate task ids" in:
-    Manufacturing.createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, cutting), ManufacturingDependencies()).isValid shouldEqual false
+    Manufacturing
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, cutting), ManufacturingDependencies())
+      .isValid shouldEqual false
 
   it should "reject dependencies that reference tasks outside the composition" in:
     val outsideDependency = ManufacturingDependencies().addTaskDependencies(assembly, Set(finishing))
 
-    Manufacturing.createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency).isValid shouldEqual false
+    Manufacturing
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency)
+      .isValid shouldEqual false
 
   it should "reject cyclic dependencies" in:
     val cycle = ManufacturingDependencies()
       .addTaskDependencies(cutting, Set(assembly))
       .addTaskDependencies(assembly, Set(cutting))
 
-    Manufacturing.createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle).isValid shouldEqual false
+    Manufacturing
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle)
+      .isValid shouldEqual false
 
   "ManufacturingService" should "create a catalog manufacturing through the event-sourced service" in:
     val manufacturing = validManufacturing()

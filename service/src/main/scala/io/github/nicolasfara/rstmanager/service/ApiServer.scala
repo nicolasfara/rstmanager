@@ -33,4 +33,5 @@ object ApiServer:
     val documentationEndpoints = SwaggerInterpreter().fromServerEndpoints[IO](apiEndpoints, "RST Manager API", "0.1.0")
 
     Http4sServerInterpreter[IO]().toRoutes(apiEndpoints ++ documentationEndpoints)
+  end routes
 end ApiServer

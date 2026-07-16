@@ -6,6 +6,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturin
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.*
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
@@ -29,6 +30,22 @@ object OrderDtos:
         UUID.fromString("00000000-0000-0000-0000-000000000302").nn,
         List(UUID.fromString("00000000-0000-0000-0000-000000000301").nn),
       )
+
+  /** Dependency edges of one manufacturing towards the manufacturings that must be completed before it. */
+  final case class ManufacturingDependencyDto(manufacturingId: UUID, dependsOn: List[UUID])
+
+  object ManufacturingDependencyDto:
+    val example: ManufacturingDependencyDto =
+      ManufacturingDependencyDto(
+        UUID.fromString("00000000-0000-0000-0000-000000000602").nn,
+        List(UUID.fromString("00000000-0000-0000-0000-000000000601").nn),
+      )
+
+  /** Dependency edges between the manufacturings of an order creation request, referenced by their position in `manufacturings`. */
+  final case class ManufacturingDependencyByIndexDto(manufacturingIndex: Int, dependsOnIndexes: List[Int])
+
+  object ManufacturingDependencyByIndexDto:
+    val example: ManufacturingDependencyByIndexDto = ManufacturingDependencyByIndexDto(1, List(0))
 
   final case class ScheduledTaskDto(
       id: UUID,
@@ -93,14 +110,24 @@ object OrderDtos:
         current.addTaskDependencies(dependency.taskId, dependency.dependsOn.toSet)
       }
 
-      val info = (manufacturingCode(code), parseDate(completionDate, s"$path.completionDate"), taskList).mapN {
-        (code, expectedCompletionDate, scheduledTasks) =>
+      val validatedDependencies = taskList.andThen { scheduledTasks =>
+        val knownIds = scheduledTasks.toList.map(_.taskId).toSet
+        val referencedIds = dependencyGraph.toEdgePairs.flatMap((source, target) => List(source, target)).toSet
+        val unknownIds = referencedIds.filterNot(knownIds.contains)
+        if unknownIds.nonEmpty then
+          s"$path.dependencies references tasks not part of this manufacturing: ${unknownIds.toList.map(_.toString).sorted.mkString(", ")}".invalidNec
+        else if dependencyGraph.hasCycle then s"$path.dependencies must not contain cycles.".invalidNec
+        else dependencyGraph.validNec
+      }
+
+      val info = (manufacturingCode(code), parseDate(completionDate, s"$path.completionDate"), taskList, validatedDependencies).mapN {
+        (code, expectedCompletionDate, scheduledTasks, taskDependencies) =>
           ScheduledManufacturingInfo(
             id,
             code,
             expectedCompletionDate,
             scheduledTasks,
-            dependencyGraph,
+            taskDependencies,
             description.map(_.trim.nn).filter(_.nonEmpty),
             preferredEmployeeId,
           )
@@ -185,14 +212,19 @@ object OrderDtos:
       priority: String,
       manufacturings: List[ManufacturingDto],
       description: Option[String] = None,
+      dependencies: Option[List[ManufacturingDependencyByIndexDto]] = None,
   ):
     def toDomain(id: UUID): ValidatedNec[String, (OrderData, DateTime)] =
       toDomain(id, () => UUID.randomUUID().nn)
 
     def toDomain(id: UUID, nextManufacturingId: () => UUID): ValidatedNec[String, (OrderData, DateTime)] =
-      val manufacturingList = manufacturings.zipWithIndex.traverse { case (manufacturing, index) =>
-        manufacturing.toDomain(s"manufacturings[$index]", nextManufacturingId())
-      }
+      val manufacturingIds = manufacturings.map(_ => nextManufacturingId())
+      val manufacturingList = manufacturings
+        .zip(manufacturingIds)
+        .zipWithIndex
+        .traverse { case ((manufacturing, manufacturingId), index) =>
+          manufacturing.toDomain(s"manufacturings[$index]", manufacturingId)
+        }
         .andThen(list => NonEmptyList.fromList(list).toValidNec("manufacturings must contain at least one manufacturing"))
 
       (
@@ -202,7 +234,8 @@ object OrderDtos:
         parseDate(promisedDeliveryDate, "promisedDeliveryDate"),
         priorityToDomain(priority, "priority"),
         manufacturingList,
-      ).mapN { (orderNumber, createdAt, expectedDelivery, promisedDelivery, orderPriority, manufacturingNel) =>
+        dependencyGraph(manufacturingIds),
+      ).mapN { (orderNumber, createdAt, expectedDelivery, promisedDelivery, orderPriority, manufacturingNel, manufacturingDependencies) =>
         (
           OrderData(
             id,
@@ -213,11 +246,42 @@ object OrderDtos:
             orderPriority,
             manufacturingNel,
             description.map(_.trim.nn).filter(_.nonEmpty),
+            manufacturingDependencies,
           ),
           promisedDelivery,
         )
       }
     end toDomain
+
+    /** Resolves the index-based dependency entries against the generated manufacturing ids and validates the resulting graph. */
+    private def dependencyGraph(manufacturingIds: List[UUID]): ValidatedNec[String, OrderDependencies] =
+      val count = manufacturingIds.size
+      def validIndex(value: Int, path: String): ValidatedNec[String, Int] =
+        if value >= 0 && value < count then value.validNec
+        else s"$path must be a manufacturing index between 0 and ${count - 1}.".invalidNec
+
+      dependencies
+        .getOrElse(Nil)
+        .zipWithIndex
+        .traverse { case (dependency, index) =>
+          val path = s"dependencies[$index]"
+          (
+            validIndex(dependency.manufacturingIndex, s"$path.manufacturingIndex"),
+            dependency.dependsOnIndexes.zipWithIndex.traverse { case (dependsOnIndex, position) =>
+              validIndex(dependsOnIndex, s"$path.dependsOnIndexes[$position]")
+            },
+          ).mapN { (sourceIndex, dependsOnIndexes) =>
+            (manufacturingIds(sourceIndex), dependsOnIndexes.map(manufacturingIds(_)))
+          }
+        }
+        .andThen { resolvedEdges =>
+          val graph = resolvedEdges.foldLeft(OrderDependencies.empty) { case (current, (source, dependsOn)) =>
+            current.addManufacturingDependencies(source, dependsOn.toSet)
+          }
+          if graph.hasCycle then "dependencies must not contain cycles.".invalidNec
+          else graph.validNec
+        }
+    end dependencyGraph
   end OrderRequest
 
   object OrderRequest:
@@ -271,6 +335,30 @@ object OrderDtos:
   object ManufacturingUpdateRequest:
     val example: ManufacturingUpdateRequest =
       ManufacturingUpdateRequest(Some("Serramenti in alluminio"), Some("2026-06-20T17:00:00.000Z"), Some("in_progress"), None)
+
+  /** Replaces the dependency graph between the order manufacturings. */
+  final case class OrderDependenciesUpdateRequest(dependencies: List[ManufacturingDependencyDto]):
+    def toCommand: ValidatedNec[String, OrderService.Command] =
+      val graph = dependencies.foldLeft(OrderDependencies.empty) { (current, dependency) =>
+        current.addManufacturingDependencies(dependency.manufacturingId, dependency.dependsOn.toSet)
+      }
+      if graph.hasCycle then "dependencies must not contain cycles.".invalidNec
+      else OrderService.Command.ChangeManufacturingDependencies(graph).validNec
+
+  object OrderDependenciesUpdateRequest:
+    val example: OrderDependenciesUpdateRequest = OrderDependenciesUpdateRequest(List(ManufacturingDependencyDto.example))
+
+  /** Replaces the task dependency graph of a manufacturing. */
+  final case class TaskDependenciesUpdateRequest(dependencies: List[TaskDependencyDto]):
+    def toCommand(manufacturingId: UUID): ValidatedNec[String, OrderService.Command] =
+      val graph = dependencies.foldLeft(ManufacturingDependencies()) { (current, dependency) =>
+        current.addTaskDependencies(dependency.taskId, dependency.dependsOn.toSet)
+      }
+      if graph.hasCycle then "dependencies must not contain cycles.".invalidNec
+      else OrderService.Command.ChangeTaskDependencies(manufacturingId, graph).validNec
+
+  object TaskDependenciesUpdateRequest:
+    val example: TaskDependenciesUpdateRequest = TaskDependenciesUpdateRequest(List(TaskDependencyDto.example))
 
   /** Adds a new scheduled task (referencing a catalog task) to a manufacturing. */
   final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID]):
@@ -347,6 +435,7 @@ object OrderDtos:
       promisedDeliveryDate: Option[String],
       manufacturings: List[ManufacturingResponse],
       description: Option[String],
+      dependencies: List[ManufacturingDependencyDto],
   )
 
   object OrderResponse:
@@ -363,6 +452,10 @@ object OrderDtos:
           promised.map(formatDate),
           data.setOfManufacturing.toList.map(ManufacturingDto.fromDomain),
           data.description,
+          data.dependencies.toEdgePairs
+            .groupMap(_._1)(_._2)
+            .toList
+            .map((manufacturingId, dependsOn) => ManufacturingDependencyDto(manufacturingId, dependsOn)),
         )
       }
 
@@ -405,11 +498,15 @@ object OrderDtos:
   private def formatDate(value: DateTime): String = value.toString
 
   given Codec[TaskDependencyDto] = deriveCodec
+  given Codec[ManufacturingDependencyDto] = deriveCodec
+  given Codec[ManufacturingDependencyByIndexDto] = deriveCodec
   given Codec[ScheduledTaskDto] = deriveCodec
   given Codec[ManufacturingDto] = deriveCodec
   given Codec[OrderRequest] = deriveCodec
   given Codec[OrderUpdateRequest] = deriveCodec
   given Codec[ManufacturingUpdateRequest] = deriveCodec
+  given Codec[OrderDependenciesUpdateRequest] = deriveCodec
+  given Codec[TaskDependenciesUpdateRequest] = deriveCodec
   given Codec[AddTaskRequest] = deriveCodec
   given Codec[TransitionRequest] = deriveCodec
   given Codec[TaskProgressUpdateRequest] = deriveCodec
@@ -418,11 +515,15 @@ object OrderDtos:
   given Codec[OrderResponse] = deriveCodec
 
   given Schema[TaskDependencyDto] = Schema.derived
+  given Schema[ManufacturingDependencyDto] = Schema.derived
+  given Schema[ManufacturingDependencyByIndexDto] = Schema.derived
   given Schema[ScheduledTaskDto] = Schema.derived
   given Schema[ManufacturingDto] = Schema.derived
   given Schema[OrderRequest] = Schema.derived
   given Schema[OrderUpdateRequest] = Schema.derived
   given Schema[ManufacturingUpdateRequest] = Schema.derived
+  given Schema[OrderDependenciesUpdateRequest] = Schema.derived
+  given Schema[TaskDependenciesUpdateRequest] = Schema.derived
   given Schema[AddTaskRequest] = Schema.derived
   given Schema[TransitionRequest] = Schema.derived
   given Schema[TaskProgressUpdateRequest] = Schema.derived

@@ -109,7 +109,11 @@ object ManufacturingHttpApi:
     ApiError.base.get.in(collection).tag("Manufacturings").summary("List manufacturing catalog templates").out(jsonBody[List[ManufacturingResponse]])
 
   val read: PublicEndpoint[UUID, ApiFailure, ManufacturingResponse, Any] =
-    ApiError.base.get.in(collection / path[UUID]("id")).tag("Manufacturings").summary("Read a manufacturing template").out(jsonBody[ManufacturingResponse])
+    ApiError.base.get
+      .in(collection / path[UUID]("id"))
+      .tag("Manufacturings")
+      .summary("Read a manufacturing template")
+      .out(jsonBody[ManufacturingResponse])
 
   val update: PublicEndpoint[(UUID, ManufacturingRequest), ApiFailure, ManufacturingResponse, Any] =
     ApiError.base.put
@@ -120,7 +124,11 @@ object ManufacturingHttpApi:
       .out(jsonBody[ManufacturingResponse])
 
   val delete: PublicEndpoint[UUID, ApiFailure, Unit, Any] =
-    ApiError.base.delete.in(collection / path[UUID]("id")).tag("Manufacturings").summary("Delete a manufacturing template").out(statusCode(StatusCode.NoContent))
+    ApiError.base.delete
+      .in(collection / path[UUID]("id"))
+      .tag("Manufacturings")
+      .summary("Delete a manufacturing template")
+      .out(statusCode(StatusCode.NoContent))
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
@@ -132,7 +140,9 @@ object ManufacturingHttpApi:
     delete.serverLogic(deleteLogic(store)),
   )
 
-  private def createLogic(store: ManufacturingApp.Store, tasks: TaskApp.Store)(request: ManufacturingRequest): IO[Either[ApiFailure, ManufacturingResponse]] =
+  private def createLogic(store: ManufacturingApp.Store, tasks: TaskApp.Store)(
+      request: ManufacturingRequest,
+  ): IO[Either[ApiFailure, ManufacturingResponse]] =
     IO(UUID.randomUUID().nn).flatMap { id =>
       request.toDomain(id).toEither match
         case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)

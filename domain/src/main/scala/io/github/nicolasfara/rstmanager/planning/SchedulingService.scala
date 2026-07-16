@@ -5,7 +5,7 @@ import scala.annotation.tailrec
 import io.github.nicolasfara.rstmanager.hr.domain.{ Contract, DailyHours, Employee, EmployeeId, VacationOverride, WorkingDayOverride }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencyError.CycleDetected
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
-import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderId }
+import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderDependencyError, OrderId }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
@@ -133,24 +133,83 @@ object SchedulingService:
       order: InProgressOrder,
       employees: List[Employee],
   ): Either[UnplannedOrder, PlannerState] =
-    val remainingManufacturings = order.data.setOfManufacturing.toList
-      .filter(_.remainingHours.value > 0)
-      .sortBy(manufacturing => (manufacturing.info.completionDate.getMillis, manufacturing.info.id.toString))
+    val manufacturings = order.data.setOfManufacturing.toList
+    val dependencies = order.data.dependencies
+    val manufacturingIds = manufacturings.map(_.info.id).toSet
 
-    remainingManufacturings
-      .foldLeft(state.asRight[NonEmptyList[UnplannedTask]]) {
-        case (Right(currentState), manufacturing) => planManufacturing(currentState, order.data.id, manufacturing, employees)
-        case (left @ Left(_), _) => left
-      }
-      .leftMap(blockedTasks => UnplannedOrder(order.data.id, blockedTasks))
+    val missingDependencies = manufacturings.flatMap { manufacturing =>
+      dependencies
+        .dependenciesOf(manufacturing.info.id)
+        .filterNot(manufacturingIds.contains)
+        .toList
+        .sortBy(_.toString)
+        .map { missingDependency =>
+          UnplannedTask(manufacturing.info.id, manufacturing.info.tasks.head.id, UnplannedReason.MissingDependency(missingDependency))
+        }
+    }
+
+    val planned = NonEmptyList.fromList(missingDependencies) match
+      case Some(blockedTasks) => blockedTasks.asLeft
+      case None =>
+        dependencies.sort match
+          case Left(OrderDependencyError.CycleDetected(cycle)) =>
+            val cycleIds = if cycle.nonEmpty then cycle else manufacturingIds
+            val cycleTasks = manufacturings
+              .filter(manufacturing => cycleIds.contains(manufacturing.info.id))
+              .flatMap { manufacturing =>
+                manufacturing.info.tasks.toList.map(task => UnplannedTask(manufacturing.info.id, task.id, UnplannedReason.DependencyCycle(cycleIds)))
+              }
+            NonEmptyList
+              .fromList(cycleTasks)
+              .getOrElse(
+                NonEmptyList
+                  .one(UnplannedTask(manufacturings.head.info.id, manufacturings.head.info.tasks.head.id, UnplannedReason.DependencyCycle(cycleIds))),
+              )
+              .asLeft
+
+          case Right(topologicalOrder) =>
+            // `sort` puts dependents before prerequisites because edges point from manufacturing to dependency, so execution order is the reverse.
+            val executionRank = topologicalOrder.reverse.zipWithIndex.toMap
+            val orderedManufacturings = manufacturings.sortBy { manufacturing =>
+              (
+                executionRank.getOrElse(manufacturing.info.id, Int.MaxValue),
+                manufacturing.info.completionDate.getMillis,
+                manufacturing.info.id.toString,
+              )
+            }
+
+            orderedManufacturings
+              .foldLeft((state, Map.empty[ScheduledManufacturingId, Int]).asRight[NonEmptyList[UnplannedTask]]) {
+                case (Right((currentState, completionIdx)), manufacturing) =>
+                  if manufacturing.remainingHours.value == 0 then
+                    // Work already done imposes no scheduling constraint on its dependents.
+                    (currentState, completionIdx.updated(manufacturing.info.id, -1)).asRight
+                  else
+                    val startIdx = dependencies
+                      .dependenciesOf(manufacturing.info.id)
+                      .foldLeft(0)((idx, dependency) => math.max(idx, completionIdx.getOrElse(dependency, -1) + 1))
+                    planManufacturing(currentState, order.data.id, manufacturing, employees, startIdx).map { (updatedState, lastDayIdx) =>
+                      (updatedState, completionIdx.updated(manufacturing.info.id, lastDayIdx))
+                    }
+                case (left @ Left(_), _) => left
+              }
+              .map { case (finalState, _) => finalState }
+
+    planned.leftMap(blockedTasks => UnplannedOrder(order.data.id, blockedTasks))
   end planOrder
 
+  /**
+   * Plans every task of one manufacturing, no earlier than `startIdx` (day index imposed by the manufacturing-level dependencies).
+   *
+   * Returns the updated state together with the day index on which the manufacturing's scheduled work finishes.
+   */
   private def planManufacturing(
       state: PlannerState,
       orderId: OrderId,
       manufacturing: ScheduledManufacturing,
       employees: List[Employee],
-  ): Either[NonEmptyList[UnplannedTask], PlannerState] =
+      startIdx: Int,
+  ): Either[NonEmptyList[UnplannedTask], (PlannerState, Int)] =
     val tasks = manufacturing.info.tasks.toList
     val taskTemplates = tasks.map(_.taskId).toSet
     val missingDependencies = tasks.flatMap { task =>
@@ -194,7 +253,7 @@ object SchedulingService:
                 case None if task.remainingHours.value == 0 =>
                   plan.markCompleted(task.taskId, dayIndex = -1)
                 case None =>
-                  val earliestStart = dependencies.foldLeft(0) { (idx, dependency) =>
+                  val earliestStart = dependencies.foldLeft(startIdx) { (idx, dependency) =>
                     math.max(idx, plan.completionIdx.getOrElse(dependency, -1) + 1)
                   }
                   allocateTask(
@@ -212,7 +271,8 @@ object SchedulingService:
               end match
             }
 
-            NonEmptyList.fromList(planned.blockedTasks.toList).fold(planned.state.asRight)(_.asLeft)
+            val manufacturingCompletionIdx = planned.completionIdx.values.maxOption.getOrElse(startIdx - 1)
+            NonEmptyList.fromList(planned.blockedTasks.toList).fold((planned.state, manufacturingCompletionIdx).asRight)(_.asLeft)
     end match
   end planManufacturing
 

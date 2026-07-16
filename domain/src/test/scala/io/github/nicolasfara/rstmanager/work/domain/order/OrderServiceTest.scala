@@ -32,6 +32,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
   private val taskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000104").nn
   private val templateTaskId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000105").nn
   private val otherTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000107").nn
+  private val secondManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000108").nn
 
   private def orderData(): OrderData =
     orderData(NonEmptyList.one(manufacturing()))
@@ -72,6 +73,9 @@ class OrderServiceTest extends AnyFlatSpecLike:
 
   private def task(id: ScheduledTaskId): InProgressTask =
     InProgressTask(id, templateTaskId, TaskHours(8), TaskHours(0))
+
+  private def twoManufacturingsData(): OrderData =
+    orderData(NonEmptyList.of(manufacturing(), manufacturing(secondManufacturingId, NonEmptyList.one(task(otherTaskId)))))
 
   private def run(
       command: Command,
@@ -170,5 +174,88 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case EdomatonResult.Rejected(notifications, reasons) =>
         reasons.toChain.toList shouldEqual List(ManufacturingNotFound(unknownManufacturingId))
         notifications shouldBe empty
+      case other => fail(s"Unexpected result: $other")
+
+  it should "replace the dependency graph between the order manufacturings" in:
+    val data = twoManufacturingsData()
+    val dependencies = OrderDependencies.empty.addManufacturingDependencies(secondManufacturingId, Set(manufacturingId))
+    val result = run(Command.ChangeManufacturingDependencies(dependencies), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        newState.data.dependencies.dependenciesOf(secondManufacturingId) shouldEqual Set(manufacturingId)
+        events.toChain.toList should matchPattern { case List(ManufacturingDependenciesChanged(_, _)) => }
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject a manufacturing dependency graph referencing unknown manufacturings" in:
+    val unknownId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
+    val data = twoManufacturingsData()
+    val dependencies = OrderDependencies.empty.addManufacturingDependencies(secondManufacturingId, Set(unknownId))
+    val result = run(Command.ChangeManufacturingDependencies(dependencies), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Rejected(_, reasons) =>
+        reasons.toChain.toList shouldEqual List(UnknownManufacturingInDependencies(Set(unknownId)))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject a cyclic manufacturing dependency graph" in:
+    val data = twoManufacturingsData()
+    val dependencies = OrderDependencies.empty
+      .addManufacturingDependencies(secondManufacturingId, Set(manufacturingId))
+      .addManufacturingDependencies(manufacturingId, Set(secondManufacturingId))
+    val result = run(Command.ChangeManufacturingDependencies(dependencies), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Rejected(_, reasons) =>
+        reasons.toChain.toList should matchPattern { case List(ManufacturingDependencyCycle(_)) => }
+      case other => fail(s"Unexpected result: $other")
+
+  it should "replace the task dependency graph of a manufacturing" in:
+    val secondTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010a").nn
+    val secondTask = InProgressTask(otherTaskId, secondTemplateId, TaskHours(8), TaskHours(0))
+    val data = orderData(NonEmptyList.one(manufacturing(NonEmptyList.of(task(), secondTask))))
+    val dependencies = ManufacturingDependencies().addTaskDependencies(secondTemplateId, Set(templateTaskId))
+    val result = run(Command.ChangeTaskDependencies(manufacturingId, dependencies), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        newState.data.setOfManufacturing.head.info.dependencies.dependenciesOf(secondTemplateId) shouldEqual Set(templateTaskId)
+        events.toChain.toList match
+          case List(TaskDependenciesChanged(eventManufacturingId, _, _)) => eventManufacturingId shouldEqual manufacturingId
+          case other => fail(s"Unexpected events: $other")
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject task dependencies referencing tasks outside the manufacturing" in:
+    val unknownTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010b").nn
+    val data = orderData()
+    val dependencies = ManufacturingDependencies().addTaskDependencies(templateTaskId, Set(unknownTemplateId))
+    val result = run(Command.ChangeTaskDependencies(manufacturingId, dependencies), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Rejected(_, reasons) =>
+        reasons.toChain.toList shouldEqual List(UnknownTaskInDependencies(manufacturingId, Set(unknownTemplateId)))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject creating an order whose manufacturing dependency graph is invalid" in:
+    val unknownId = UUID.fromString("00000000-0000-0000-0000-00000000010c").nn
+    val data = twoManufacturingsData()
+      .withDependencies(OrderDependencies.empty.addManufacturingDependencies(manufacturingId, Set(unknownId)))
+    val result = run(Command.Create(data, nextDay), NewOrder)
+
+    result match
+      case EdomatonResult.Rejected(_, reasons) =>
+        reasons.toChain.toList shouldEqual List(UnknownManufacturingInDependencies(Set(unknownId)))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "create an order carrying manufacturing dependencies" in:
+    val data = twoManufacturingsData()
+      .withDependencies(OrderDependencies.empty.addManufacturingDependencies(secondManufacturingId, Set(manufacturingId)))
+    val result = run(Command.Create(data, nextDay), NewOrder)
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
+        newState.data.dependencies.dependenciesOf(secondManufacturingId) shouldEqual Set(manufacturingId)
       case other => fail(s"Unexpected result: $other")
 end OrderServiceTest

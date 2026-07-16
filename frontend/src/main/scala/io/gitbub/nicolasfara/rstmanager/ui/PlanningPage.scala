@@ -593,16 +593,26 @@ object PlanningPage:
             div(cls := "mt-0.5 break-words text-sm font-semibold text-slate-900", order.map(_.number).getOrElse(Formats.shortId(delay.orderId))),
             order.flatMap(_.description).map(description => div(cls := "mt-1 break-words text-xs text-slate-600", description)).getOrElse(emptyNode),
           ),
-          div(cls := "shrink-0 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800", delayAmount(delay.expectedDeliveryDate, delay.promisedDeliveryDate)),
+          div(
+            cls := "shrink-0 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800",
+            delayAmount(delay.expectedDeliveryDate, delay.promisedDeliveryDate),
+          ),
         ),
         div(
           cls := "mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3",
-          div(span(cls := "text-slate-500", "Stato"), div(cls := "font-medium text-slate-700", order.map(o => statusLabel(o.status)).getOrElse("Non trovato"))),
+          div(
+            span(cls := "text-slate-500", "Stato"),
+            div(cls := "font-medium text-slate-700", order.map(o => statusLabel(o.status)).getOrElse("Non trovato")),
+          ),
           div(span(cls := "text-slate-500", "Priorità"), div(cls := "font-medium text-slate-700", order.map(_.priority).getOrElse("—"))),
-          div(span(cls := "text-slate-500", "Lavorazioni"), div(cls := "font-medium text-slate-700", order.map(_.manufacturings.size.toString).getOrElse("—"))),
+          div(
+            span(cls := "text-slate-500", "Lavorazioni"),
+            div(cls := "font-medium text-slate-700", order.map(_.manufacturings.size.toString).getOrElse("—")),
+          ),
         ),
         div(cls := "mt-3", datePair("Deadline fine lavorazione", delay.expectedDeliveryDate, "Fine pianificata", delay.promisedDeliveryDate)),
       )
+    end delayedOrderCard
 
     def delayedManufacturingCard(delay: DelayedManufacturingDto, contexts: Map[UUID, ManufacturingContext]): HtmlElement =
       val context = contexts.get(delay.manufacturingId)
@@ -617,20 +627,33 @@ object PlanningPage:
           div(
             cls := "min-w-0",
             div(cls := "text-xs font-semibold uppercase tracking-wide text-orange-700", "Lavorazione in ritardo"),
-            div(cls := "mt-0.5 break-words text-sm font-semibold text-slate-900", manufacturing.map(_.code).getOrElse(Formats.shortId(delay.manufacturingId))),
+            div(
+              cls := "mt-0.5 break-words text-sm font-semibold text-slate-900",
+              manufacturing.map(_.code).getOrElse(Formats.shortId(delay.manufacturingId)),
+            ),
             div(cls := "mt-1 text-xs text-slate-600", order.map(o => s"Ordine ${o.number}").getOrElse(s"Ordine ${Formats.shortId(delay.orderId)}")),
-            manufacturing.flatMap(_.description).map(description => div(cls := "mt-1 break-words text-xs text-slate-600", description)).getOrElse(emptyNode),
+            manufacturing
+              .flatMap(_.description)
+              .map(description => div(cls := "mt-1 break-words text-xs text-slate-600", description))
+              .getOrElse(emptyNode),
           ),
-          div(cls := "shrink-0 rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-800", delayAmount(delay.expectedCompletionDate, delay.computedCompletionDate)),
+          div(
+            cls := "shrink-0 rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-800",
+            delayAmount(delay.expectedCompletionDate, delay.computedCompletionDate),
+          ),
         ),
         div(
           cls := "mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3",
-          div(span(cls := "text-slate-500", "Stato"), div(cls := "font-medium text-slate-700", manufacturing.map(m => statusLabel(m.status)).getOrElse("Non trovata"))),
+          div(
+            span(cls := "text-slate-500", "Stato"),
+            div(cls := "font-medium text-slate-700", manufacturing.map(m => statusLabel(m.status)).getOrElse("Non trovata")),
+          ),
           div(span(cls := "text-slate-500", "Task"), div(cls := "font-medium text-slate-700", taskCount.map(_.toString).getOrElse("—"))),
           div(span(cls := "text-slate-500", "Ore"), div(cls := "font-medium text-slate-700", expectedHours.map(hours => s"${hours}h").getOrElse("—"))),
         ),
         div(cls := "mt-3", datePair("Deadline lavorazione", delay.expectedCompletionDate, "Nuova stima", delay.computedCompletionDate)),
       )
+    end delayedManufacturingCard
 
     def delaysSection(state: PlanningStateDto): HtmlElement =
       val (delayedOrders, delayedManufacturings, _, _) = diagnostics(state)

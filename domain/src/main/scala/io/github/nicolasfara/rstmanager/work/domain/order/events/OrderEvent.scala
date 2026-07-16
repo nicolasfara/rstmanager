@@ -2,8 +2,9 @@ package io.github.nicolasfara.rstmanager.work.domain.order.events
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
-import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderPriority, SuspensionReason }
+import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderDependencies, OrderPriority, SuspensionReason }
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
@@ -89,4 +90,10 @@ enum OrderEvent:
 
   /** A completed task within a manufacturing has been reopened. */
   case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
+
+  /** The dependency graph between the order manufacturings has been replaced. */
+  case ManufacturingDependenciesChanged(dependencies: OrderDependencies, changedOn: DateTime)
+
+  /** The task dependency graph of a manufacturing has been replaced. */
+  case TaskDependenciesChanged(manufacturingId: ScheduledManufacturingId, dependencies: ManufacturingDependencies, changedOn: DateTime)
 end OrderEvent

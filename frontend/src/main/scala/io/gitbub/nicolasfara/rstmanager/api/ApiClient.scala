@@ -124,6 +124,10 @@ object ApiClient:
     sendJson(dom.HttpMethod.DELETE, s"/orders/$orderId/manufacturings/$manufacturingId", None)
   def updateManufacturing(orderId: UUID, manufacturingId: UUID, request: ManufacturingUpdateRequest): Future[Result[OrderResponse]] =
     sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/manufacturings/$manufacturingId", jsonBody(request))
+  def updateOrderDependencies(orderId: UUID, request: OrderDependenciesUpdateRequest): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/dependencies", jsonBody(request))
+  def updateTaskDependencies(orderId: UUID, manufacturingId: UUID, request: TaskDependenciesUpdateRequest): Future[Result[OrderResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/manufacturings/$manufacturingId/dependencies", jsonBody(request))
   def addManufacturingTask(orderId: UUID, manufacturingId: UUID, request: AddTaskRequest): Future[Result[OrderResponse]] =
     sendJson(dom.HttpMethod.POST, s"/orders/$orderId/manufacturings/$manufacturingId/tasks", jsonBody(request))
   def removeManufacturingTask(orderId: UUID, manufacturingId: UUID, taskId: UUID): Future[Result[OrderResponse]] =

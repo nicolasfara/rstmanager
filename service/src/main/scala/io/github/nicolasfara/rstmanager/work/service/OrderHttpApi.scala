@@ -103,6 +103,22 @@ object OrderHttpApi:
       .summary("Remove a task from a manufacturing")
       .out(jsonBody[OrderResponse])
 
+  val updateDependencies: PublicEndpoint[(UUID, OrderDependenciesUpdateRequest), ApiFailure, OrderResponse, Any] =
+    ApiError.base.put
+      .in(collection / path[UUID]("id") / "dependencies")
+      .tag("Orders")
+      .summary("Replace the dependency graph between the order manufacturings")
+      .in(jsonBody[OrderDependenciesUpdateRequest].example(OrderDependenciesUpdateRequest.example))
+      .out(jsonBody[OrderResponse])
+
+  val updateTaskDependencies: PublicEndpoint[(UUID, UUID, TaskDependenciesUpdateRequest), ApiFailure, OrderResponse, Any] =
+    ApiError.base.put
+      .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "dependencies")
+      .tag("Orders")
+      .summary("Replace the task dependency graph of a manufacturing")
+      .in(jsonBody[TaskDependenciesUpdateRequest].example(TaskDependenciesUpdateRequest.example))
+      .out(jsonBody[OrderResponse])
+
   val setPreferredEmployee: PublicEndpoint[(UUID, UUID, SetPreferredEmployeeRequest), ApiFailure, OrderResponse, Any] =
     ApiError.base.put
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "employee")
@@ -130,6 +146,8 @@ object OrderHttpApi:
       addManufacturing,
       removeManufacturing,
       updateManufacturing,
+      updateDependencies,
+      updateTaskDependencies,
       addTask,
       removeTask,
       setPreferredEmployee,
@@ -151,6 +169,8 @@ object OrderHttpApi:
     addManufacturing.serverLogic(addManufacturingLogic(store, tasks)),
     removeManufacturing.serverLogic(removeManufacturingLogic(store)),
     updateManufacturing.serverLogic(updateManufacturingLogic(store)),
+    updateDependencies.serverLogic(updateDependenciesLogic(store)),
+    updateTaskDependencies.serverLogic(updateTaskDependenciesLogic(store)),
     addTask.serverLogic(addTaskLogic(store, tasks)),
     removeTask.serverLogic(removeTaskLogic(store)),
     setPreferredEmployee.serverLogic(setPreferredEmployeeLogic(store, employees)),
@@ -238,6 +258,20 @@ object OrderHttpApi:
     request.toCommands(manufacturingId).toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
       case Right(commands) => runCommands(store, id, commands)
+
+  private def updateDependenciesLogic(
+      store: OrderApp.Store,
+  )(id: UUID, request: OrderDependenciesUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
+    request.toCommand.toEither match
+      case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
+      case Right(command) => runCommands(store, id, List(command))
+
+  private def updateTaskDependenciesLogic(
+      store: OrderApp.Store,
+  )(id: UUID, manufacturingId: UUID, request: TaskDependenciesUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
+    request.toCommand(manufacturingId).toEither match
+      case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
+      case Right(command) => runCommands(store, id, List(command))
 
   private def addTaskLogic(
       store: OrderApp.Store,

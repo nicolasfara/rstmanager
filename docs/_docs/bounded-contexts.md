@@ -70,6 +70,7 @@ This context contains two tightly related sub-models.
   [[io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask]]
 - Supporting state and policies: [[io.github.nicolasfara.rstmanager.work.domain.order.OrderData]],
   [[io.github.nicolasfara.rstmanager.work.domain.order.OrderPriority]],
+  [[io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies]],
   [[io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent]]
 
 ## Planning

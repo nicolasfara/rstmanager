@@ -2,6 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderOperations.*
@@ -46,10 +47,14 @@ enum Order derives CanEqual:
   /**
    * Creates an order from `NewOrder`.
    *
-   * Fails with `OrderAlreadyCreated` for every other state.
+   * Fails with `OrderAlreadyCreated` for every other state, and rejects dependency graphs referencing unknown manufacturings/tasks or containing
+   * cycles.
    */
   def create(data: OrderData, promisedDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] = this.decide {
-    case NewOrder => Decision.accept(OrderCreated(data, promisedDeliveryDate))
+    case NewOrder =>
+      validateDependencies(data) match
+        case Left(error) => Decision.reject(error)
+        case Right(()) => Decision.accept(OrderCreated(data, promisedDeliveryDate))
     case _ => Decision.reject(OrderAlreadyCreated)
   }
     .validate(_.mustBeInProgress)
@@ -133,7 +138,9 @@ enum Order derives CanEqual:
       newCompletionDate: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, DateTime.now()).accept)
+      .perform(
+        mustBeInProgressOrSuspended.toDecision *> ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, DateTime.now()).accept,
+      )
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Manually moves a manufacturing inside an active or suspended order to a new lifecycle status. */
@@ -211,6 +218,21 @@ enum Order derives CanEqual:
   def revertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskReverted(manufacturingId, taskId).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Replaces the dependency graph between the manufacturings of an active or suspended order. */
+  def changeManufacturingDependencies(newDependencies: OrderDependencies): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingDependenciesChanged(newDependencies, DateTime.now()).accept)
+      .validate(_.mustBeInProgressOrSuspended)
+
+  /** Replaces the task dependency graph of a manufacturing inside an active or suspended order. */
+  def changeTaskDependencies(
+      manufacturingId: ScheduledManufacturingId,
+      newDependencies: ManufacturingDependencies,
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(mustBeInProgressOrSuspended.toDecision *> TaskDependenciesChanged(manufacturingId, newDependencies, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   private def mustBeDelivered: ValidatedNec[OrderError, DeliveredOrder] = this match
@@ -307,5 +329,9 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
       _.mustBeInProgressOrSuspended.andThen(completeTask(_, manufacturingId, taskId, withHours).toValidatedNec)
     case ManufacturingTaskReverted(manufacturingId, taskId) =>
       _.mustBeInProgressOrSuspended.andThen(revertTaskToInProgress(_, manufacturingId, taskId).toValidatedNec)
+    case ManufacturingDependenciesChanged(newDependencies, _) =>
+      _.mustBeInProgressOrSuspended.andThen(changeManufacturingDependencies(_, newDependencies).toValidatedNec)
+    case TaskDependenciesChanged(manufacturingId, newDependencies, _) =>
+      _.mustBeInProgressOrSuspended.andThen(changeTaskDependencies(_, manufacturingId, newDependencies).toValidatedNec)
   }
 end Order

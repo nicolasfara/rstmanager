@@ -49,6 +49,18 @@ object Components:
       controlled(value <-- state.signal, onInput.mapToValue --> state),
     )
 
+  /** Variant of [[textInput]] that accepts a `Signal` for reading and an `Observer` for writing. */
+  def textInput(valueSignal: Signal[String], writer: Observer[String], placeholderText: String, inputType: String): HtmlElement =
+    input(
+      typ := inputType,
+      cls := inputCls,
+      placeholder := placeholderText,
+      controlled(value <-- valueSignal, onInput.mapToValue --> writer),
+    )
+
+  def textInput(valueSignal: Signal[String], writer: Observer[String], placeholderText: String): HtmlElement =
+    textInput(valueSignal, writer, placeholderText, "text")
+
   def selectInput(state: Var[String], opts: Signal[List[(String, String)]]): HtmlElement =
     select(
       cls := inputCls,
@@ -56,8 +68,28 @@ object Components:
       children <-- opts.map(_.map { case (optValue, optLabel) => option(value := optValue, optLabel) }),
     )
 
+  /** Variant of [[selectInput]] that accepts a `Signal` for reading and an `Observer` for writing. */
+  def selectInput(valueSignal: Signal[String], writer: Observer[String], opts: Signal[List[(String, String)]]): HtmlElement =
+    select(
+      cls := inputCls,
+      controlled(value <-- valueSignal, onChange.mapToValue --> writer),
+      children <-- opts.map(_.map { case (optValue, optLabel) => option(value := optValue, optLabel) }),
+    )
+
   def staticSelect(state: Var[String], opts: List[(String, String)]): HtmlElement =
     selectInput(state, Signal.fromValue(opts))
+
+  /** Variant of [[staticSelect]] that accepts a `Signal` for reading and an `Observer` for writing. */
+  def staticSelect(valueSignal: Signal[String], writer: Observer[String], opts: List[(String, String)]): HtmlElement =
+    selectInput(valueSignal, writer, Signal.fromValue(opts))
+
+  // ---- Validation --------------------------------------------------------------------------------
+
+  /** Folds a sequence of per-field error signals into a single `Signal[List[String]]`. */
+  def formErrorsSignal(checks: Signal[Option[String]]*): Signal[List[String]] =
+    checks.foldLeft(Signal.fromValue(List.empty[String]): Signal[List[String]]) { (acc, s) =>
+      acc.combineWith(s).map { case (errs, opt) => errs ++ opt.toList }
+    }
 
   // ---- Feedback ----------------------------------------------------------------------------------
 
@@ -88,6 +120,9 @@ object Components:
       else emptyNode,
     )
 
+  def showError(target: Var[Option[ApiError]], context: String)(err: ApiError): Unit =
+    ErrorCenter.reportTo(target, context)(err)
+
   /** Renders a possibly-loading, possibly-failed remote resource. */
   def renderResult[A](signal: Signal[Option[ApiClient.Result[A]]])(render: A => HtmlElement): HtmlElement =
     div(
@@ -107,7 +142,19 @@ object Components:
    * consecutive identical results don't re-render (`distinct`). This keeps refreshes — including the automatic ones — visually smooth.
    */
   def loadable[A](tick: Signal[Any])(load: () => Future[ApiClient.Result[A]]): Signal[Option[ApiClient.Result[A]]] =
-    tick.flatMapSwitch(_ => EventStream.fromFuture(load())).toWeakSignal.distinct
+    tick
+      .flatMapSwitch(_ =>
+        EventStream.fromFuture(
+          load().map {
+            case Left(err) =>
+              ErrorCenter.report("Caricamento dati", err)
+              Left(err)
+            case result => result
+          },
+        ),
+      )
+      .toWeakSignal
+      .distinct
 
   // ---- Modal -------------------------------------------------------------------------------------
 

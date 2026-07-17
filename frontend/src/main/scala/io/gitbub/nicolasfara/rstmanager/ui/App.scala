@@ -33,7 +33,38 @@ object App:
       onClick --> (_ => current.set(page)),
     )
 
+  private def errorDetails(details: List[String]): com.raquo.laminar.nodes.ChildNode.Base =
+    if details.nonEmpty then ul(cls := "mt-1 list-disc pl-5 text-xs text-rose-700", details.map(detail => li(detail)))
+    else emptyNode
+
+  private def globalErrorBanner: HtmlElement =
+    div(
+      child.maybe <-- ErrorCenter.latestSignal.map(
+        _.map(report =>
+          div(
+            cls := "fixed bottom-4 left-4 right-4 z-50 max-w-md rounded-md border border-rose-200 bg-white p-3 text-sm shadow-lg sm:left-auto sm:w-full",
+            div(
+              cls := "flex items-start justify-between gap-3",
+              div(
+                cls := "min-w-0",
+                div(cls := "text-xs font-semibold uppercase tracking-wide text-rose-500", report.context),
+                div(cls := "mt-0.5 break-words font-medium text-rose-800", report.error.message),
+                errorDetails(report.error.details),
+              ),
+              button(
+                tpe := "button",
+                cls := "shrink-0 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700",
+                "Chiudi",
+                onClick --> (_ => ErrorCenter.dismiss(report.id)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+
   def apply(): HtmlElement =
+    ErrorCenter.installRuntimeHandlers()
     val current = Var(Page.Planning)
     val menuOpen = Var(false)
     div(
@@ -84,6 +115,7 @@ object App:
         cls := "mx-auto max-w-7xl px-4 sm:px-6 py-6",
         child <-- current.signal.map(render),
       ),
+      globalErrorBanner,
     )
   end apply
 end App

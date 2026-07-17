@@ -31,6 +31,12 @@ object Formats:
     if from.getTime().isNaN || to.getTime().isNaN then None
     else Some(math.floor((to.getTime() - from.getTime()) / 86400000.0).toInt)
 
+  /** Extracts the local calendar date as `YYYY-MM-DD` from any ISO datetime string (ignores time and timezone offset). */
+  def dateKey(iso: String): String =
+    val d = new js.Date(iso)
+    if d.getTime().isNaN then iso
+    else s"${d.getFullYear().toInt}-${pad2(d.getMonth().toInt + 1)}-${pad2(d.getDate().toInt)}"
+
   /** Returns a stable `YYYY-MM-DD` key for the Monday of the week containing `iso`. Used to group planning days by week. */
   def weekKey(iso: String): String =
     val d = new js.Date(iso)
@@ -38,4 +44,12 @@ object Formats:
     val diffToMonday = if day == 0 then -6 else 1 - day
     val monday = new js.Date(d.getTime() + diffToMonday.toDouble * 86400000.0)
     s"${monday.getFullYear().toInt}-${pad2(monday.getMonth().toInt + 1)}-${pad2(monday.getDate().toInt)}"
+
+  /** Returns the five `YYYY-MM-DD` keys for Mon–Fri of the week whose Monday is `mondayKey`. */
+  def weekDays(mondayKey: String): List[String] =
+    val monday = new js.Date(mondayKey)
+    (0 until 5).map { offset =>
+      val d = new js.Date(monday.getTime() + offset.toDouble * 86400000.0)
+      s"${d.getFullYear().toInt}-${pad2(d.getMonth().toInt + 1)}-${pad2(d.getDate().toInt)}"
+    }.toList
 end Formats

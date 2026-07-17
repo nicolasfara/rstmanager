@@ -27,6 +27,9 @@ object PlanningPage:
   private enum EditKind derives CanEqual:
     case Progress, Reactivate
 
+  /** Editable task-modal fields, tracked against the values loaded when the modal opens. */
+  private final case class TaskModalState(completed: String, expected: String, employeeId: String) derives CanEqual
+
   /** Visual treatment for a planned task slice based on how close its day is to the manufacturing deadline. */
   private final case class Urgency(cardCls: String, label: String, labelCls: String)
 
@@ -103,22 +106,24 @@ object PlanningPage:
     val editing = Var(Option.empty[(UUID, UUID, UUID)])
     val editKind = Var(EditKind.Progress)
     val editName = Var("")
-    val editCompleted = Var("")
-    val editExpected = Var("")
-    val origCompleted = Var(0)
-    val origExpected = Var(0)
-    val editEmployeeId = Var("")
-    val origEmployee = Var("")
+    val editState = Var(TaskModalState("", "", ""))
+    val editTracker = Var(DirtyTracker(TaskModalState("", "", ""), editState))
     val modalOpen = Var(false)
     val modalError = Var(Option.empty[ApiError])
     val saving = Var(false)
 
     val weekIndex = Var(0)
 
-    val planningData = loadable(AppBus.ticks)(() => ApiClient.currentPlanning())
-    val ordersData = loadable(AppBus.ticks)(() => ApiClient.listOrders())
-    val employeesData = loadable(AppBus.ticks)(() => ApiClient.listEmployees())
-    val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
+    // Private poll tick: only planningData re-fetches on the background poll.
+    // ordersData/employeesData/tasksData use their own domain ticks so they react to mutations
+    // from other pages, but they are NOT re-fetched on every silent planning poll.
+    val pollTick = Var(0)
+    val planningTick: Signal[Any] = AppBus.planningTicks.combineWith(pollTick.signal)
+
+    val planningData = loadable(planningTick)(() => ApiClient.currentPlanning())
+    val ordersData = loadable(AppBus.ordersTicks)(() => ApiClient.listOrders())
+    val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
+    val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
 
     val orderNames: Signal[Map[UUID, String]] = ordersData.map {
       case Some(Right(list)) => list.map(o => o.id -> o.number).toMap
@@ -173,27 +178,23 @@ object PlanningPage:
     def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String, preferred: Option[UUID]): Unit =
       val completed = task.completedHours.getOrElse(0)
       val prefStr = preferred.map(_.toString).getOrElse("")
+      val state = TaskModalState(completed.toString, task.expectedHours.toString, prefStr)
       editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
       editKind.set(EditKind.Progress)
       editName.set(name)
-      editCompleted.set(completed.toString)
-      editExpected.set(task.expectedHours.toString)
-      origCompleted.set(completed)
-      origExpected.set(task.expectedHours)
-      editEmployeeId.set(prefStr)
-      origEmployee.set(prefStr)
+      editState.set(state)
+      editTracker.set(DirtyTracker(state, editState))
       modalError.set(None)
       modalOpen.set(true)
 
     def openReactivate(row: CompletedRow, name: String): Unit =
+      val initial = TaskModalState(row.task.completedHours.getOrElse(0).toString, row.task.expectedHours.toString, "")
       editing.set(Some((row.order.id, row.manufacturing.id, row.task.id)))
       editKind.set(EditKind.Reactivate)
       editName.set(name)
       // The task is completed, so its recorded hours cover the estimate: ask for the hours actually done.
-      editCompleted.set("")
-      editExpected.set(row.task.expectedHours.toString)
-      origCompleted.set(row.task.completedHours.getOrElse(0))
-      origExpected.set(row.task.expectedHours)
+      editState.set(initial.copy(completed = ""))
+      editTracker.set(DirtyTracker(initial, editState))
       modalError.set(None)
       modalOpen.set(true)
 
@@ -202,21 +203,23 @@ object PlanningPage:
 
     def save(): Unit =
       editing.now().foreach { case (orderId, manufacturingId, taskId) =>
-        val completed = editCompleted.now().trim.nn.toIntOption
-        val expected = editExpected.now().trim.nn.toIntOption
+        val state = editState.now()
+        val tracker = editTracker.now()
+        val completed = state.completed.trim.nn.toIntOption
+        val expected = state.expected.trim.nn.toIntOption
         val reactivating = editKind.now() == EditKind.Reactivate
-        if completed.exists(_ < 0) then modalError.set(Some(ApiError("invalid", "Le ore svolte non possono essere negative.", Nil)))
-        else if expected.exists(_ < 1) then modalError.set(Some(ApiError("invalid", "Le ore totali devono essere almeno 1.", Nil)))
+        if completed.exists(_ < 0) then showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore svolte non possono essere negative.", Nil))
+        else if expected.exists(_ < 1) then showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali devono essere almeno 1.", Nil))
         else if reactivating && !completed.zip(expected).exists((done, total) => done < total) then
-          modalError.set(
-            Some(ApiError("invalid", "Per riportare il task in lavorazione le ore svolte devono essere inferiori alle ore totali.", Nil)),
+          showError(modalError, "Aggiornamento task")(
+            ApiError("invalid", "Per riportare il task in lavorazione le ore svolte devono essere inferiori alle ore totali.", Nil),
           )
         else
           val taskRequest = TaskProgressUpdateRequest(
-            completed.filter(_ != origCompleted.now()),
-            expected.filter(_ != origExpected.now()),
+            completed.filter(_ => tracker.changed(_.completed.trim.nn.toIntOption)),
+            expected.filter(_ => tracker.changed(_.expected.trim.nn.toIntOption)),
           )
-          val employeeChanged = !reactivating && editEmployeeId.now() != origEmployee.now()
+          val employeeChanged = !reactivating && tracker.changed(_.employeeId)
           val hasTaskChanges = taskRequest.completedHours.isDefined || taskRequest.expectedHours.isDefined
 
           if !hasTaskChanges && !employeeChanged then closeEdit()
@@ -230,19 +233,19 @@ object PlanningPage:
               case Left(err) => Future.successful(Left(err))
               case Right(()) =>
                 if employeeChanged then
-                  val empId = scala.util.Try(UUID.fromString(editEmployeeId.now()).nn).toOption
+                  val empId = scala.util.Try(UUID.fromString(state.employeeId).nn).toOption
                   ApiClient.setPreferredEmployee(orderId, manufacturingId, empId).map(_.map(_ => ()))
                 else Future.successful(Right(()))
             }.foreach {
-              case Right(_) => closeEdit(); AppBus.mutated()
-              case Left(err) => saving.set(false); modalError.set(Some(err))
+              case Right(_) => closeEdit(); AppBus.mutatedOrders()
+              case Left(err) => saving.set(false); showError(modalError, "Aggiornamento task")(err)
             }
         end if
       }
 
     /** Quick action: completes the task by aligning the hours done to the total. */
     def markCompleted(): Unit =
-      editCompleted.set(editExpected.now())
+      editState.update(state => state.copy(completed = state.expected))
       save()
 
     val modalTitle = editKind.signal.map {
@@ -257,11 +260,12 @@ object PlanningPage:
           div(cls := "text-sm font-semibold text-slate-800", child.text <-- editName.signal),
           div(
             cls := "grid grid-cols-2 gap-3",
-            field("Ore svolte", textInput(editCompleted, "", "number")),
-            field("Ore totali", textInput(editExpected, "", "number")),
+            field("Ore svolte", textInput(editState.signal.map(_.completed), Observer[String](v => editState.update(_.copy(completed = v))), "", "number")),
+            field("Ore totali", textInput(editState.signal.map(_.expected), Observer[String](v => editState.update(_.copy(expected = v))), "", "number")),
           ),
           child <-- editKind.signal.map {
-            case EditKind.Progress => field("Dipendente preferito", selectInput(editEmployeeId, employeeOptions))
+            case EditKind.Progress =>
+              field("Dipendente preferito", selectInput(editState.signal.map(_.employeeId), Observer[String](v => editState.update(_.copy(employeeId = v))), employeeOptions))
             case EditKind.Reactivate => emptyNode
           },
           p(
@@ -406,9 +410,10 @@ object PlanningPage:
         div(
           cls := "mb-2 flex items-baseline justify-between border-b border-slate-200 pb-1",
           span(cls := "text-sm font-semibold text-slate-700", Formats.date(day)),
-          span(cls := "text-xs text-slate-400", s"${slices.size}"),
+          if slices.nonEmpty then span(cls := "text-xs text-slate-400", s"${slices.size}") else emptyNode,
         ),
-        div(cls := "space-y-2", slices.map(sliceCard)),
+        if slices.isEmpty then div(cls := "py-4 text-center text-xs text-slate-300", "—")
+        else div(cls := "space-y-2", slices.map(sliceCard)),
       )
 
     def board(state: PlanningStateDto): HtmlElement =
@@ -416,20 +421,32 @@ object PlanningPage:
       if days.isEmpty then
         emptyState("Nessun task pianificato. La pianificazione si ricalcola automaticamente quando ordini, task o forza lavoro cambiano.")
       else
-        val byWeek: List[List[(String, List[ScheduledTaskSliceDto])]] =
-          days.groupBy((day, _) => Formats.weekKey(day)).toList.sortBy(_._1).map(_._2)
-        if byWeek.size <= 1 then
+        // Normalize each day to a YYYY-MM-DD key so that weekKey and weekDays align regardless of the
+        // timezone or time component in the backend-produced datetime strings.
+        val byWeek: List[(String, Map[String, List[ScheduledTaskSliceDto]])] =
+          days
+            .map { case (day, slices) => Formats.dateKey(day) -> slices }
+            .groupBy { case (dk, _) => Formats.weekKey(dk) }
+            .toList
+            .sortBy(_._1)
+            .map { case (wk, pairs) => wk -> pairs.toMap }
+
+        def renderWeekGrid(wk: String, slicesByDate: Map[String, List[ScheduledTaskSliceDto]]): HtmlElement =
           div(
             cls := "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4",
-            days.map((day, slices) => dayColumn(day, slices)),
+            Formats.weekDays(wk).map(dk => dayColumn(dk, slicesByDate.getOrElse(dk, Nil))),
           )
+
+        if byWeek.size <= 1 then
+          val (wk, slicesByDate) = byWeek.head
+          renderWeekGrid(wk, slicesByDate)
         else
           val totalWeeks = byWeek.size
           val clampedIdx: Signal[Int] = weekIndex.signal.map(i => math.min(i, totalWeeks - 1))
-          val currentDays: Signal[List[(String, List[ScheduledTaskSliceDto])]] =
-            clampedIdx.map(byWeek(_))
-          val weekRangeLabel: Signal[String] = currentDays.map { wd =>
-            s"${Formats.date(wd.head._1)} – ${Formats.date(wd.last._1)}"
+          val weekRangeLabel: Signal[String] = clampedIdx.map { i =>
+            val (wk, _) = byWeek(i)
+            val wd = Formats.weekDays(wk)
+            s"${Formats.date(wd.head)} – ${Formats.date(wd.last)}"
           }
           div(
             cls := "space-y-3",
@@ -458,10 +475,10 @@ object PlanningPage:
                 onClick --> (_ => weekIndex.update(i => math.min(totalWeeks - 1, i + 1))),
               ),
             ),
-            div(
-              cls := "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4",
-              children <-- currentDays.map(_.map((day, slices) => dayColumn(day, slices))),
-            ),
+            child <-- clampedIdx.map { i =>
+              val (wk, slicesByDate) = byWeek(i)
+              renderWeekGrid(wk, slicesByDate)
+            },
           )
         end if
       end if
@@ -568,49 +585,53 @@ object PlanningPage:
     end completedSection
 
     // ---- Diagnostics -----------------------------------------------------------------------------
+    def delayMetric(label: String, value: String): HtmlElement =
+      span(
+        cls := "inline-flex min-w-0 items-baseline gap-1 rounded-md bg-white/70 px-1.5 py-0.5 text-[11px] leading-tight",
+        span(cls := "shrink-0 text-slate-400", label),
+        span(cls := "truncate font-medium text-slate-700", value),
+      )
+
     def datePair(fromLabel: String, fromIso: String, toLabel: String, toIso: String): HtmlElement =
       div(
-        cls := "grid grid-cols-1 gap-2 rounded-md bg-white/80 p-2 text-xs sm:grid-cols-2",
-        div(
-          div(cls := "font-medium text-amber-700", fromLabel),
-          div(cls := "mt-0.5 tabular-nums text-slate-700", Formats.date(fromIso)),
-        ),
-        div(
-          div(cls := "font-medium text-amber-700", toLabel),
-          div(cls := "mt-0.5 tabular-nums text-slate-900", Formats.date(toIso)),
-        ),
+        cls := "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-white/75 px-2 py-1 text-[11px] leading-tight",
+        span(cls := "font-medium text-slate-500", fromLabel),
+        span(cls := "tabular-nums text-slate-700", Formats.date(fromIso)),
+        span(cls := "text-slate-300", "->"),
+        span(cls := "font-medium text-slate-500", toLabel),
+        span(cls := "tabular-nums font-semibold text-slate-900", Formats.date(toIso)),
       )
 
     def delayedOrderCard(delay: DelayedOrderDto, orders: Map[UUID, OrderResponse]): HtmlElement =
       val order = orders.get(delay.orderId)
       div(
-        cls := "rounded-lg border border-amber-200 bg-amber-50 p-3 shadow-sm",
+        cls := "rounded-md border border-amber-200 bg-white/80 p-2 shadow-sm",
         div(
-          cls := "flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between",
+          cls := "flex items-start justify-between gap-2",
           div(
-            cls := "min-w-0",
-            div(cls := "text-xs font-semibold uppercase tracking-wide text-amber-700", "Ordine in ritardo"),
-            div(cls := "mt-0.5 break-words text-sm font-semibold text-slate-900", order.map(_.number).getOrElse(Formats.shortId(delay.orderId))),
-            order.flatMap(_.description).map(description => div(cls := "mt-1 break-words text-xs text-slate-600", description)).getOrElse(emptyNode),
+            cls := "min-w-0 flex-1",
+            div(
+              cls := "flex flex-wrap items-baseline gap-x-2 gap-y-0.5",
+              span(cls := "text-[11px] font-semibold uppercase tracking-wide text-amber-700", "Ordine"),
+              span(
+                cls := "min-w-0 break-words text-sm font-semibold leading-snug text-slate-900",
+                order.map(_.number).getOrElse(Formats.shortId(delay.orderId)),
+              ),
+            ),
+            order.flatMap(_.description).map(description => div(cls := "mt-0.5 break-words text-xs leading-snug text-slate-600", description)).getOrElse(emptyNode),
           ),
           div(
-            cls := "shrink-0 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800",
+            cls := "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800",
             delayAmount(delay.expectedDeliveryDate, delay.promisedDeliveryDate),
           ),
         ),
         div(
-          cls := "mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3",
-          div(
-            span(cls := "text-slate-500", "Stato"),
-            div(cls := "font-medium text-slate-700", order.map(o => statusLabel(o.status)).getOrElse("Non trovato")),
-          ),
-          div(span(cls := "text-slate-500", "Priorità"), div(cls := "font-medium text-slate-700", order.map(_.priority).getOrElse("—"))),
-          div(
-            span(cls := "text-slate-500", "Lavorazioni"),
-            div(cls := "font-medium text-slate-700", order.map(_.manufacturings.size.toString).getOrElse("—")),
-          ),
+          cls := "mt-2 flex flex-wrap gap-1.5",
+          delayMetric("Stato", order.map(o => statusLabel(o.status)).getOrElse("Non trovato")),
+          delayMetric("Priorità", order.map(_.priority).getOrElse("—")),
+          delayMetric("Lavorazioni", order.map(_.manufacturings.size.toString).getOrElse("—")),
         ),
-        div(cls := "mt-3", datePair("Deadline fine lavorazione", delay.expectedDeliveryDate, "Fine pianificata", delay.promisedDeliveryDate)),
+        div(cls := "mt-2", datePair("Deadline", delay.expectedDeliveryDate, "Pianificata", delay.promisedDeliveryDate)),
       )
     end delayedOrderCard
 
@@ -621,37 +642,37 @@ object PlanningPage:
       val taskCount = manufacturing.map(_.tasks.size)
       val expectedHours = manufacturing.map(_.tasks.map(_.expectedHours).sum)
       div(
-        cls := "rounded-lg border border-orange-200 bg-orange-50 p-3 shadow-sm",
+        cls := "rounded-md border border-orange-200 bg-white/80 p-2 shadow-sm",
         div(
-          cls := "flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between",
+          cls := "flex items-start justify-between gap-2",
           div(
-            cls := "min-w-0",
-            div(cls := "text-xs font-semibold uppercase tracking-wide text-orange-700", "Lavorazione in ritardo"),
+            cls := "min-w-0 flex-1",
             div(
-              cls := "mt-0.5 break-words text-sm font-semibold text-slate-900",
-              manufacturing.map(_.code).getOrElse(Formats.shortId(delay.manufacturingId)),
+              cls := "flex flex-wrap items-baseline gap-x-2 gap-y-0.5",
+              span(cls := "text-[11px] font-semibold uppercase tracking-wide text-orange-700", "Lavorazione"),
+              span(
+                cls := "min-w-0 break-words text-sm font-semibold leading-snug text-slate-900",
+                manufacturing.map(_.code).getOrElse(Formats.shortId(delay.manufacturingId)),
+              ),
             ),
-            div(cls := "mt-1 text-xs text-slate-600", order.map(o => s"Ordine ${o.number}").getOrElse(s"Ordine ${Formats.shortId(delay.orderId)}")),
+            div(cls := "mt-0.5 text-xs leading-snug text-slate-600", order.map(o => s"Ordine ${o.number}").getOrElse(s"Ordine ${Formats.shortId(delay.orderId)}")),
             manufacturing
               .flatMap(_.description)
-              .map(description => div(cls := "mt-1 break-words text-xs text-slate-600", description))
+              .map(description => div(cls := "mt-0.5 break-words text-xs leading-snug text-slate-600", description))
               .getOrElse(emptyNode),
           ),
           div(
-            cls := "shrink-0 rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-800",
+            cls := "shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-800",
             delayAmount(delay.expectedCompletionDate, delay.computedCompletionDate),
           ),
         ),
         div(
-          cls := "mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3",
-          div(
-            span(cls := "text-slate-500", "Stato"),
-            div(cls := "font-medium text-slate-700", manufacturing.map(m => statusLabel(m.status)).getOrElse("Non trovata")),
-          ),
-          div(span(cls := "text-slate-500", "Task"), div(cls := "font-medium text-slate-700", taskCount.map(_.toString).getOrElse("—"))),
-          div(span(cls := "text-slate-500", "Ore"), div(cls := "font-medium text-slate-700", expectedHours.map(hours => s"${hours}h").getOrElse("—"))),
+          cls := "mt-2 flex flex-wrap gap-1.5",
+          delayMetric("Stato", manufacturing.map(m => statusLabel(m.status)).getOrElse("Non trovata")),
+          delayMetric("Task", taskCount.map(_.toString).getOrElse("—")),
+          delayMetric("Ore", expectedHours.map(hours => s"${hours}h").getOrElse("—")),
         ),
-        div(cls := "mt-3", datePair("Deadline lavorazione", delay.expectedCompletionDate, "Nuova stima", delay.computedCompletionDate)),
+        div(cls := "mt-2", datePair("Deadline", delay.expectedCompletionDate, "Stima", delay.computedCompletionDate)),
       )
     end delayedManufacturingCard
 
@@ -663,13 +684,17 @@ object PlanningPage:
           if cards.isEmpty then emptyNode
           else
             card(
-              cls := "overflow-hidden border-amber-200 bg-amber-50",
+              cls := "overflow-hidden border-amber-200 bg-amber-50/50",
               div(
-                cls := "border-b border-amber-200 bg-amber-100/70 px-4 py-3",
-                div(cls := "text-sm font-semibold text-amber-900", s"Ritardi da verificare (${cards.size})"),
-                div(cls := "text-xs text-amber-800", "Elementi che la pianificazione ha spostato oltre la deadline o la stima corrente."),
+                cls := "flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/70 bg-amber-100/50 px-3 py-2",
+                div(cls := "text-sm font-semibold text-amber-900", "Ritardi da verificare"),
+                div(
+                  cls := "flex items-center gap-2 text-xs text-amber-800",
+                  span(cls := "rounded-full bg-amber-200/70 px-2 py-0.5 font-semibold text-amber-900", cards.size.toString),
+                  span("Oltre deadline o stima corrente"),
+                ),
               ),
-              div(cls := "grid grid-cols-1 gap-3 p-3 xl:grid-cols-2", cards),
+              div(cls := "grid grid-cols-1 gap-2 p-2 lg:grid-cols-2 2xl:grid-cols-3", cards),
             )
         },
       )
@@ -692,14 +717,14 @@ object PlanningPage:
         panel("Avvisi", warnings.map(_.message), "text-slate-500"),
       )
 
-    // The backend recomputes the plan asynchronously after order/workforce changes: while this page is open, a silent
-    // in-place poll (no spinner/flicker, see `loadable`) keeps board and completed tasks converged on the latest plan.
+    // Silent background poll: only planningData is refreshed (via pollTick, not AppBus.refresh),
+    // so the poll does not cascade to orders/employees/tasks on other mounted pages.
     var pollHandle = Option.empty[SetIntervalHandle]
 
     div(
       cls := "space-y-4",
       onMountUnmountCallback(
-        mount = _ => pollHandle = Some(setInterval(pollIntervalMs.toDouble)(AppBus.refresh())),
+        mount = _ => pollHandle = Some(setInterval(pollIntervalMs.toDouble)(pollTick.update(_ + 1))),
         unmount = _ =>
           pollHandle.foreach(clearInterval); pollHandle = None,
       ),

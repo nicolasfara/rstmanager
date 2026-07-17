@@ -36,18 +36,18 @@ object TasksPage:
         case Some(id) => ApiClient.updateTask(id, request)
         case None => ApiClient.createTask(request)
       effect.foreach {
-        case Right(_) => resetForm(); AppBus.mutated()
-        case Left(err) => formError.set(Some(err))
+        case Right(_) => resetForm(); AppBus.mutatedTasks()
+        case Left(err) => showError(formError, "Salvataggio task")(err)
       }
 
     def delete(id: UUID): Unit =
       ApiClient.deleteTask(id).foreach {
-        case Right(_) => AppBus.mutated()
-        case Left(err) if err.code == "task-in-use" => blockedDelete.set(Some(err))
-        case Left(err) => formError.set(Some(err))
+        case Right(_) => AppBus.mutatedTasks()
+        case Left(err) if err.code == "task-in-use" => showError(blockedDelete, "Eliminazione task")(err)
+        case Left(err) => showError(formError, "Eliminazione task")(err)
       }
 
-    val data = loadable(AppBus.ticks)(() => ApiClient.listTasks())
+    val data = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
 
     div(
       div(

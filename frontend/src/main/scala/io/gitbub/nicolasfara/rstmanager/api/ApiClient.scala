@@ -7,6 +7,7 @@ import scala.concurrent.Future
 import scala.language.implicitConversions
 import scala.scalajs.js
 import scala.scalajs.js.Thenable.Implicits.*
+import scala.util.{ Failure, Success }
 
 import io.circe.{ Decoder, Encoder }
 import io.circe.parser.decode
@@ -28,6 +29,14 @@ object ApiClient:
 
   // ---- Low-level ---------------------------------------------------------------------------------
 
+  /** In-flight GET requests keyed by path. Concurrent identical GETs share the same Future instead of fanning out. */
+  private val inFlight = collection.mutable.Map.empty[String, Future[(Int, String)]]
+
+  /** Short-lived response cache for GET requests. Reduces redundant fetches when multiple subscribers react to the same tick. */
+  private val cacheTtlMs = 500.0
+  private case class CacheEntry(status: Int, text: String, expiresAt: Double)
+  private val responseCache = collection.mutable.Map.empty[String, CacheEntry]
+
   private def rawSend(method: dom.HttpMethod, path: String, body: Option[String]): Future[(Int, String)] =
     val init = new dom.RequestInit {}
     init.method = method
@@ -37,11 +46,28 @@ object ApiClient:
       init.headers = headers
       init.body = payload
     }
-    val responseF: Future[dom.Response] = dom.fetch(baseUrl + path, init)
-    responseF.flatMap { response =>
-      val textF: Future[String] = response.text()
-      textF.map(text => (response.status, text))
-    }
+    // Cast avoids the strict-equality CanEqual constraint on dom.HttpMethod.
+    if method.asInstanceOf[String] == "GET" then
+      responseCache.get(path) match
+        case Some(entry) if js.Date.now() < entry.expiresAt => Future.successful((entry.status, entry.text))
+        case _ =>
+          inFlight.get(path) match
+            case Some(existing) => existing
+            case None =>
+              val resultF = dom.fetch(baseUrl + path, init).flatMap(response => response.text().map(text => (response.status, text)))
+              inFlight(path) = resultF
+              resultF.onComplete {
+                case Success((status, text)) =>
+                  if isSuccess(status) then responseCache(path) = CacheEntry(status, text, js.Date.now() + cacheTtlMs)
+                  inFlight.remove(path)
+                case Failure(_) => inFlight.remove(path)
+              }
+              resultF
+    else
+      // On any mutation, evict all cached entries for the same base resource (first path segment).
+      val baseSegment = "/" + path.stripPrefix("/").takeWhile(_ != '/')
+      responseCache.keys.filter(_.startsWith(baseSegment)).toList.foreach(responseCache.remove)
+      dom.fetch(baseUrl + path, init).flatMap(response => response.text().map(text => (response.status, text)))
 
   private def parseError(status: Int, text: String): ApiError =
     decode[ApiError](text).getOrElse(ApiError("http-error", s"HTTP $status", if text.isEmpty then Nil else List(text)))

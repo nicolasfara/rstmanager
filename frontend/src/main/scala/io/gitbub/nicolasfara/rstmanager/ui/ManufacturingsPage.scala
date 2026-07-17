@@ -14,26 +14,40 @@ import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 /** Catalog of reusable manufacturings composed from live catalog task references. */
 object ManufacturingsPage:
 
-  private final case class TaskRow(key: Int, taskId: Var[String], dependsOn: Var[Set[String]])
+  private final case class TaskRowState(key: Int, taskId: String, dependsOn: Set[String])
+
+  private final case class ManufacturingFormState(
+      editingId: Option[UUID],
+      code: String,
+      codeManuallyEdited: Boolean,
+      name: String,
+      description: String,
+      taskRows: List[TaskRowState],
+  ):
+    def errors: List[String] =
+      List(
+        Option.when(code.trim.nn.isEmpty)("Codice obbligatorio"),
+        Option.when(name.trim.nn.isEmpty)("Nome obbligatorio"),
+        Option.when(!taskRows.exists(_.taskId.nonEmpty))("Seleziona almeno un task"),
+      ).flatten
 
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
   def apply(): HtmlElement =
     val formError = Var(Option.empty[ApiError])
-    val editingId = Var(Option.empty[UUID])
-    val code = Var(GeneratedCodes.next("MFG", Nil))
-    val codeManuallyEdited = Var(false)
-    val name = Var("")
-    val description = Var("")
     var keyCounter = 0
     def nextKey(): Int =
       keyCounter += 1; keyCounter
-    def newTaskRow(): TaskRow = TaskRow(nextKey(), Var(""), Var(Set.empty))
-    val taskRows = Var(List(newTaskRow()))
+    def newTaskRow(): TaskRowState = TaskRowState(nextKey(), "", Set.empty)
 
-    val tasksData = loadable(AppBus.ticks)(() => ApiClient.listTasks())
-    val manufacturingsData = loadable(AppBus.ticks)(() => ApiClient.listManufacturingCatalog())
+    val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
+    val manufacturingsData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
     val manufacturingsSnapshot = Var(List.empty[ManufacturingCatalogResponse])
+
+    def freshForm(): ManufacturingFormState =
+      ManufacturingFormState(None, GeneratedCodes.next("MFG", manufacturingsSnapshot.now().map(_.code)), false, "", "", List(newTaskRow()))
+
+    val form = Var(freshForm())
 
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
       case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
@@ -45,86 +59,84 @@ object ManufacturingsPage:
     }
 
     def resetForm(): Unit =
-      editingId.set(None)
-      codeManuallyEdited.set(false)
-      code.set(GeneratedCodes.next("MFG", manufacturingsSnapshot.now().map(_.code)))
-      name.set("")
-      description.set("")
-      taskRows.set(List(newTaskRow()))
+      form.set(freshForm())
       formError.set(None)
 
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
       val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
-      editingId.set(Some(manufacturing.id))
-      codeManuallyEdited.set(false)
-      code.set(manufacturing.code)
-      name.set(manufacturing.name)
-      description.set(manufacturing.description.getOrElse(""))
-      taskRows.set(manufacturing.taskIds.map(id => TaskRow(nextKey(), Var(id.toString), Var(dependencyMap.getOrElse(id.toString, Set.empty)))).toList)
+      form.set(
+        ManufacturingFormState(
+          Some(manufacturing.id),
+          manufacturing.code,
+          false,
+          manufacturing.name,
+          manufacturing.description.getOrElse(""),
+          manufacturing.taskIds.map(id => TaskRowState(nextKey(), id.toString, dependencyMap.getOrElse(id.toString, Set.empty))).toList,
+        )
+      )
       formError.set(None)
 
     def requestFromForm(): ManufacturingCatalogRequest =
-      val selectedIds = taskRows.now().flatMap(row => parseUuid(row.taskId.now()))
+      val current = form.now()
+      val selectedIds = current.taskRows.flatMap(row => parseUuid(row.taskId))
       val selectedStrings = selectedIds.map(_.toString).toSet
-      val dependencies = taskRows.now().flatMap { row =>
-        parseUuid(row.taskId.now()).map { taskId =>
-          val dependsOn = row.dependsOn.now().toList.filter(id => selectedStrings.contains(id) && id != taskId.toString).flatMap(parseUuid)
+      val dependencies = current.taskRows.flatMap { row =>
+        parseUuid(row.taskId).map { taskId =>
+          val dependsOn = row.dependsOn.toList.filter(id => selectedStrings.contains(id) && id != taskId.toString).flatMap(parseUuid)
           ManufacturingCatalogDependencyDto(taskId, dependsOn)
         }
       }
       ManufacturingCatalogRequest(
-        code.now().trim.nn,
-        name.now().trim.nn,
-        Some(description.now().trim.nn).filter(_.nonEmpty),
+        current.code.trim.nn,
+        current.name.trim.nn,
+        Some(current.description.trim.nn).filter(_.nonEmpty),
         selectedIds,
         dependencies,
       )
 
     def submit(): Unit =
       val request = requestFromForm()
-      val editedId = editingId.now()
+      val editedId = form.now().editingId
       val effect = editedId match
         case Some(id) => ApiClient.updateManufacturingCatalog(id, request)
         case None => ApiClient.createManufacturingCatalog(request)
       effect.foreach {
-        case Right(saved) =>
-          editedId match
-            case Some(id) => manufacturingsSnapshot.update(_.map(manufacturing => if manufacturing.id == id then saved else manufacturing))
-            case None => manufacturingsSnapshot.update(_ :+ saved)
-          resetForm(); AppBus.mutated()
-        case Left(err) => formError.set(Some(err))
+        case Right(_) =>
+          resetForm(); AppBus.mutatedManufacturings()
+        case Left(err) => showError(formError, "Salvataggio lavorazione")(err)
       }
 
     def delete(id: UUID): Unit =
       ApiClient.deleteManufacturingCatalog(id).foreach {
-        case Right(_) => AppBus.mutated()
-        case Left(err) => formError.set(Some(err))
+        case Right(_) => AppBus.mutatedManufacturings()
+        case Left(err) => showError(formError, "Eliminazione lavorazione")(err)
       }
 
-    def taskSelect(row: TaskRow): HtmlElement =
-      select(
-        cls := "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500",
-        controlled(
-          value <-- row.taskId.signal,
-          onChange.mapToValue --> { next =>
-            row.taskId.set(next)
-            row.dependsOn.update(_.filter(_ != next))
-            taskRows.update(_.map(identity))
-          },
-        ),
-        children <-- taskOptions.map(_.map { case (optValue, optLabel) => option(value := optValue, optLabel) }),
+    def rowSignal(row: TaskRowState): Signal[TaskRowState] =
+      form.signal.map(_.taskRows.find(_.key == row.key).getOrElse(row))
+
+    def updateTaskRow(key: Int)(patch: TaskRowState => TaskRowState): Unit =
+      form.update(state => state.copy(taskRows = state.taskRows.map(row => if row.key == key then patch(row) else row)))
+
+    val formErrors: Signal[List[String]] = form.signal.map(_.errors)
+
+    def taskSelect(row: TaskRowState): HtmlElement =
+      selectInput(
+        rowSignal(row).map(_.taskId),
+        Observer[String](next => updateTaskRow(row.key)(current => current.copy(taskId = next, dependsOn = current.dependsOn.filter(_ != next)))),
+        taskOptions,
       )
 
-    def dependencyChoices(row: TaskRow): Signal[List[(String, String)]] =
-      taskRows.signal.combineWith(tasksById).map { case (rows, tasks) =>
-        rows.flatMap { other =>
-          val id = other.taskId.now()
+    def dependencyChoices(row: TaskRowState): Signal[List[(String, String)]] =
+      form.signal.combineWith(tasksById).map { case (state, tasks) =>
+        state.taskRows.flatMap { other =>
+          val id = other.taskId
           if other.key == row.key || id.isEmpty then None
           else tasks.get(id).map(task => id -> s"${task.name} (${task.requiredHours}h)")
         }
       }
 
-    def renderTaskRow(row: TaskRow): HtmlElement =
+    def renderTaskRow(row: TaskRowState): HtmlElement =
       div(
         cls := "rounded-md border border-slate-200 p-2",
         div(
@@ -134,8 +146,8 @@ object ManufacturingsPage:
             tpe := "button",
             cls := s"$btnDanger mb-0.5",
             "Rimuovi",
-            disabled <-- taskRows.signal.map(_.size <= 1),
-            onClick --> (_ => if taskRows.now().size > 1 then taskRows.update(_.filterNot(_.key == row.key))),
+            disabled <-- form.signal.map(_.taskRows.size <= 1),
+            onClick --> (_ => if form.now().taskRows.size > 1 then form.update(state => state.copy(taskRows = state.taskRows.filterNot(_.key == row.key)))),
           ),
         ),
         child <-- dependencyChoices(row).map { choices =>
@@ -149,10 +161,12 @@ object ManufacturingsPage:
                   cls := "inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1",
                   input(
                     typ := "checkbox",
-                    checked <-- row.dependsOn.signal.map(_.contains(depId)),
+                    checked <-- rowSignal(row).map(_.dependsOn.contains(depId)),
                     onChange.mapToChecked --> { checked =>
-                      if checked then row.dependsOn.update(_ + depId)
-                      else row.dependsOn.update(_ - depId)
+                      updateTaskRow(row.key)(current =>
+                        if checked then current.copy(dependsOn = current.dependsOn + depId)
+                        else current.copy(dependsOn = current.dependsOn - depId)
+                      )
                     },
                   ),
                   labelText,
@@ -167,7 +181,8 @@ object ManufacturingsPage:
       manufacturingsData --> {
         case Some(Right(list)) =>
           manufacturingsSnapshot.set(list)
-          if editingId.now().isEmpty && !codeManuallyEdited.now() then code.set(GeneratedCodes.next("MFG", list.map(_.code)))
+          val current = form.now()
+          if current.editingId.isEmpty && !current.codeManuallyEdited then form.update(_.copy(code = GeneratedCodes.next("MFG", list.map(_.code))))
         case _ => ()
       },
       card(
@@ -175,14 +190,18 @@ object ManufacturingsPage:
         sectionTitle("Nuova lavorazione"),
         div(
           cls := "mt-3 space-y-3",
-          field("Codice", textInput(code, "MFG-2026-001").amend(onInput.mapToValue --> (_ => codeManuallyEdited.set(true)))),
-          field("Nome", textInput(name, "Serramento standard")),
-          field("Descrizione", textInput(description, "Opzionale")),
+          field(
+            "Codice",
+            textInput(form.signal.map(_.code), Observer[String](v => form.update(_.copy(code = v))), "MFG-2026-001")
+              .amend(onInput.mapToValue --> (_ => form.update(_.copy(codeManuallyEdited = true)))),
+          ),
+          field("Nome", textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "Serramento standard")),
+          field("Descrizione", textInput(form.signal.map(_.description), Observer[String](v => form.update(_.copy(description = v))), "Opzionale")),
           div(
             cls := "space-y-2",
             div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Task"),
-            children <-- taskRows.signal.split(_.key)((_, initial, _) => renderTaskRow(initial)),
-            button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => taskRows.update(_ :+ newTaskRow()))),
+            children <-- form.signal.map(_.taskRows).split(_.key)((_, initial, _) => renderTaskRow(initial)),
+            button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => form.update(state => state.copy(taskRows = state.taskRows :+ newTaskRow())))),
           ),
           child.maybe <-- formError.signal.map(_.map(errorBanner)),
           div(
@@ -190,10 +209,11 @@ object ManufacturingsPage:
             button(
               tpe := "button",
               cls := btnPrimary,
-              child.text <-- editingId.signal.map(_.fold("Crea")(_ => "Salva")),
+              child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
+              disabled <-- formErrors.map(_.nonEmpty),
               onClick --> (_ => submit()),
             ),
-            child.maybe <-- editingId.signal.map(_.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+            child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
           ),
         ),
       ),

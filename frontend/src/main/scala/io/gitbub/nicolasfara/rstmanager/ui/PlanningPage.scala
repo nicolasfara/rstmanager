@@ -9,6 +9,7 @@ import scala.scalajs.js.timers.{ clearInterval, setInterval, SetIntervalHandle }
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
+import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /**
@@ -176,16 +177,17 @@ object PlanningPage:
 
     // ---- Task modal ------------------------------------------------------------------------------
     def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String, preferred: Option[UUID]): Unit =
-      val completed = task.completedHours.getOrElse(0)
-      val prefStr = preferred.map(_.toString).getOrElse("")
-      val state = TaskModalState(completed.toString, task.expectedHours.toString, prefStr)
-      editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
-      editKind.set(EditKind.Progress)
-      editName.set(name)
-      editState.set(state)
-      editTracker.set(DirtyTracker(state, editState))
-      modalError.set(None)
-      modalOpen.set(true)
+      if AuthService.currentHasRole(Role.Operator) then
+        val completed = task.completedHours.getOrElse(0)
+        val prefStr = preferred.map(_.toString).getOrElse("")
+        val state = TaskModalState(completed.toString, task.expectedHours.toString, prefStr)
+        editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
+        editKind.set(EditKind.Progress)
+        editName.set(name)
+        editState.set(state)
+        editTracker.set(DirtyTracker(state, editState))
+        modalError.set(None)
+        modalOpen.set(true)
 
     def openReactivate(row: CompletedRow, name: String): Unit =
       val initial = TaskModalState(row.task.completedHours.getOrElse(0).toString, row.task.expectedHours.toString, "")
@@ -498,7 +500,8 @@ object PlanningPage:
         td(cls := "px-4 py-2 text-slate-500", row.task.completionDate.map(Formats.date).getOrElse("—")),
         td(
           cls := "px-4 py-2 text-right",
-          if isOrderEditable(row.order.status) then
+          if !AuthService.currentHasRole(Role.Operator) then emptyNode
+          else if isOrderEditable(row.order.status) then
             button(
               tpe := "button",
               cls := btnSmall,
@@ -534,7 +537,8 @@ object PlanningPage:
             span(cls := "text-slate-600", row.task.completionDate.map(Formats.date).getOrElse("—")),
           ),
         ),
-        if isOrderEditable(row.order.status) then
+        if !AuthService.currentHasRole(Role.Operator) then emptyNode
+        else if isOrderEditable(row.order.status) then
           button(
             tpe := "button",
             cls := btnSmall,

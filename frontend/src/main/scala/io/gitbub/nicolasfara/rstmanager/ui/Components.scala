@@ -6,6 +6,7 @@ import scala.concurrent.Future
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.ApiError
+import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 
 /** Minimal, reusable Tailwind-styled building blocks shared by all pages. */
 object Components:
@@ -26,6 +27,14 @@ object Components:
 
   def card(mods: Modifier[HtmlElement]*): HtmlElement =
     div(cls := "rounded-xl border border-slate-200 bg-white shadow-sm", mods)
+
+  /** Renders `el` only while the logged-in user satisfies `required`. UI gating is cosmetic: the server enforces authorization. */
+  def roleGated(required: Role)(el: => HtmlElement): Modifier[HtmlElement] =
+    child.maybe <-- AuthService.hasRoleSignal(required).map(allowed => Option.when(allowed)(el))
+
+  /** Applies the multi-column grid classes only when the role-gated side panel (usually the edit form) is visible. */
+  def roleGatedGridCols(required: Role, cols: String): Modifier[HtmlElement] =
+    cls <-- AuthService.hasRoleSignal(required).map(allowed => if allowed then cols else "")
 
   def sectionTitle(text: String): HtmlElement =
     h2(cls := "text-base font-semibold text-slate-800", text)

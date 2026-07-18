@@ -3,7 +3,8 @@ package io.github.nicolasfara.rstmanager.hr.service
 import java.util.{ Locale, UUID }
 
 import io.github.nicolasfara.rstmanager.hr.domain.*
-import io.github.nicolasfara.rstmanager.service.http.ApiError
+import io.github.nicolasfara.rstmanager.service.auth.Role
+import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 
 import cats.data.ValidatedNec
 import cats.effect.IO
@@ -142,39 +143,39 @@ object EmployeeHttpApi:
 
   private val collection = "employees"
 
-  val create: PublicEndpoint[EmployeeRequest, ApiFailure, EmployeeResponse, Any] =
-    ApiError.base.post
+  val create: Secured.SecuredEndpoint[EmployeeRequest, EmployeeResponse] =
+    Secured.base.post
       .in(collection)
       .tag("Employees")
       .summary("Create an employee")
       .in(jsonBody[EmployeeRequest].example(EmployeeRequest.example))
       .out(jsonBody[EmployeeResponse])
 
-  val list: PublicEndpoint[Unit, ApiFailure, List[EmployeeResponse], Any] =
-    ApiError.base.get.in(collection).tag("Employees").summary("List employees").out(jsonBody[List[EmployeeResponse]])
+  val list: Secured.SecuredEndpoint[Unit, List[EmployeeResponse]] =
+    Secured.base.get.in(collection).tag("Employees").summary("List employees").out(jsonBody[List[EmployeeResponse]])
 
-  val read: PublicEndpoint[UUID, ApiFailure, EmployeeResponse, Any] =
-    ApiError.base.get.in(collection / path[UUID]("id")).tag("Employees").summary("Read an employee").out(jsonBody[EmployeeResponse])
+  val read: Secured.SecuredEndpoint[UUID, EmployeeResponse] =
+    Secured.base.get.in(collection / path[UUID]("id")).tag("Employees").summary("Read an employee").out(jsonBody[EmployeeResponse])
 
-  val update: PublicEndpoint[(UUID, EmployeeRequest), ApiFailure, EmployeeResponse, Any] =
-    ApiError.base.put
+  val update: Secured.SecuredEndpoint[(UUID, EmployeeRequest), EmployeeResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id"))
       .tag("Employees")
       .summary("Replace an employee")
       .in(jsonBody[EmployeeRequest].example(EmployeeRequest.example))
       .out(jsonBody[EmployeeResponse])
 
-  val delete: PublicEndpoint[UUID, ApiFailure, Unit, Any] =
-    ApiError.base.delete.in(collection / path[UUID]("id")).tag("Employees").summary("Delete an employee").out(statusCode(StatusCode.NoContent))
+  val delete: Secured.SecuredEndpoint[UUID, Unit] =
+    Secured.base.delete.in(collection / path[UUID]("id")).tag("Employees").summary("Delete an employee").out(statusCode(StatusCode.NoContent))
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
-  def routes(store: EmployeeApp.Store): List[ServerEndpoint[Any, IO]] = List(
-    create.serverLogic(createLogic(store)),
-    list.serverLogic(_ => listLogic(store)),
-    read.serverLogic(readLogic(store)),
-    update.serverLogic(updateLogic(store)),
-    delete.serverLogic(deleteLogic(store)),
+  def routes(store: EmployeeApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] = List(
+    security.secure(create, Role.Admin)(createLogic(store)),
+    security.secure(list, Role.Viewer)(_ => listLogic(store)),
+    security.secure(read, Role.Viewer)(readLogic(store)),
+    security.secure(update, Role.Admin)(updateLogic(store)),
+    security.secure(delete, Role.Admin)(deleteLogic(store)),
   )
 
   private def createLogic(store: EmployeeApp.Store)(request: EmployeeRequest): IO[Either[ApiFailure, EmployeeResponse]] =

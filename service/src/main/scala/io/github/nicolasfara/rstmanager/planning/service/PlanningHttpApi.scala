@@ -5,7 +5,8 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.planning.PlanningError
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.*
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.given
-import io.github.nicolasfara.rstmanager.service.http.ApiError
+import io.github.nicolasfara.rstmanager.service.auth.Role
+import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.service.http.ApiError.ApiFailure
 
 import cats.data.NonEmptyChain
@@ -26,16 +27,16 @@ object PlanningEndpoints:
       .summary("Check planning API health")
       .out(jsonBody[HealthResponse])
 
-  val createPlanningAttempt: PublicEndpoint[PlanningAttemptRequest, ApiFailure, PlanningAttemptResponse, Any] =
-    ApiError.base.post
+  val createPlanningAttempt: Secured.SecuredEndpoint[PlanningAttemptRequest, PlanningAttemptResponse] =
+    Secured.base.post
       .in("planning" / "attempts")
       .tag("Planning")
       .summary("Compute and persist a production planning attempt from stored orders and employees")
       .in(jsonBody[PlanningAttemptRequest].example(PlanningAttemptRequest.example))
       .out(jsonBody[PlanningAttemptResponse])
 
-  val currentPlanningAttempt: PublicEndpoint[Unit, ApiFailure, PlanningStateDto, Any] =
-    ApiError.base.get
+  val currentPlanningAttempt: Secured.SecuredEndpoint[Unit, PlanningStateDto] =
+    Secured.base.get
       .in("planning" / "attempts" / "current")
       .tag("Planning")
       .summary("Read the current production planning aggregate state")
@@ -49,10 +50,11 @@ object PlanningRoutes:
   def serverEndpoints(
       backend: PlanningApp.PlanningBackend,
       gateway: PlanningEntityGateway,
+      security: ApiSecurity,
   ): List[ServerEndpoint[Any, IO]] = List(
     PlanningEndpoints.health.serverLogicSuccess[IO](_ => IO.pure(HealthResponse("ok", "rstmanager-planning", "/docs"))),
-    PlanningEndpoints.createPlanningAttempt.serverLogic(createPlanningAttempt(backend, gateway)),
-    PlanningEndpoints.currentPlanningAttempt.serverLogic(_ => currentPlanningAttempt(backend)),
+    security.secure(PlanningEndpoints.createPlanningAttempt, Role.Operator)(createPlanningAttempt(backend, gateway)),
+    security.secure(PlanningEndpoints.currentPlanningAttempt, Role.Viewer)(_ => currentPlanningAttempt(backend)),
   )
 
   private def createPlanningAttempt(

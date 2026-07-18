@@ -5,6 +5,7 @@ services:
       POSTGRES_DB: ${RSTMANAGER_DB_NAME:-rstmanager}
       POSTGRES_USER: ${RSTMANAGER_DB_USER:-rstmanager}
       POSTGRES_PASSWORD: ${RSTMANAGER_DB_PASSWORD:-rstmanager}
+      KEYCLOAK_DB_PASSWORD: ${RSTMANAGER_KEYCLOAK_DB_PASSWORD:-keycloak}
     ports:
       - "${RSTMANAGER_DB_PUBLISHED_PORT:-5432}:5432"
     healthcheck:
@@ -14,10 +15,49 @@ services:
       retries: 20
     volumes:
       - postgres-data:/var/lib/postgresql
+      # Init scripts only run on an empty postgres-data volume; on existing
+      # deployments create the keycloak user/database manually (see the script).
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     networks:
       rstmanager:
         aliases:
           - postgres
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${RSTMANAGER_KEYCLOAK_DB_PASSWORD:-keycloak}
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /auth
+      # Full external URL: every issued token carries this issuer regardless of
+      # which interface the request came from. The backend validates against it.
+      KC_HOSTNAME: ${RSTMANAGER_PUBLIC_AUTH_URL:-http://localhost:3333/auth}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${RSTMANAGER_KC_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${RSTMANAGER_KC_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./keycloak/rstmanager-realm.json:/opt/keycloak/data/import/rstmanager-realm.json:ro
+    ports:
+      # Published only for the vite dev-server proxy; in the container stack the
+      # browser reaches Keycloak through the frontend nginx at /auth.
+      - "${RSTMANAGER_KEYCLOAK_PUBLISHED_PORT:-8081}:8080"
+    healthcheck:
+      # The Keycloak image ships no curl/wget: probe the management port via bash.
+      # The management interface inherits KC_HTTP_RELATIVE_PATH, hence /auth/health/ready.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - rstmanager
 
   planning-service:
     build:
@@ -36,10 +76,18 @@ services:
       RSTMANAGER_DB_USER: ${RSTMANAGER_DB_USER:-rstmanager}
       RSTMANAGER_DB_PASSWORD: ${RSTMANAGER_DB_PASSWORD:-rstmanager}
       RSTMANAGER_DB_POOL_SIZE: ${RSTMANAGER_DB_POOL_SIZE:-4}
+      # JWKS are fetched from the internal URL; the issuer claim is validated
+      # against the external URL the browser sees (KC_HOSTNAME above).
+      RSTMANAGER_KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth
+      RSTMANAGER_KEYCLOAK_REALM: rstmanager
+      RSTMANAGER_KEYCLOAK_ISSUER: ${RSTMANAGER_PUBLIC_AUTH_URL:-http://localhost:3333/auth}/realms/rstmanager
+      RSTMANAGER_KEYCLOAK_CLIENT_ID: rstmanager-frontend
     ports:
       - "${RSTMANAGER_HTTP_PUBLISHED_PORT:-8080}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
     networks:
       - rstmanager

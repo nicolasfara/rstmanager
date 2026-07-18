@@ -7,6 +7,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
+import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /** Customer registry: minimal CRUD, needed to reference a customer when creating an order. */
@@ -106,28 +107,31 @@ object CustomersPage:
     val data = loadable(AppBus.customersTicks)(() => ApiClient.listCustomers())
 
     div(
-      cls := "grid gap-6 lg:grid-cols-[24rem_1fr]",
-      card(
-        cls := "self-start p-4",
-        sectionTitle("Nuovo cliente"),
-        div(
-          cls := "mt-3 grid grid-cols-2 gap-3",
-          field("Nome", textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "")),
-          field("Cognome", textInput(form.signal.map(_.surname), Observer[String](v => form.update(_.copy(surname = v))), "")),
-          field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "", "email")),
-          field("Telefono", textInput(form.signal.map(_.phone), Observer[String](v => form.update(_.copy(phone = v))), "")),
-          field("Via", textInput(form.signal.map(_.street), Observer[String](v => form.update(_.copy(street = v))), "")),
-          field("Città", textInput(form.signal.map(_.city), Observer[String](v => form.update(_.copy(city = v))), "")),
-          field("CAP", textInput(form.signal.map(_.postalCode), Observer[String](v => form.update(_.copy(postalCode = v))), "")),
-          field("Paese", textInput(form.signal.map(_.country), Observer[String](v => form.update(_.copy(country = v))), "")),
-          field("Codice fiscale", textInput(form.signal.map(_.fiscalCode), Observer[String](v => form.update(_.copy(fiscalCode = v))), "")),
-          field("Tipo", staticSelect(form.signal.map(_.customerType), Observer[String](v => form.update(_.copy(customerType = v))), typeOptions)),
-        ),
-        child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
-        div(
-          cls := "mt-3 flex gap-2",
-          button(tpe := "button", cls := btnPrimary, child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")), disabled <-- formErrors.map(_.nonEmpty), onClick --> (_ => submit())),
-          child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+      cls := "grid gap-6",
+      roleGatedGridCols(Role.Admin, "lg:grid-cols-[24rem_1fr]"),
+      roleGated(Role.Admin)(
+        card(
+          cls := "self-start p-4",
+          sectionTitle("Nuovo cliente"),
+          div(
+            cls := "mt-3 grid grid-cols-2 gap-3",
+            field("Nome", textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "")),
+            field("Cognome", textInput(form.signal.map(_.surname), Observer[String](v => form.update(_.copy(surname = v))), "")),
+            field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "", "email")),
+            field("Telefono", textInput(form.signal.map(_.phone), Observer[String](v => form.update(_.copy(phone = v))), "")),
+            field("Via", textInput(form.signal.map(_.street), Observer[String](v => form.update(_.copy(street = v))), "")),
+            field("Città", textInput(form.signal.map(_.city), Observer[String](v => form.update(_.copy(city = v))), "")),
+            field("CAP", textInput(form.signal.map(_.postalCode), Observer[String](v => form.update(_.copy(postalCode = v))), "")),
+            field("Paese", textInput(form.signal.map(_.country), Observer[String](v => form.update(_.copy(country = v))), "")),
+            field("Codice fiscale", textInput(form.signal.map(_.fiscalCode), Observer[String](v => form.update(_.copy(fiscalCode = v))), "")),
+            field("Tipo", staticSelect(form.signal.map(_.customerType), Observer[String](v => form.update(_.copy(customerType = v))), typeOptions)),
+          ),
+          child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
+          div(
+            cls := "mt-3 flex gap-2",
+            button(tpe := "button", cls := btnPrimary, child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")), disabled <-- formErrors.map(_.nonEmpty), onClick --> (_ => submit())),
+            child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+          ),
         ),
       ),
       card(
@@ -154,10 +158,12 @@ object CustomersPage:
                     td(cls := "px-4 py-2", statusBadge(c.customerType)),
                     td(
                       cls := "px-4 py-2 text-right",
-                      div(
-                        cls := "flex justify-end gap-2",
-                        button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(c))),
-                        button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(c.id))),
+                      roleGated(Role.Admin)(
+                        div(
+                          cls := "flex justify-end gap-2",
+                          button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(c))),
+                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(c.id))),
+                        ),
                       ),
                     ),
                   )

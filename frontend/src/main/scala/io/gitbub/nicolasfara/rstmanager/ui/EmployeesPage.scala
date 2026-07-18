@@ -8,6 +8,7 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
+import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /** Employee registry with a dedicated editor for the per-employee hours overrides. */
@@ -196,25 +197,28 @@ object EmployeesPage:
     val data = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
 
     div(
-      cls := "grid gap-6 lg:grid-cols-[22rem_1fr]",
-      card(
-        cls := "self-start p-4",
-        sectionTitle("Nuovo dipendente"),
-        div(
-          cls := "mt-3 grid grid-cols-2 gap-3",
-          field("Nome", textInput(createForm.signal.map(_.name), Observer[String](v => createForm.update(_.copy(name = v))), "")),
-          field("Cognome", textInput(createForm.signal.map(_.surname), Observer[String](v => createForm.update(_.copy(surname = v))), "")),
-          field("Contratto", staticSelect(createForm.signal.map(_.contractKind), Observer[String](v => createForm.update(_.copy(contractKind = v))), contractOptions)),
-          field("Inizio", textInput(createForm.signal.map(_.startDate), Observer[String](v => createForm.update(_.copy(startDate = v))), "", "date")),
-          child <-- createForm.signal.map(_.contractKind).map {
-            case "fixed_term" => field("Fine", textInput(createForm.signal.map(_.endDate), Observer[String](v => createForm.update(_.copy(endDate = v))), "", "date"))
-            case "part_time" => field("Ore/sett.", textInput(createForm.signal.map(_.weeklyHours), Observer[String](v => createForm.update(_.copy(weeklyHours = v))), "", "number"))
-            case _ => div()
-          },
-          field("Budget ore/sett.", textInput(createForm.signal.map(_.budget), Observer[String](v => createForm.update(_.copy(budget = v))), "", "number")),
+      cls := "grid gap-6",
+      roleGatedGridCols(Role.Admin, "lg:grid-cols-[22rem_1fr]"),
+      roleGated(Role.Admin)(
+        card(
+          cls := "self-start p-4",
+          sectionTitle("Nuovo dipendente"),
+          div(
+            cls := "mt-3 grid grid-cols-2 gap-3",
+            field("Nome", textInput(createForm.signal.map(_.name), Observer[String](v => createForm.update(_.copy(name = v))), "")),
+            field("Cognome", textInput(createForm.signal.map(_.surname), Observer[String](v => createForm.update(_.copy(surname = v))), "")),
+            field("Contratto", staticSelect(createForm.signal.map(_.contractKind), Observer[String](v => createForm.update(_.copy(contractKind = v))), contractOptions)),
+            field("Inizio", textInput(createForm.signal.map(_.startDate), Observer[String](v => createForm.update(_.copy(startDate = v))), "", "date")),
+            child <-- createForm.signal.map(_.contractKind).map {
+              case "fixed_term" => field("Fine", textInput(createForm.signal.map(_.endDate), Observer[String](v => createForm.update(_.copy(endDate = v))), "", "date"))
+              case "part_time" => field("Ore/sett.", textInput(createForm.signal.map(_.weeklyHours), Observer[String](v => createForm.update(_.copy(weeklyHours = v))), "", "number"))
+              case _ => div()
+            },
+            field("Budget ore/sett.", textInput(createForm.signal.map(_.budget), Observer[String](v => createForm.update(_.copy(budget = v))), "", "number")),
+          ),
+          child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
+          div(cls := "mt-3", button(tpe := "button", cls := btnPrimary, "Crea dipendente", disabled <-- createFormErrors.map(_.nonEmpty), onClick --> (_ => createEmployee()))),
         ),
-        child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
-        div(cls := "mt-3", button(tpe := "button", cls := btnPrimary, "Crea dipendente", disabled <-- createFormErrors.map(_.nonEmpty), onClick --> (_ => createEmployee()))),
       ),
       card(
         cls := "p-4",
@@ -233,10 +237,12 @@ object EmployeesPage:
                       div(cls := "text-xs text-slate-500", describeContract(emp.contract)),
                       div(cls := "mt-0.5 text-xs text-slate-400", s"Budget ${emp.budgetWeeklyHours}h/sett · ${emp.overrides.size} override"),
                     ),
-                    div(
-                      cls := "flex gap-2",
-                      button(tpe := "button", cls := btnSmall, "Override", onClick --> (_ => openEditor(emp))),
-                      button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => deleteEmployee(emp.id))),
+                    roleGated(Role.Admin)(
+                      div(
+                        cls := "flex gap-2",
+                        button(tpe := "button", cls := btnSmall, "Override", onClick --> (_ => openEditor(emp))),
+                        button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => deleteEmployee(emp.id))),
+                      ),
                     ),
                   ),
                   child <-- overrideEditor.signal.map(e => if e.editing.exists(_.id == emp.id) then editorPanel() else emptyNode),

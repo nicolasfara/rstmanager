@@ -4,7 +4,8 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.service.CustomerApp
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
-import io.github.nicolasfara.rstmanager.service.http.ApiError
+import io.github.nicolasfara.rstmanager.service.auth.Role
+import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderError, OrderService }
 
 import cats.effect.IO
@@ -27,108 +28,108 @@ object OrderHttpApi:
 
   private val collection = "orders"
 
-  val create: PublicEndpoint[OrderRequest, ApiFailure, OrderResponse, Any] =
-    ApiError.base.post
+  val create: Secured.SecuredEndpoint[OrderRequest, OrderResponse] =
+    Secured.base.post
       .in(collection)
       .tag("Orders")
       .summary("Create an order")
       .in(jsonBody[OrderRequest].example(OrderRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val list: PublicEndpoint[Unit, ApiFailure, List[OrderResponse], Any] =
-    ApiError.base.get.in(collection).tag("Orders").summary("List orders").out(jsonBody[List[OrderResponse]])
+  val list: Secured.SecuredEndpoint[Unit, List[OrderResponse]] =
+    Secured.base.get.in(collection).tag("Orders").summary("List orders").out(jsonBody[List[OrderResponse]])
 
-  val read: PublicEndpoint[UUID, ApiFailure, OrderResponse, Any] =
-    ApiError.base.get.in(collection / path[UUID]("id")).tag("Orders").summary("Read an order").out(jsonBody[OrderResponse])
+  val read: Secured.SecuredEndpoint[UUID, OrderResponse] =
+    Secured.base.get.in(collection / path[UUID]("id")).tag("Orders").summary("Read an order").out(jsonBody[OrderResponse])
 
-  val update: PublicEndpoint[(UUID, OrderUpdateRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.put
+  val update: Secured.SecuredEndpoint[(UUID, OrderUpdateRequest), OrderResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id"))
       .tag("Orders")
       .summary("Update an order priority and/or work-completion deadline")
       .in(jsonBody[OrderUpdateRequest].example(OrderUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val transition: PublicEndpoint[(UUID, TransitionRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.post
+  val transition: Secured.SecuredEndpoint[(UUID, TransitionRequest), OrderResponse] =
+    Secured.base.post
       .in(collection / path[UUID]("id") / "transitions")
       .tag("Orders")
       .summary("Apply an order lifecycle transition (suspend, reactivate, complete, deliver, reopen)")
       .in(jsonBody[TransitionRequest].example(TransitionRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val updateTask: PublicEndpoint[(UUID, UUID, UUID, TaskProgressUpdateRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.put
+  val updateTask: Secured.SecuredEndpoint[(UUID, UUID, UUID, TaskProgressUpdateRequest), OrderResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "tasks" / path[UUID]("taskId"))
       .tag("Orders")
       .summary("Update a scheduled task progress (completed hours) and/or its total expected hours")
       .in(jsonBody[TaskProgressUpdateRequest].example(TaskProgressUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val addManufacturing: PublicEndpoint[(UUID, ManufacturingDto), ApiFailure, OrderResponse, Any] =
-    ApiError.base.post
+  val addManufacturing: Secured.SecuredEndpoint[(UUID, ManufacturingDto), OrderResponse] =
+    Secured.base.post
       .in(collection / path[UUID]("id") / "manufacturings")
       .tag("Orders")
       .summary("Add a manufacturing to an order")
       .in(jsonBody[ManufacturingDto].example(ManufacturingDto.example))
       .out(jsonBody[OrderResponse])
 
-  val removeManufacturing: PublicEndpoint[(UUID, UUID), ApiFailure, OrderResponse, Any] =
-    ApiError.base.delete
+  val removeManufacturing: Secured.SecuredEndpoint[(UUID, UUID), OrderResponse] =
+    Secured.base.delete
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId"))
       .tag("Orders")
       .summary("Remove a manufacturing from an order")
       .out(jsonBody[OrderResponse])
 
-  val updateManufacturing: PublicEndpoint[(UUID, UUID, ManufacturingUpdateRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.put
+  val updateManufacturing: Secured.SecuredEndpoint[(UUID, UUID, ManufacturingUpdateRequest), OrderResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId"))
       .tag("Orders")
       .summary("Update a manufacturing description, work deadline and/or lifecycle status")
       .in(jsonBody[ManufacturingUpdateRequest].example(ManufacturingUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val addTask: PublicEndpoint[(UUID, UUID, AddTaskRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.post
+  val addTask: Secured.SecuredEndpoint[(UUID, UUID, AddTaskRequest), OrderResponse] =
+    Secured.base.post
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "tasks")
       .tag("Orders")
       .summary("Add a task to a manufacturing")
       .in(jsonBody[AddTaskRequest].example(AddTaskRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val removeTask: PublicEndpoint[(UUID, UUID, UUID), ApiFailure, OrderResponse, Any] =
-    ApiError.base.delete
+  val removeTask: Secured.SecuredEndpoint[(UUID, UUID, UUID), OrderResponse] =
+    Secured.base.delete
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "tasks" / path[UUID]("taskId"))
       .tag("Orders")
       .summary("Remove a task from a manufacturing")
       .out(jsonBody[OrderResponse])
 
-  val updateDependencies: PublicEndpoint[(UUID, OrderDependenciesUpdateRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.put
+  val updateDependencies: Secured.SecuredEndpoint[(UUID, OrderDependenciesUpdateRequest), OrderResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id") / "dependencies")
       .tag("Orders")
       .summary("Replace the dependency graph between the order manufacturings")
       .in(jsonBody[OrderDependenciesUpdateRequest].example(OrderDependenciesUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val updateTaskDependencies: PublicEndpoint[(UUID, UUID, TaskDependenciesUpdateRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.put
+  val updateTaskDependencies: Secured.SecuredEndpoint[(UUID, UUID, TaskDependenciesUpdateRequest), OrderResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "dependencies")
       .tag("Orders")
       .summary("Replace the task dependency graph of a manufacturing")
       .in(jsonBody[TaskDependenciesUpdateRequest].example(TaskDependenciesUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val setPreferredEmployee: PublicEndpoint[(UUID, UUID, SetPreferredEmployeeRequest), ApiFailure, OrderResponse, Any] =
-    ApiError.base.put
+  val setPreferredEmployee: Secured.SecuredEndpoint[(UUID, UUID, SetPreferredEmployeeRequest), OrderResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "employee")
       .tag("Orders")
       .summary("Set or clear the preferred employee for a manufacturing")
       .in(jsonBody[SetPreferredEmployeeRequest].example(SetPreferredEmployeeRequest.example))
       .out(jsonBody[OrderResponse])
 
-  val delete: PublicEndpoint[(UUID, Option[String]), ApiFailure, Unit, Any] =
-    ApiError.base.delete
+  val delete: Secured.SecuredEndpoint[(UUID, Option[String]), Unit] =
+    Secured.base.delete
       .in(collection / path[UUID]("id"))
       .in(query[Option[String]]("reason"))
       .tag("Orders")
@@ -159,22 +160,23 @@ object OrderHttpApi:
       customers: CustomerApp.Store,
       tasks: TaskApp.Store,
       employees: EmployeeApp.Store,
+      security: ApiSecurity,
   ): List[ServerEndpoint[Any, IO]] = List(
-    create.serverLogic(createLogic(store, customers, tasks)),
-    list.serverLogic(_ => listLogic(store)),
-    read.serverLogic(readLogic(store)),
-    update.serverLogic(updateLogic(store)),
-    transition.serverLogic(transitionLogic(store)),
-    updateTask.serverLogic(updateTaskLogic(store)),
-    addManufacturing.serverLogic(addManufacturingLogic(store, tasks)),
-    removeManufacturing.serverLogic(removeManufacturingLogic(store)),
-    updateManufacturing.serverLogic(updateManufacturingLogic(store)),
-    updateDependencies.serverLogic(updateDependenciesLogic(store)),
-    updateTaskDependencies.serverLogic(updateTaskDependenciesLogic(store)),
-    addTask.serverLogic(addTaskLogic(store, tasks)),
-    removeTask.serverLogic(removeTaskLogic(store)),
-    setPreferredEmployee.serverLogic(setPreferredEmployeeLogic(store, employees)),
-    delete.serverLogic(deleteLogic(store)),
+    security.secure(create, Role.Operator)(createLogic(store, customers, tasks)),
+    security.secure(list, Role.Viewer)(_ => listLogic(store)),
+    security.secure(read, Role.Viewer)(readLogic(store)),
+    security.secure(update, Role.Operator)(updateLogic(store)),
+    security.secure(transition, Role.Operator)(transitionLogic(store)),
+    security.secure(updateTask, Role.Operator)(updateTaskLogic(store)),
+    security.secure(addManufacturing, Role.Operator)(addManufacturingLogic(store, tasks)),
+    security.secure(removeManufacturing, Role.Operator)(removeManufacturingLogic(store)),
+    security.secure(updateManufacturing, Role.Operator)(updateManufacturingLogic(store)),
+    security.secure(updateDependencies, Role.Operator)(updateDependenciesLogic(store)),
+    security.secure(updateTaskDependencies, Role.Operator)(updateTaskDependenciesLogic(store)),
+    security.secure(addTask, Role.Operator)(addTaskLogic(store, tasks)),
+    security.secure(removeTask, Role.Operator)(removeTaskLogic(store)),
+    security.secure(setPreferredEmployee, Role.Operator)(setPreferredEmployeeLogic(store, employees)),
+    security.secure(delete, Role.Admin)(deleteLogic(store)),
   )
 
   private def createLogic(

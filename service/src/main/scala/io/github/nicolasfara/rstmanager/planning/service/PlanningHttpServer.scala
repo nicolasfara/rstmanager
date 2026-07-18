@@ -3,10 +3,17 @@ package io.github.nicolasfara.rstmanager.planning.service
 import io.github.nicolasfara.rstmanager.customer.service.CustomerApp
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.ApiServer
+import io.github.nicolasfara.rstmanager.service.auth.{ AuthConfig, JwksClient, JwtValidator }
+import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, OrderApp, TaskApp }
 
+import scala.concurrent.duration.DurationInt
+
 import cats.effect.{ IO, Resource }
+import cats.syntax.all.*
 import com.comcast.ip4s.{ Host, Port }
+import org.http4s.Uri
+import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Server
 import org.http4s.server.middleware.{ CORS, Logger as HttpLogger }
@@ -20,7 +27,19 @@ final case class PlanningHttpConfig(host: String, port: Int):
 
 final case class PlanningDatabaseConfig(host: String, port: Int, database: String, user: String, password: String, poolSize: Int)
 
-final case class PlanningServerConfig(http: PlanningHttpConfig, database: PlanningDatabaseConfig)
+/**
+ * Keycloak validation settings. `internalBaseUrl` is where the service fetches the JWKS (docker-network address), while `issuer` is the external
+ * realm URL the browser sees: tokens carry the external issuer regardless of which interface served the request (KC_HOSTNAME).
+ */
+final case class KeycloakConfig(internalBaseUrl: String, realm: String, issuer: String, clientId: String):
+  def jwksUrl: String = s"$internalBaseUrl/realms/$realm/protocol/openid-connect/certs"
+
+final case class PlanningServerConfig(
+    http: PlanningHttpConfig,
+    database: PlanningDatabaseConfig,
+    keycloak: KeycloakConfig,
+    corsAllowedOrigins: List[String],
+)
 
 object PlanningServerConfig:
   def load: IO[PlanningServerConfig] =
@@ -44,6 +63,13 @@ object PlanningServerConfig:
         env.getOrElse("RSTMANAGER_DB_PASSWORD", "postgres"),
         poolSize,
       ),
+      KeycloakConfig(
+        env.getOrElse("RSTMANAGER_KEYCLOAK_INTERNAL_URL", "http://localhost:8081/auth"),
+        env.getOrElse("RSTMANAGER_KEYCLOAK_REALM", "rstmanager"),
+        env.getOrElse("RSTMANAGER_KEYCLOAK_ISSUER", "http://localhost:3333/auth/realms/rstmanager"),
+        env.getOrElse("RSTMANAGER_KEYCLOAK_CLIENT_ID", "rstmanager-frontend"),
+      ),
+      env.get("RSTMANAGER_CORS_ALLOWED_ORIGINS").fold(List.empty[String])(_.split(',').toList.map(_.trim.nn).filter(_.nonEmpty)),
     )
 
   private def intValue(env: Map[String, String], key: String, default: Int): Either[String, Int] =
@@ -59,6 +85,7 @@ object PlanningHttpServer:
     for
       httpHost <- Resource.eval(parseHost(config.http.host))
       httpPort <- Resource.eval(parsePort(config.http.port))
+      security <- apiSecurity(config.keycloak)
       pool <- sessionPool(config.database)
       planningBackend <- PlanningApp.backend(pool)
       employees <- EmployeeApp.build(pool)
@@ -69,8 +96,8 @@ object PlanningHttpServer:
       planningGateway = PlanningEntityGateway.fromStores(orders, employees)
       planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
       _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator)
-      routes = ApiServer.routes(planningBackend, employees, customers, tasks, manufacturings, orders)
-      httpApp = CORS.policy.withAllowOriginAll(routes).orNotFound
+      routes = ApiServer.routes(planningBackend, employees, customers, tasks, manufacturings, orders, security)
+      httpApp = corsPolicy(config.corsAllowedOrigins)(routes).orNotFound
       loggedHttpApp = HttpLogger.httpApp[IO](
         logHeaders = false,
         logBody = false,
@@ -83,6 +110,29 @@ object PlanningHttpServer:
         .withHttpApp(loggedHttpApp)
         .build
     yield server
+
+  /** Browser traffic is same-origin through the nginx/vite proxy, so CORS stays off unless origins are explicitly configured. */
+  private def corsPolicy(allowedOrigins: List[String]): org.http4s.HttpRoutes[IO] => org.http4s.HttpRoutes[IO] =
+    if allowedOrigins.isEmpty then identity
+    else CORS.policy.withAllowOriginHost(allowedOrigins.flatMap(origin => Uri.fromString(origin).toOption.flatMap(originFromUri)).toSet).apply
+
+  private def originFromUri(uri: Uri): Option[org.http4s.headers.Origin.Host] =
+    (uri.scheme, uri.host).mapN((scheme, host) => org.http4s.headers.Origin.Host(scheme, host, uri.port))
+
+  /** Builds the JWKS-backed validator, retrying the initial key fetch so a race with Keycloak startup does not kill the service. */
+  private def apiSecurity(keycloak: KeycloakConfig): Resource[IO, ApiSecurity] =
+    for
+      client <- EmberClientBuilder.default[IO].build
+      jwksUri <- Resource.eval(IO.fromEither(Uri.fromString(keycloak.jwksUrl)))
+      jwks <- Resource.eval(JwksClient.build(client, jwksUri))
+      _ <- Resource.eval(initialJwksFetch(jwks, attempts = 30))
+    yield ApiSecurity(new JwtValidator(jwks.keyFor, AuthConfig(keycloak.issuer, keycloak.clientId)))
+
+  private def initialJwksFetch(jwks: JwksClient, attempts: Int): IO[Unit] =
+    jwks.refresh.flatTap(_ => IO(logger.info("Fetched Keycloak JWKS."))).handleErrorWith { error =>
+      if attempts <= 1 then IO(logger.warn(s"Could not fetch Keycloak JWKS at startup, continuing with lazy fetch: $error"))
+      else IO(logger.info(s"Keycloak JWKS not available yet, retrying: $error")) *> IO.sleep(2.seconds) *> initialJwksFetch(jwks, attempts - 1)
+    }
 
   private def sessionPool(config: PlanningDatabaseConfig): Resource[IO, Resource[IO, Session[IO]]] =
     Session

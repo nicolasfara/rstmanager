@@ -3,6 +3,7 @@ package io.github.nicolasfara.rstmanager.service
 import io.github.nicolasfara.rstmanager.customer.service.{ CustomerApp, CustomerHttpApi }
 import io.github.nicolasfara.rstmanager.hr.service.{ EmployeeApp, EmployeeHttpApi }
 import io.github.nicolasfara.rstmanager.planning.service.{ PlanningApp, PlanningEntityGateway, PlanningRoutes }
+import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, ManufacturingHttpApi, OrderApp, OrderHttpApi, TaskApp, TaskHttpApi }
 
 import cats.effect.IO
@@ -20,15 +21,16 @@ object ApiServer:
       tasks: TaskApp.Store,
       manufacturings: ManufacturingApp.Store,
       orders: OrderApp.Store,
+      security: ApiSecurity,
   ): HttpRoutes[IO] =
     val planningGateway = PlanningEntityGateway.fromStores(orders, employees)
     val apiEndpoints: List[ServerEndpoint[Any, IO]] =
-      EmployeeHttpApi.routes(employees) ++
-        CustomerHttpApi.routes(customers) ++
-        TaskHttpApi.routes(tasks, manufacturings) ++
-        ManufacturingHttpApi.routes(manufacturings, tasks) ++
-        OrderHttpApi.routes(orders, customers, tasks, employees) ++
-        PlanningRoutes.serverEndpoints(planningBackend, planningGateway)
+      EmployeeHttpApi.routes(employees, security) ++
+        CustomerHttpApi.routes(customers, security) ++
+        TaskHttpApi.routes(tasks, manufacturings, security) ++
+        ManufacturingHttpApi.routes(manufacturings, tasks, security) ++
+        OrderHttpApi.routes(orders, customers, tasks, employees, security) ++
+        PlanningRoutes.serverEndpoints(planningBackend, planningGateway, security)
 
     val documentationEndpoints = SwaggerInterpreter().fromServerEndpoints[IO](apiEndpoints, "RST Manager API", "0.1.0")
 

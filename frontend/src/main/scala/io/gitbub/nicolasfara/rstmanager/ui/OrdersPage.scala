@@ -9,6 +9,7 @@ import scala.util.Try
 
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.Equality.given
+import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
@@ -824,7 +825,8 @@ object OrdersPage:
 
     // ---- Edit modal rendering --------------------------------------------------------------------
     def editContent(order: OrderResponse): HtmlElement =
-      val editable = isEditable(order.status)
+      // Viewers open the same modal in read-only mode ("Dettaglio"); mutations require the operator role.
+      val editable = isEditable(order.status) && AuthService.currentHasRole(Role.Operator)
       val rowsByTask: Map[UUID, TaskEditRow] = editTasks.now().map(row => row.taskId -> row).toMap
       val mfgById: Map[UUID, MfgEditRow] = editMfgs.now().map(row => row.id -> row).toMap
 
@@ -1151,16 +1153,18 @@ object OrdersPage:
 
     // ---- Row / table rendering -------------------------------------------------------------------
     def orderActionButtons(order: OrderResponse): List[HtmlElement] =
+      val canOperate = AuthService.currentHasRole(Role.Operator)
       val detailsButton = button(
         tpe := "button",
         cls := btnSmall,
-        if isEditable(order.status) then "Modifica" else "Dettagli",
+        if isEditable(order.status) && canOperate then "Modifica" else "Dettagli",
         onClick --> (_ => openEdit(order)),
       )
+      // Cancelling removes the order (DELETE), which the server restricts to admins.
       val cancelButton =
-        if order.status == "cancelled" then Nil
+        if order.status == "cancelled" || !AuthService.currentHasRole(Role.Admin) then Nil
         else List(button(tpe := "button", cls := btnDanger, "Annulla ordine", onClick --> (_ => requestTransition(order, "cancel"))))
-      detailsButton :: transitionButtons(order) ++ cancelButton
+      detailsButton :: (if canOperate then transitionButtons(order) else Nil) ++ cancelButton
 
     def renderOrderCard(order: OrderResponse): HtmlElement =
       val taskCount = order.manufacturings.map(_.tasks.size).sum
@@ -1278,12 +1282,14 @@ object OrdersPage:
       div(
         cls := "mb-4 flex items-center justify-between",
         sectionTitle("Ordini"),
-        button(
-          tpe := "button",
-          cls := btnPrimary,
-          "+ Nuovo ordine",
-          onClick --> (_ =>
-            resetCreate(); showCreate.set(true)
+        roleGated(Role.Operator)(
+          button(
+            tpe := "button",
+            cls := btnPrimary,
+            "+ Nuovo ordine",
+            onClick --> (_ =>
+              resetCreate(); showCreate.set(true)
+            ),
           ),
         ),
       ),

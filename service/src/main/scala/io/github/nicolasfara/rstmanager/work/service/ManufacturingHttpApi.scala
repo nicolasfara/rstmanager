@@ -2,7 +2,8 @@ package io.github.nicolasfara.rstmanager.work.service
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.service.http.ApiError
+import io.github.nicolasfara.rstmanager.service.auth.Role
+import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingDependencies, ManufacturingError }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.task.Task
@@ -97,34 +98,34 @@ object ManufacturingHttpApi:
 
   private val collection = "manufacturings"
 
-  val create: PublicEndpoint[ManufacturingRequest, ApiFailure, ManufacturingResponse, Any] =
-    ApiError.base.post
+  val create: Secured.SecuredEndpoint[ManufacturingRequest, ManufacturingResponse] =
+    Secured.base.post
       .in(collection)
       .tag("Manufacturings")
       .summary("Create a manufacturing catalog template")
       .in(jsonBody[ManufacturingRequest].example(ManufacturingRequest.example))
       .out(jsonBody[ManufacturingResponse])
 
-  val list: PublicEndpoint[Unit, ApiFailure, List[ManufacturingResponse], Any] =
-    ApiError.base.get.in(collection).tag("Manufacturings").summary("List manufacturing catalog templates").out(jsonBody[List[ManufacturingResponse]])
+  val list: Secured.SecuredEndpoint[Unit, List[ManufacturingResponse]] =
+    Secured.base.get.in(collection).tag("Manufacturings").summary("List manufacturing catalog templates").out(jsonBody[List[ManufacturingResponse]])
 
-  val read: PublicEndpoint[UUID, ApiFailure, ManufacturingResponse, Any] =
-    ApiError.base.get
+  val read: Secured.SecuredEndpoint[UUID, ManufacturingResponse] =
+    Secured.base.get
       .in(collection / path[UUID]("id"))
       .tag("Manufacturings")
       .summary("Read a manufacturing template")
       .out(jsonBody[ManufacturingResponse])
 
-  val update: PublicEndpoint[(UUID, ManufacturingRequest), ApiFailure, ManufacturingResponse, Any] =
-    ApiError.base.put
+  val update: Secured.SecuredEndpoint[(UUID, ManufacturingRequest), ManufacturingResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id"))
       .tag("Manufacturings")
       .summary("Replace a manufacturing catalog template")
       .in(jsonBody[ManufacturingRequest].example(ManufacturingRequest.example))
       .out(jsonBody[ManufacturingResponse])
 
-  val delete: PublicEndpoint[UUID, ApiFailure, Unit, Any] =
-    ApiError.base.delete
+  val delete: Secured.SecuredEndpoint[UUID, Unit] =
+    Secured.base.delete
       .in(collection / path[UUID]("id"))
       .tag("Manufacturings")
       .summary("Delete a manufacturing template")
@@ -132,12 +133,12 @@ object ManufacturingHttpApi:
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
-  def routes(store: ManufacturingApp.Store, tasks: TaskApp.Store): List[ServerEndpoint[Any, IO]] = List(
-    create.serverLogic(createLogic(store, tasks)),
-    list.serverLogic(_ => listLogic(store, tasks)),
-    read.serverLogic(readLogic(store, tasks)),
-    update.serverLogic(updateLogic(store, tasks)),
-    delete.serverLogic(deleteLogic(store)),
+  def routes(store: ManufacturingApp.Store, tasks: TaskApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] = List(
+    security.secure(create, Role.Admin)(createLogic(store, tasks)),
+    security.secure(list, Role.Viewer)(_ => listLogic(store, tasks)),
+    security.secure(read, Role.Viewer)(readLogic(store, tasks)),
+    security.secure(update, Role.Admin)(updateLogic(store, tasks)),
+    security.secure(delete, Role.Admin)(deleteLogic(store)),
   )
 
   private def createLogic(store: ManufacturingApp.Store, tasks: TaskApp.Store)(

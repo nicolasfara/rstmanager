@@ -84,6 +84,39 @@ To remove the persisted database volume:
 docker compose down -v
 ```
 
+## Authentication (Keycloak)
+
+Every `/api/v1` endpoint (except `GET /api/v1/health`) requires a Keycloak bearer token. Authorization uses three hierarchical realm roles:
+
+- `viewer` — read-only access (all GETs)
+- `operator` — day-to-day operations: order lifecycle, task progress, planning attempts (includes `viewer`)
+- `admin` — everything, including registry management (employees, customers, task/manufacturing catalogs) and order deletion (includes `operator`)
+
+Compose starts a Keycloak 26 container that imports the `rstmanager` realm from `keycloak/rstmanager-realm.json` (public client
+`rstmanager-frontend`, Authorization Code + PKCE only — no ROPC, no implicit flow). Keycloak is proxied same-origin by nginx under
+`http://localhost:3333/auth`, and `KC_HOSTNAME` pins the token issuer to that external URL; the backend fetches the JWKS from the internal
+`http://keycloak:8080/auth` address but validates the external issuer string (`RSTMANAGER_KEYCLOAK_ISSUER`). Everything derives from
+`RSTMANAGER_PUBLIC_AUTH_URL` (default `http://localhost:3333/auth`) — keep it consistent to avoid blanket 401s.
+
+The realm export contains **no users**. Create them in the admin console at http://localhost:3333/auth/admin (bootstrap credentials from
+`RSTMANAGER_KC_ADMIN_USER` / `RSTMANAGER_KC_ADMIN_PASSWORD`, default `admin`/`admin` — override them outside local dev) and assign one of the
+realm roles above.
+
+Keycloak stores its data in a dedicated `keycloak` database inside the same Postgres instance. On a **fresh** volume the init script in
+`docker/postgres-init/` creates it automatically; on an **existing** volume create it manually once:
+
+```bash
+docker compose exec postgres psql -U rstmanager -d rstmanager \
+  -c "CREATE USER keycloak WITH PASSWORD 'keycloak';" \
+  -c "CREATE DATABASE keycloak OWNER keycloak;"
+```
+
+For host-mode development (`sbt service/run` + `npm run dev`), start only `postgres` and `keycloak` with Compose: the backend defaults point at
+`http://localhost:8081/auth` for JWKS and the vite dev server proxies `/auth` to the same port, so login works identically on
+`http://localhost:3333`.
+
+CORS is disabled by default (all browser traffic is same-origin through nginx/vite). To call the API from another origin, set
+`RSTMANAGER_CORS_ALLOWED_ORIGINS` (comma-separated) on the backend.
 
 ## IDE config
 

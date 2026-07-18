@@ -1,8 +1,9 @@
 package io.gitbub.nicolasfara.rstmanager.ui
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, AuthState, AuthUser }
 
-/** Application shell: top navigation and the routed page content area. */
+/** Application shell: auth gate, top navigation, and the routed page content area. */
 object App:
 
   enum Page derives CanEqual:
@@ -65,10 +66,33 @@ object App:
 
   def apply(): HtmlElement =
     ErrorCenter.installRuntimeHandlers()
+    div(
+      cls := "min-h-screen bg-slate-50 text-slate-800",
+      child <-- AuthService.stateSignal.map {
+        case AuthState.Initializing => div(cls := "flex min-h-[70vh] items-center justify-center", Components.spinner)
+        case AuthState.Anonymous => LandingPage()
+        case AuthState.Authenticated(user) => shell(user)
+      },
+      globalErrorBanner,
+    )
+  end apply
+
+  private def logoutButton(user: AuthUser): HtmlElement =
+    div(
+      cls := "flex items-center gap-2",
+      span(cls := "hidden sm:inline text-xs font-medium text-slate-500", user.username),
+      button(
+        tpe := "button",
+        cls := "rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors",
+        "Esci",
+        onClick --> (_ => AuthService.logout()),
+      ),
+    )
+
+  private def shell(user: AuthUser): HtmlElement =
     val current = Var(Page.Planning)
     val menuOpen = Var(false)
     div(
-      cls := "min-h-screen bg-slate-50 text-slate-800",
       headerTag(
         cls := "sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur",
         div(
@@ -79,13 +103,17 @@ object App:
             span(cls := "text-sm font-semibold tracking-tight text-slate-900", "RST Manager"),
           ),
           // Desktop nav
-          navTag(cls := "hidden sm:flex flex-wrap gap-1", Page.values.toList.map(navButton(_, current))),
-          // Hamburger toggle (mobile only)
-          button(
-            tpe := "button",
-            cls := "sm:hidden rounded-md p-1.5 text-slate-600 hover:bg-slate-100 transition-colors",
-            onClick --> (_ => menuOpen.update(!_)),
-            child.text <-- menuOpen.signal.map(open => if open then "✕" else "☰"),
+          navTag(cls := "hidden sm:flex flex-wrap gap-1 grow", Page.values.toList.map(navButton(_, current))),
+          div(
+            cls := "flex items-center gap-2",
+            logoutButton(user),
+            // Hamburger toggle (mobile only)
+            button(
+              tpe := "button",
+              cls := "sm:hidden rounded-md p-1.5 text-slate-600 hover:bg-slate-100 transition-colors",
+              onClick --> (_ => menuOpen.update(!_)),
+              child.text <-- menuOpen.signal.map(open => if open then "✕" else "☰"),
+            ),
           ),
         ),
         // Mobile dropdown
@@ -106,6 +134,7 @@ object App:
                     ),
                   )
                 },
+                div(cls := "mt-1 border-t border-slate-200 pt-2 px-3 text-xs font-medium text-slate-500", user.username),
               ),
             ),
           )
@@ -115,7 +144,6 @@ object App:
         cls := "mx-auto max-w-7xl px-4 sm:px-6 py-6",
         child <-- current.signal.map(render),
       ),
-      globalErrorBanner,
     )
-  end apply
+  end shell
 end App

@@ -59,6 +59,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
         EmployeeHttpApi.endpoints
     val yaml = OpenAPIDocsInterpreter().toOpenAPI(endpoints, "RST Manager API", "0.1.0").toYaml
 
+    yaml should include("bearerAuth")
     yaml should include("2026-06-15T00:00:00.000Z")
     yaml should include("2026-06-14T09:00:00.000Z")
     yaml should include("2026-06-19T17:00:00.000Z")

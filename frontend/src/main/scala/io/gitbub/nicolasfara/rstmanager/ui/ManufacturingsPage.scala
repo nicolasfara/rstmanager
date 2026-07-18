@@ -9,6 +9,7 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
+import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /** Catalog of reusable manufacturings composed from live catalog task references. */
@@ -177,7 +178,8 @@ object ManufacturingsPage:
       )
 
     div(
-      cls := "grid gap-6 lg:grid-cols-[22rem_1fr]",
+      cls := "grid gap-6",
+      roleGatedGridCols(Role.Admin, "lg:grid-cols-[22rem_1fr]"),
       manufacturingsData --> {
         case Some(Right(list)) =>
           manufacturingsSnapshot.set(list)
@@ -185,35 +187,37 @@ object ManufacturingsPage:
           if current.editingId.isEmpty && !current.codeManuallyEdited then form.update(_.copy(code = GeneratedCodes.next("MFG", list.map(_.code))))
         case _ => ()
       },
-      card(
-        cls := "self-start p-4",
-        sectionTitle("Nuova lavorazione"),
-        div(
-          cls := "mt-3 space-y-3",
-          field(
-            "Codice",
-            textInput(form.signal.map(_.code), Observer[String](v => form.update(_.copy(code = v))), "MFG-2026-001")
-              .amend(onInput.mapToValue --> (_ => form.update(_.copy(codeManuallyEdited = true)))),
-          ),
-          field("Nome", textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "Serramento standard")),
-          field("Descrizione", textInput(form.signal.map(_.description), Observer[String](v => form.update(_.copy(description = v))), "Opzionale")),
+      roleGated(Role.Admin)(
+        card(
+          cls := "self-start p-4",
+          sectionTitle("Nuova lavorazione"),
           div(
-            cls := "space-y-2",
-            div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Task"),
-            children <-- form.signal.map(_.taskRows).split(_.key)((_, initial, _) => renderTaskRow(initial)),
-            button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => form.update(state => state.copy(taskRows = state.taskRows :+ newTaskRow())))),
-          ),
-          child.maybe <-- formError.signal.map(_.map(errorBanner)),
-          div(
-            cls := "flex gap-2",
-            button(
-              tpe := "button",
-              cls := btnPrimary,
-              child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
-              disabled <-- formErrors.map(_.nonEmpty),
-              onClick --> (_ => submit()),
+            cls := "mt-3 space-y-3",
+            field(
+              "Codice",
+              textInput(form.signal.map(_.code), Observer[String](v => form.update(_.copy(code = v))), "MFG-2026-001")
+                .amend(onInput.mapToValue --> (_ => form.update(_.copy(codeManuallyEdited = true)))),
             ),
-            child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+            field("Nome", textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "Serramento standard")),
+            field("Descrizione", textInput(form.signal.map(_.description), Observer[String](v => form.update(_.copy(description = v))), "Opzionale")),
+            div(
+              cls := "space-y-2",
+              div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Task"),
+              children <-- form.signal.map(_.taskRows).split(_.key)((_, initial, _) => renderTaskRow(initial)),
+              button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => form.update(state => state.copy(taskRows = state.taskRows :+ newTaskRow())))),
+            ),
+            child.maybe <-- formError.signal.map(_.map(errorBanner)),
+            div(
+              cls := "flex gap-2",
+              button(
+                tpe := "button",
+                cls := btnPrimary,
+                child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
+                disabled <-- formErrors.map(_.nonEmpty),
+                onClick --> (_ => submit()),
+              ),
+              child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+            ),
           ),
         ),
       ),
@@ -248,10 +252,12 @@ object ManufacturingsPage:
                     td(cls := "px-4 py-2 tabular-nums", manufacturing.totalRequiredHours.toString),
                     td(
                       cls := "px-4 py-2 text-right",
-                      div(
-                        cls := "flex justify-end gap-2",
-                        button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(manufacturing))),
-                        button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(manufacturing.id))),
+                      roleGated(Role.Admin)(
+                        div(
+                          cls := "flex justify-end gap-2",
+                          button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(manufacturing))),
+                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(manufacturing.id))),
+                        ),
                       ),
                     ),
                   )

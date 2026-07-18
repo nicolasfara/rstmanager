@@ -48,6 +48,12 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true
+      },
+      // Keycloak is proxied same-origin so the issuer matches production and the
+      // session cookie stays first-party (silent SSO iframe works).
+      "/auth": {
+        target: "http://localhost:8081",
+        changeOrigin: true
       }
     }
   }

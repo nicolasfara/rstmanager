@@ -3,7 +3,8 @@ package io.github.nicolasfara.rstmanager.customer.service
 import java.util.{ Locale, UUID }
 
 import io.github.nicolasfara.rstmanager.customer.domain.*
-import io.github.nicolasfara.rstmanager.service.http.ApiError
+import io.github.nicolasfara.rstmanager.service.auth.Role
+import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 
 import cats.data.ValidatedNec
 import cats.effect.IO
@@ -99,39 +100,39 @@ object CustomerHttpApi:
 
   private val collection = "customers"
 
-  val create: PublicEndpoint[CustomerRequest, ApiFailure, CustomerResponse, Any] =
-    ApiError.base.post
+  val create: Secured.SecuredEndpoint[CustomerRequest, CustomerResponse] =
+    Secured.base.post
       .in(collection)
       .tag("Customers")
       .summary("Create a customer")
       .in(jsonBody[CustomerRequest].example(CustomerRequest.example))
       .out(jsonBody[CustomerResponse])
 
-  val list: PublicEndpoint[Unit, ApiFailure, List[CustomerResponse], Any] =
-    ApiError.base.get.in(collection).tag("Customers").summary("List customers").out(jsonBody[List[CustomerResponse]])
+  val list: Secured.SecuredEndpoint[Unit, List[CustomerResponse]] =
+    Secured.base.get.in(collection).tag("Customers").summary("List customers").out(jsonBody[List[CustomerResponse]])
 
-  val read: PublicEndpoint[UUID, ApiFailure, CustomerResponse, Any] =
-    ApiError.base.get.in(collection / path[UUID]("id")).tag("Customers").summary("Read a customer").out(jsonBody[CustomerResponse])
+  val read: Secured.SecuredEndpoint[UUID, CustomerResponse] =
+    Secured.base.get.in(collection / path[UUID]("id")).tag("Customers").summary("Read a customer").out(jsonBody[CustomerResponse])
 
-  val update: PublicEndpoint[(UUID, CustomerRequest), ApiFailure, CustomerResponse, Any] =
-    ApiError.base.put
+  val update: Secured.SecuredEndpoint[(UUID, CustomerRequest), CustomerResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id"))
       .tag("Customers")
       .summary("Replace a customer")
       .in(jsonBody[CustomerRequest].example(CustomerRequest.example))
       .out(jsonBody[CustomerResponse])
 
-  val delete: PublicEndpoint[UUID, ApiFailure, Unit, Any] =
-    ApiError.base.delete.in(collection / path[UUID]("id")).tag("Customers").summary("Delete a customer").out(statusCode(StatusCode.NoContent))
+  val delete: Secured.SecuredEndpoint[UUID, Unit] =
+    Secured.base.delete.in(collection / path[UUID]("id")).tag("Customers").summary("Delete a customer").out(statusCode(StatusCode.NoContent))
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
-  def routes(store: CustomerApp.Store): List[ServerEndpoint[Any, IO]] = List(
-    create.serverLogic(createLogic(store)),
-    list.serverLogic(_ => listLogic(store)),
-    read.serverLogic(readLogic(store)),
-    update.serverLogic(updateLogic(store)),
-    delete.serverLogic(deleteLogic(store)),
+  def routes(store: CustomerApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] = List(
+    security.secure(create, Role.Admin)(createLogic(store)),
+    security.secure(list, Role.Viewer)(_ => listLogic(store)),
+    security.secure(read, Role.Viewer)(readLogic(store)),
+    security.secure(update, Role.Admin)(updateLogic(store)),
+    security.secure(delete, Role.Admin)(deleteLogic(store)),
   )
 
   private def createLogic(store: CustomerApp.Store)(request: CustomerRequest): IO[Either[ApiFailure, CustomerResponse]] =

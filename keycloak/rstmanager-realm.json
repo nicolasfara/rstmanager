@@ -1,0 +1,62 @@
+{
+  "realm": "rstmanager",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "defaultSignatureAlgorithm": "RS256",
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "realm": [
+      {
+        "name": "viewer",
+        "description": "Read-only access to every resource"
+      },
+      {
+        "name": "operator",
+        "description": "Day-to-day operations: order lifecycle, task progress, planning",
+        "composite": true,
+        "composites": { "realm": ["viewer"] }
+      },
+      {
+        "name": "admin",
+        "description": "Full access including registry management and deletions",
+        "composite": true,
+        "composites": { "realm": ["operator"] }
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "rstmanager-frontend",
+      "name": "RST Manager frontend",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "fullScopeAllowed": true,
+      "rootUrl": "http://localhost:3333",
+      "baseUrl": "/",
+      "redirectUris": ["http://localhost:3333/*"],
+      "webOrigins": ["http://localhost:3333"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3333/*"
+      }
+    }
+  ]
+}

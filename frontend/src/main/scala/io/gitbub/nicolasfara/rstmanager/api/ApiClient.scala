@@ -12,6 +12,7 @@ import scala.util.{ Failure, Success }
 import io.circe.{ Decoder, Encoder }
 import io.circe.parser.decode
 import io.circe.syntax.*
+import io.gitbub.nicolasfara.rstmanager.auth.AuthService
 import org.scalajs.dom
 
 import Dtos.*
@@ -37,15 +38,27 @@ object ApiClient:
   private case class CacheEntry(status: Int, text: String, expiresAt: Double)
   private val responseCache = collection.mutable.Map.empty[String, CacheEntry]
 
-  private def rawSend(method: dom.HttpMethod, path: String, body: Option[String]): Future[(Int, String)] =
-    val init = new dom.RequestInit {}
-    init.method = method
-    body.foreach { payload =>
+  /** Drops all cached responses; called on login/logout so no data leaks across sessions. */
+  def clearCache(): Unit =
+    responseCache.clear()
+    inFlight.clear()
+
+  /** Token acquisition happens here, past the cache/dedup short-circuits, so `updateToken` runs only when a request actually goes out. */
+  private def authedFetch(method: dom.HttpMethod, path: String, body: Option[String]): Future[(Int, String)] =
+    AuthService.bearerToken().flatMap { tokenOpt =>
+      val init = new dom.RequestInit {}
+      init.method = method
       val headers = new dom.Headers()
-      headers.append("Content-Type", "application/json")
+      tokenOpt.foreach(token => headers.append("Authorization", s"Bearer $token"))
+      body.foreach { payload =>
+        headers.append("Content-Type", "application/json")
+        init.body = payload
+      }
       init.headers = headers
-      init.body = payload
+      dom.fetch(baseUrl + path, init).flatMap(response => response.text().map(text => (response.status, text)))
     }
+
+  private def rawSend(method: dom.HttpMethod, path: String, body: Option[String]): Future[(Int, String)] =
     // Cast avoids the strict-equality CanEqual constraint on dom.HttpMethod.
     if method.asInstanceOf[String] == "GET" then
       responseCache.get(path) match
@@ -54,7 +67,7 @@ object ApiClient:
           inFlight.get(path) match
             case Some(existing) => existing
             case None =>
-              val resultF = dom.fetch(baseUrl + path, init).flatMap(response => response.text().map(text => (response.status, text)))
+              val resultF = authedFetch(method, path, body)
               inFlight(path) = resultF
               resultF.onComplete {
                 case Success((status, text)) =>
@@ -67,7 +80,7 @@ object ApiClient:
       // On any mutation, evict all cached entries for the same base resource (first path segment).
       val baseSegment = "/" + path.stripPrefix("/").takeWhile(_ != '/')
       responseCache.keys.filter(_.startsWith(baseSegment)).toList.foreach(responseCache.remove)
-      dom.fetch(baseUrl + path, init).flatMap(response => response.text().map(text => (response.status, text)))
+      authedFetch(method, path, body)
 
   private def parseError(status: Int, text: String): ApiError =
     decode[ApiError](text).getOrElse(ApiError("http-error", s"HTTP $status", if text.isEmpty then Nil else List(text)))
@@ -78,15 +91,24 @@ object ApiClient:
     case message: String => message
     case _ => "Errore di rete"
 
+  /** A 401 means the token no longer satisfies the server: drop the session and go through the hosted login again. */
+  private def handleUnauthorized(status: Int): Unit =
+    if status == 401 then AuthService.forceReauth()
+
   private def sendJson[A: Decoder](method: dom.HttpMethod, path: String, body: Option[String]): Future[Result[A]] =
     rawSend(method, path, body).map { (status, text) =>
       if isSuccess(status) then decode[A](text).left.map(err => ApiError("decode-error", s"Cannot decode response: ${err.getMessage}", List(text)))
-      else Left(parseError(status, text))
+      else
+        handleUnauthorized(status)
+        Left(parseError(status, text))
     }.recover { case err => Left(ApiError("network-error", errorMessage(err), Nil)) }
 
   private def sendUnit(method: dom.HttpMethod, path: String, body: Option[String]): Future[Result[Unit]] =
     rawSend(method, path, body).map { (status, text) =>
-      if isSuccess(status) then Right(()) else Left(parseError(status, text))
+      if isSuccess(status) then Right(())
+      else
+        handleUnauthorized(status)
+        Left(parseError(status, text))
     }.recover { case err => Left(ApiError("network-error", errorMessage(err), Nil)) }
 
   private def jsonBody[A: Encoder](value: A): Option[String] = Some(value.asJson.noSpaces)

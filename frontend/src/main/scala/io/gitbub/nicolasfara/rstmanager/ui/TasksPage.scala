@@ -7,6 +7,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
+import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /** Catalog of reusable tasks (name, description, required hours) referenced when building orders. */
@@ -51,25 +52,28 @@ object TasksPage:
 
     div(
       div(
-        cls := "grid gap-6 lg:grid-cols-[20rem_1fr]",
-        card(
-          cls := "self-start p-4",
-          sectionTitle("Nuovo task"),
-          div(
-            cls := "mt-3 space-y-3",
-            field("Nome", textInput(name, "Es. Taglio")),
-            field("Descrizione", textInput(description, "Opzionale")),
-            field("Ore richieste", textInput(hours, "8", inputType = "number")),
-            child.maybe <-- formError.signal.map(_.map(errorBanner)),
+        cls := "grid gap-6",
+        roleGatedGridCols(Role.Admin, "lg:grid-cols-[20rem_1fr]"),
+        roleGated(Role.Admin)(
+          card(
+            cls := "self-start p-4",
+            sectionTitle("Nuovo task"),
             div(
-              cls := "flex gap-2",
-              button(
-                tpe := "button",
-                cls := btnPrimary,
-                child.text <-- editingId.signal.map(_.fold("Crea")(_ => "Salva")),
-                onClick --> (_ => submit()),
+              cls := "mt-3 space-y-3",
+              field("Nome", textInput(name, "Es. Taglio")),
+              field("Descrizione", textInput(description, "Opzionale")),
+              field("Ore richieste", textInput(hours, "8", inputType = "number")),
+              child.maybe <-- formError.signal.map(_.map(errorBanner)),
+              div(
+                cls := "flex gap-2",
+                button(
+                  tpe := "button",
+                  cls := btnPrimary,
+                  child.text <-- editingId.signal.map(_.fold("Crea")(_ => "Salva")),
+                  onClick --> (_ => submit()),
+                ),
+                child.maybe <-- editingId.signal.map(_.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
               ),
-              child.maybe <-- editingId.signal.map(_.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
             ),
           ),
         ),
@@ -93,10 +97,12 @@ object TasksPage:
                       td(cls := "px-4 py-2 tabular-nums", task.requiredHours.toString),
                       td(
                         cls := "px-4 py-2 text-right",
-                        div(
-                          cls := "flex justify-end gap-2",
-                          button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(task))),
-                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(task.id))),
+                        roleGated(Role.Admin)(
+                          div(
+                            cls := "flex justify-end gap-2",
+                            button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(task))),
+                            button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(task.id))),
+                          ),
                         ),
                       ),
                     )

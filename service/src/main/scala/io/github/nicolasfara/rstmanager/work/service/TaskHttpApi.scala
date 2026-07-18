@@ -2,7 +2,8 @@ package io.github.nicolasfara.rstmanager.work.service
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.service.http.ApiError
+import io.github.nicolasfara.rstmanager.service.auth.Role
+import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskError }
 
 import cats.data.ValidatedNec
@@ -41,39 +42,39 @@ object TaskHttpApi:
 
   private val collection = "tasks"
 
-  val create: PublicEndpoint[TaskRequest, ApiFailure, TaskResponse, Any] =
-    ApiError.base.post
+  val create: Secured.SecuredEndpoint[TaskRequest, TaskResponse] =
+    Secured.base.post
       .in(collection)
       .tag("Tasks")
       .summary("Create a task")
       .in(jsonBody[TaskRequest].example(TaskRequest.example))
       .out(jsonBody[TaskResponse])
 
-  val list: PublicEndpoint[Unit, ApiFailure, List[TaskResponse], Any] =
-    ApiError.base.get.in(collection).tag("Tasks").summary("List tasks").out(jsonBody[List[TaskResponse]])
+  val list: Secured.SecuredEndpoint[Unit, List[TaskResponse]] =
+    Secured.base.get.in(collection).tag("Tasks").summary("List tasks").out(jsonBody[List[TaskResponse]])
 
-  val read: PublicEndpoint[UUID, ApiFailure, TaskResponse, Any] =
-    ApiError.base.get.in(collection / path[UUID]("id")).tag("Tasks").summary("Read a task").out(jsonBody[TaskResponse])
+  val read: Secured.SecuredEndpoint[UUID, TaskResponse] =
+    Secured.base.get.in(collection / path[UUID]("id")).tag("Tasks").summary("Read a task").out(jsonBody[TaskResponse])
 
-  val update: PublicEndpoint[(UUID, TaskRequest), ApiFailure, TaskResponse, Any] =
-    ApiError.base.put
+  val update: Secured.SecuredEndpoint[(UUID, TaskRequest), TaskResponse] =
+    Secured.base.put
       .in(collection / path[UUID]("id"))
       .tag("Tasks")
       .summary("Replace a task")
       .in(jsonBody[TaskRequest].example(TaskRequest.example))
       .out(jsonBody[TaskResponse])
 
-  val delete: PublicEndpoint[UUID, ApiFailure, Unit, Any] =
-    ApiError.base.delete.in(collection / path[UUID]("id")).tag("Tasks").summary("Delete a task").out(statusCode(StatusCode.NoContent))
+  val delete: Secured.SecuredEndpoint[UUID, Unit] =
+    Secured.base.delete.in(collection / path[UUID]("id")).tag("Tasks").summary("Delete a task").out(statusCode(StatusCode.NoContent))
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
-  def routes(store: TaskApp.Store, manufacturings: ManufacturingApp.Store): List[ServerEndpoint[Any, IO]] = List(
-    create.serverLogic(createLogic(store)),
-    list.serverLogic(_ => listLogic(store)),
-    read.serverLogic(readLogic(store)),
-    update.serverLogic(updateLogic(store)),
-    delete.serverLogic(deleteLogic(store, manufacturings)),
+  def routes(store: TaskApp.Store, manufacturings: ManufacturingApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] = List(
+    security.secure(create, Role.Admin)(createLogic(store)),
+    security.secure(list, Role.Viewer)(_ => listLogic(store)),
+    security.secure(read, Role.Viewer)(readLogic(store)),
+    security.secure(update, Role.Admin)(updateLogic(store)),
+    security.secure(delete, Role.Admin)(deleteLogic(store, manufacturings)),
   )
 
   private def createLogic(store: TaskApp.Store)(request: TaskRequest): IO[Either[ApiFailure, TaskResponse]] =

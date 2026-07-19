@@ -70,6 +70,7 @@ object CustomersPage:
         Option.when(fiscalCode.trim.nn.isEmpty)(if isCompany then "Partita IVA obbligatoria" else "Codice fiscale obbligatorio"),
         Option.when(isCompany && businessName.trim.nn.isEmpty)("Ragione sociale obbligatoria per le aziende"),
       ).flatten
+  end CustomerFormState
 
   private def opt(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
 
@@ -108,6 +109,7 @@ object CustomersPage:
         c.boatBerth.getOrElse(""),
         c.port.getOrElse(""),
       )
+  end CustomerFormState
 
   def apply(): HtmlElement =
     val formError = Var(Option.empty[ApiError])
@@ -130,7 +132,6 @@ object CustomersPage:
         case Right(_) => resetForm(); AppBus.mutatedCustomers()
         case Left(err) => showError(formError, "Salvataggio cliente")(err)
       }
-    end submit
 
     def delete(id: UUID): Unit =
       ApiClient.deleteCustomer(id).foreach {
@@ -155,7 +156,10 @@ object CustomersPage:
             field("Cognome", textInput(form.signal.map(_.surname), Observer[String](v => form.update(_.copy(surname = v))), "")),
             div(
               cls := "col-span-2",
-              field("Ragione sociale", textInput(form.signal.map(_.businessName), Observer[String](v => form.update(_.copy(businessName = v))), "Opzionale per i privati")),
+              field(
+                "Ragione sociale",
+                textInput(form.signal.map(_.businessName), Observer[String](v => form.update(_.copy(businessName = v))), "Opzionale per i privati"),
+              ),
             ),
             field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "", "email")),
             field("Telefono", textInput(form.signal.map(_.phone), Observer[String](v => form.update(_.copy(phone = v))), "")),
@@ -180,13 +184,22 @@ object CustomersPage:
             field("Porto", textInput(form.signal.map(_.port), Observer[String](v => form.update(_.copy(port = v))), "Opzionale")),
             div(
               cls := "col-span-2",
-              field("Note", textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)")),
+              field(
+                "Note",
+                textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)"),
+              ),
             ),
           ),
           child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
           div(
             cls := "mt-3 flex gap-2",
-            button(tpe := "button", cls := btnPrimary, child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")), disabled <-- formErrors.map(_.nonEmpty), onClick --> (_ => submit())),
+            button(
+              tpe := "button",
+              cls := btnPrimary,
+              child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
+              disabled <-- formErrors.map(_.nonEmpty),
+              onClick --> (_ => submit()),
+            ),
             child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
           ),
         ),

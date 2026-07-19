@@ -94,6 +94,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.country,
           input.fiscalCode,
           CustomerType.Individual,
+          businessName = None,
+          pec = None,
+          notes = None,
+          boatModel = None,
+          boatName = None,
+          boatBerth = None,
+          port = None,
         )
         .isValid shouldEqual true
 
@@ -152,6 +159,12 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         vatNumber,
         CustomerType.Company,
         businessName = Some("Cantiere Navale Srl"),
+        pec = None,
+        notes = None,
+        boatModel = None,
+        boatName = None,
+        boatBerth = None,
+        port = None,
       )
       result.isValid shouldEqual true
       result.foreach: customer =>
@@ -173,6 +186,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.country,
           vatNumber,
           CustomerType.Company,
+          businessName = None,
+          pec = None,
+          notes = None,
+          boatModel = None,
+          boatName = None,
+          boatBerth = None,
+          port = None,
         )
         .isValid shouldEqual false
 
@@ -193,6 +213,12 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           corrupted,
           CustomerType.Company,
           businessName = Some("Cantiere Navale Srl"),
+          pec = None,
+          notes = None,
+          boatModel = None,
+          boatName = None,
+          boatBerth = None,
+          port = None,
         )
         .isValid shouldEqual false
 
@@ -211,7 +237,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.country,
           input.fiscalCode,
           CustomerType.Individual,
+          businessName = None,
           pec = Some("not-a-pec"),
+          notes = None,
+          boatModel = None,
+          boatName = None,
+          boatBerth = None,
+          port = None,
         )
         .isValid shouldEqual false
 
@@ -233,6 +265,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         country = "Italy",
         fiscalCode = "invalid",
         customerType = CustomerType.Individual,
+        businessName = None,
+        pec = None,
+        notes = None,
+        boatModel = None,
+        boatName = None,
+        boatBerth = None,
+        port = None,
       )
 
       result.isValid shouldEqual false

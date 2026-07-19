@@ -100,16 +100,16 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   "addTask" should "increase the task count by exactly 1" in:
     forAll(genNotStarted, genPendingTask): (mfg, task) =>
       val before = mfg.info.tasks.size
-      mfg.addTask(task, Set.empty).info.tasks.size shouldEqual before + 1
+      mfg.addTask(task, Set.empty, None).info.tasks.size shouldEqual before + 1
 
   it should "make the new task findable by its ID afterwards" in:
     forAll(genNotStarted, genPendingTask): (mfg, task) =>
-      mfg.addTask(task, Set.empty).info.tasks.exists(_.id == task.id) shouldEqual true
+      mfg.addTask(task, Set.empty, None).info.tasks.exists(_.id == task.id) shouldEqual true
 
   it should "preserve the IDs of all pre-existing tasks" in:
     forAll(genNotStarted, genPendingTask): (mfg, task) =>
       val originalIds = mfg.info.tasks.map(_.id).toList.toSet
-      val updatedIds = mfg.addTask(task, Set.empty).info.tasks.map(_.id).toList.toSet
+      val updatedIds = mfg.addTask(task, Set.empty, None).info.tasks.map(_.id).toList.toSet
       originalIds.subsetOf(updatedIds) shouldEqual true
 
   // ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
 
   it should "be consistent with addTask: add then remove yields the original task count" in:
     forAll(genNotStarted, genPendingTask): (mfg, newTask) =>
-      val roundtrip = mfg.addTask(newTask, Set.empty).removeTask(newTask.id)
+      val roundtrip = mfg.addTask(newTask, Set.empty, None).removeTask(newTask.id)
       roundtrip.isRight shouldEqual true
       roundtrip.foreach(_.info.tasks.size shouldEqual mfg.info.tasks.size)
 
@@ -154,7 +154,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
 
   it should "not record any preferred employee when none is provided" in:
     forAll(genNotStarted, genPendingTask): (mfg, task) =>
-      mfg.addTask(task, Set.empty).info.taskPreferredEmployees.contains(task.id) shouldEqual false
+      mfg.addTask(task, Set.empty, None).info.taskPreferredEmployees.contains(task.id) shouldEqual false
 
   "removeTask" should "drop the removed task's preferred employee" in:
     forAll(genNotStarted, genPendingTask, genUUID): (mfg, task, employeeId) =>

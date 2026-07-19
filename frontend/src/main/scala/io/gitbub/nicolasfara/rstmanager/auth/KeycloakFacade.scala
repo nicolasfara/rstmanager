@@ -10,6 +10,7 @@ class Keycloak(@annotation.unused config: KeycloakConfig) extends js.Object:
   def init(options: KeycloakInitOptions): js.Promise[Boolean] = js.native
   def login(options: KeycloakRedirectOptions): js.Promise[Unit] = js.native
   def logout(options: KeycloakRedirectOptions): js.Promise[Unit] = js.native
+
   /** Refreshes the token if it expires within `minValidity` seconds; rejects when the session is gone. */
   def updateToken(minValidity: Int): js.Promise[Boolean] = js.native
   def token: js.UndefOr[String] = js.native

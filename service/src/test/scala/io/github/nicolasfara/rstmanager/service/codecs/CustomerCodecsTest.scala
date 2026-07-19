@@ -63,6 +63,12 @@ class CustomerCodecsTest extends AnyFlatSpecLike:
         "12345678903",
         CustomerType.Company,
         businessName = Some("Cantiere Navale Srl"),
+        pec = None,
+        notes = None,
+        boatModel = None,
+        boatName = None,
+        boatBerth = None,
+        port = None,
       )
       .fold(errors => fail(s"Invalid company customer: $errors"), identity)
 

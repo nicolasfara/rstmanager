@@ -62,6 +62,7 @@ object CustomerHttpApi:
           port,
         )
       }
+  end CustomerRequest
 
   object CustomerRequest:
     val example: CustomerRequest =
@@ -84,6 +85,7 @@ object CustomerHttpApi:
         Some("B12"),
         Some("Marina di Rimini"),
       )
+  end CustomerRequest
 
   final case class CustomerResponse(
       id: UUID,
@@ -128,6 +130,7 @@ object CustomerHttpApi:
         customer.boat.berth,
         customer.boat.port,
       )
+  end CustomerResponse
 
   private def customerTypeToDomain(value: String): ValidatedNec[String, CustomerType] =
     val normalized: String = value.trim.nn.toLowerCase(Locale.ROOT).nn
@@ -137,7 +140,7 @@ object CustomerHttpApi:
       case other => s"customerType '$other' is not supported. Use individual or company.".invalidNec
 
   private def conflict(error: CustomerError): ApiFailure = error match
-    case CustomerError.CustomerAlreadyExists => ApiError.conflict("customer-already-exists", "A customer with this id already exists.")
+    case CustomerError.CustomerAlreadyExists => ApiError.conflict("customer-already-exists", "A customer with this id already exists.", Nil)
     case CustomerError.CustomerNotFound => ApiError.notFound("Customer", "")
 
   given Codec[CustomerRequest] = deriveCodec

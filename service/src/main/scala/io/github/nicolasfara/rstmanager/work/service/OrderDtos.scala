@@ -84,7 +84,7 @@ object OrderDtos:
         None,
       )
 
-    def fromDomain(task: ScheduledTask, preferredEmployeeId: Option[UUID] = None): ScheduledTaskDto = task match
+    def fromDomain(task: ScheduledTask, preferredEmployeeId: Option[UUID]): ScheduledTaskDto = task match
       case PendingTask(id, taskId, expected) => ScheduledTaskDto(id, taskId, "pending", expected.value, Some(0), None, preferredEmployeeId)
       case InProgressTask(id, taskId, expected, completed) =>
         ScheduledTaskDto(id, taskId, "in_progress", expected.value, Some(completed.value), None, preferredEmployeeId)

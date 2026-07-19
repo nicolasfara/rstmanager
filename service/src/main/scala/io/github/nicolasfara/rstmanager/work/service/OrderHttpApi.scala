@@ -24,7 +24,7 @@ object OrderHttpApi:
   import OrderDtos.given
 
   private def conflict(error: OrderError): ApiFailure =
-    ApiError.conflict("order-command-rejected", s"The order command was rejected: ${error.toString}.")
+    ApiError.conflict("order-command-rejected", s"The order command was rejected: ${error.toString}.", Nil)
 
   private val collection = "orders"
 

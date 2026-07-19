@@ -59,9 +59,7 @@ object App:
               button(
                 tpe := "button",
                 cls := "block w-full px-3 py-1.5 text-left text-sm font-medium transition-colors",
-                cls <-- current.signal.map(active =>
-                  if active == page then "bg-slate-100 text-slate-900" else "text-slate-600 hover:bg-slate-100",
-                ),
+                cls <-- current.signal.map(active => if active == page then "bg-slate-100 text-slate-900" else "text-slate-600 hover:bg-slate-100"),
                 label(page),
                 onClick --> (_ =>
                   current.set(page); open.set(false)

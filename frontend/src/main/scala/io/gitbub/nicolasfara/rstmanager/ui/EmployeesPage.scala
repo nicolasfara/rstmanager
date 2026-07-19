@@ -57,6 +57,7 @@ object EmployeesPage:
         Option.when(contractKind == "fixed_term" && endDate.trim.nn.isEmpty)("Data fine obbligatoria"),
         Option.when(contractKind == "part_time" && weeklyHours.toIntOption.forall(_ <= 0))("Ore settimanali non valide"),
       ).flatten
+  end CreateEmployeeFormState
 
   private object CreateEmployeeFormState:
     val empty: CreateEmployeeFormState =
@@ -143,21 +144,67 @@ object EmployeesPage:
         div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Aggiungi override"),
         div(
           cls := "mt-2 grid grid-cols-2 gap-2",
-          field("Tipo", staticSelect(overrideEditor.signal.map(_.form.kind), Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(kind = v)))), overrideKinds)),
+          field(
+            "Tipo",
+            staticSelect(
+              overrideEditor.signal.map(_.form.kind),
+              Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(kind = v)))),
+              overrideKinds,
+            ),
+          ),
           div(),
           child <-- overrideEditor.signal.map(_.form.kind).map {
             case "vacation" =>
               div(
                 cls := "col-span-2 grid grid-cols-2 gap-2",
-                field("Da", textInput(overrideEditor.signal.map(_.form.start), Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(start = v)))), "", "date")),
-                field("A", textInput(overrideEditor.signal.map(_.form.end), Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(end = v)))), "", "date")),
+                field(
+                  "Da",
+                  textInput(
+                    overrideEditor.signal.map(_.form.start),
+                    Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(start = v)))),
+                    "",
+                    "date",
+                  ),
+                ),
+                field(
+                  "A",
+                  textInput(
+                    overrideEditor.signal.map(_.form.end),
+                    Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(end = v)))),
+                    "",
+                    "date",
+                  ),
+                ),
               )
             case _ =>
               div(
                 cls := "col-span-2 grid grid-cols-3 gap-2",
-                field("Ore", textInput(overrideEditor.signal.map(_.form.hours), Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(hours = v)))), "", "number")),
-                field("Giorno", textInput(overrideEditor.signal.map(_.form.day), Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(day = v)))), "", "date")),
-                field("Motivo", textInput(overrideEditor.signal.map(_.form.reason), Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(reason = v)))), "Opzionale")),
+                field(
+                  "Ore",
+                  textInput(
+                    overrideEditor.signal.map(_.form.hours),
+                    Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(hours = v)))),
+                    "",
+                    "number",
+                  ),
+                ),
+                field(
+                  "Giorno",
+                  textInput(
+                    overrideEditor.signal.map(_.form.day),
+                    Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(day = v)))),
+                    "",
+                    "date",
+                  ),
+                ),
+                field(
+                  "Motivo",
+                  textInput(
+                    overrideEditor.signal.map(_.form.reason),
+                    Observer[String](v => overrideEditor.update(s => s.copy(form = s.form.copy(reason = v)))),
+                    "Opzionale",
+                  ),
+                ),
               )
           },
         ),
@@ -207,17 +254,40 @@ object EmployeesPage:
             cls := "mt-3 grid grid-cols-2 gap-3",
             field("Nome", textInput(createForm.signal.map(_.name), Observer[String](v => createForm.update(_.copy(name = v))), "")),
             field("Cognome", textInput(createForm.signal.map(_.surname), Observer[String](v => createForm.update(_.copy(surname = v))), "")),
-            field("Contratto", staticSelect(createForm.signal.map(_.contractKind), Observer[String](v => createForm.update(_.copy(contractKind = v))), contractOptions)),
-            field("Inizio", textInput(createForm.signal.map(_.startDate), Observer[String](v => createForm.update(_.copy(startDate = v))), "", "date")),
+            field(
+              "Contratto",
+              staticSelect(createForm.signal.map(_.contractKind), Observer[String](v => createForm.update(_.copy(contractKind = v))), contractOptions),
+            ),
+            field(
+              "Inizio",
+              textInput(createForm.signal.map(_.startDate), Observer[String](v => createForm.update(_.copy(startDate = v))), "", "date"),
+            ),
             child <-- createForm.signal.map(_.contractKind).map {
-              case "fixed_term" => field("Fine", textInput(createForm.signal.map(_.endDate), Observer[String](v => createForm.update(_.copy(endDate = v))), "", "date"))
-              case "part_time" => field("Ore/sett.", textInput(createForm.signal.map(_.weeklyHours), Observer[String](v => createForm.update(_.copy(weeklyHours = v))), "", "number"))
+              case "fixed_term" =>
+                field("Fine", textInput(createForm.signal.map(_.endDate), Observer[String](v => createForm.update(_.copy(endDate = v))), "", "date"))
+              case "part_time" =>
+                field(
+                  "Ore/sett.",
+                  textInput(createForm.signal.map(_.weeklyHours), Observer[String](v => createForm.update(_.copy(weeklyHours = v))), "", "number"),
+                )
               case _ => div()
             },
-            field("Budget ore/sett.", textInput(createForm.signal.map(_.budget), Observer[String](v => createForm.update(_.copy(budget = v))), "", "number")),
+            field(
+              "Budget ore/sett.",
+              textInput(createForm.signal.map(_.budget), Observer[String](v => createForm.update(_.copy(budget = v))), "", "number"),
+            ),
           ),
           child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
-          div(cls := "mt-3", button(tpe := "button", cls := btnPrimary, "Crea dipendente", disabled <-- createFormErrors.map(_.nonEmpty), onClick --> (_ => createEmployee()))),
+          div(
+            cls := "mt-3",
+            button(
+              tpe := "button",
+              cls := btnPrimary,
+              "Crea dipendente",
+              disabled <-- createFormErrors.map(_.nonEmpty),
+              onClick --> (_ => createEmployee()),
+            ),
+          ),
         ),
       ),
       card(

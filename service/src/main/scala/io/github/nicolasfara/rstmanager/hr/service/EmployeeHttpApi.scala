@@ -120,7 +120,7 @@ object EmployeeHttpApi:
       )
 
   private def conflict(error: EmployeeError): ApiFailure = error match
-    case EmployeeError.EmployeeAlreadyExists => ApiError.conflict("employee-already-exists", "An employee with this id already exists.")
+    case EmployeeError.EmployeeAlreadyExists => ApiError.conflict("employee-already-exists", "An employee with this id already exists.", Nil)
     case EmployeeError.EmployeeNotFound => ApiError.notFound("Employee", "")
 
   private def normalizeKind(value: String): String = value.trim.nn.toLowerCase(Locale.ROOT).nn.replace('-', '_').nn

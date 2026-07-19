@@ -86,7 +86,7 @@ object ManufacturingsPage:
           manufacturing.taskIds.map { id =>
             TaskRowState(nextKey(), id.toString, dependencyMap.getOrElse(id.toString, Set.empty), defaultEmployeeMap.getOrElse(id.toString, ""))
           }.toList,
-        )
+        ),
       )
       formError.set(None)
 
@@ -114,6 +114,7 @@ object ManufacturingsPage:
         dependencies,
         Some(defaultEmployees),
       )
+    end requestFromForm
 
     def submit(): Unit =
       val request = requestFromForm()
@@ -152,7 +153,7 @@ object ManufacturingsPage:
               p(
                 cls := "text-sm text-slate-600",
                 child.text <-- pendingDelete.signal.map(
-                  _.map(m => s"Stai per eliminare la lavorazione ${m.code} — ${m.name} dal catalogo. L'operazione è definitiva.").getOrElse("")
+                  _.map(m => s"Stai per eliminare la lavorazione ${m.code} — ${m.name} dal catalogo. L'operazione è definitiva.").getOrElse(""),
                 ),
               ),
               div(
@@ -212,7 +213,9 @@ object ManufacturingsPage:
             cls := s"$btnDanger mb-0.5",
             "Rimuovi",
             disabled <-- form.signal.map(_.taskRows.size <= 1),
-            onClick --> (_ => if form.now().taskRows.size > 1 then form.update(state => state.copy(taskRows = state.taskRows.filterNot(_.key == row.key)))),
+            onClick --> (_ =>
+              if form.now().taskRows.size > 1 then form.update(state => state.copy(taskRows = state.taskRows.filterNot(_.key == row.key)))
+            ),
           ),
         ),
         div(cls := "mt-2", field("Dipendente predefinito", employeeSelect(row))),
@@ -231,7 +234,7 @@ object ManufacturingsPage:
                     onChange.mapToChecked --> { checked =>
                       updateTaskRow(row.key)(current =>
                         if checked then current.copy(dependsOn = current.dependsOn + depId)
-                        else current.copy(dependsOn = current.dependsOn - depId)
+                        else current.copy(dependsOn = current.dependsOn - depId),
                       )
                     },
                   ),
@@ -269,7 +272,12 @@ object ManufacturingsPage:
               cls := "space-y-2",
               div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Task"),
               children <-- form.signal.map(_.taskRows).split(_.key)((_, initial, _) => renderTaskRow(initial)),
-              button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => form.update(state => state.copy(taskRows = state.taskRows :+ newTaskRow())))),
+              button(
+                tpe := "button",
+                cls := btnSmall,
+                "+ Task",
+                onClick --> (_ => form.update(state => state.copy(taskRows = state.taskRows :+ newTaskRow()))),
+              ),
             ),
             child.maybe <-- formError.signal.map(_.map(errorBanner)),
             div(
@@ -281,7 +289,9 @@ object ManufacturingsPage:
                 disabled <-- formErrors.map(_.nonEmpty),
                 onClick --> (_ => submit()),
               ),
-              child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+              child.maybe <-- form.signal.map(
+                _.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm()))),
+              ),
             ),
           ),
         ),

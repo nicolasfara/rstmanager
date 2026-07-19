@@ -171,7 +171,7 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       task: ScheduledTask,
       dependsOn: List[TaskId],
-      preferredEmployeeId: Option[UUID] = None,
+      preferredEmployeeId: Option[UUID],
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(

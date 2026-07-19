@@ -9,9 +9,9 @@ import scala.util.Try
 
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.Equality.given
-import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
+import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /**
@@ -270,27 +270,9 @@ object OrdersPage:
     }
 
     // ---- Create form state -----------------------------------------------------------------------
-    val createState = Var(CreateOrderState(
-      number = GeneratedCodes.next("ORD", Nil),
-      numberManuallyEdited = false,
-      customerId = "",
-      creationDate = todayDay(),
-      deliveryDate = "",
-      workDeadline = "",
-      workDeadlineManuallyEdited = false,
-      priority = "normal",
-      description = "",
-    ))
-
-    def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8", Set.empty, "")))
-    def newMfg(): MfgDraft =
-      MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())))
-
-    val mfgs = Var(List(newMfg()))
-
-    def resetCreate(): Unit =
-      createState.set(CreateOrderState(
-        number = GeneratedCodes.next("ORD", ordersSnapshot.now().map(_.number)),
+    val createState = Var(
+      CreateOrderState(
+        number = GeneratedCodes.next("ORD", Nil),
         numberManuallyEdited = false,
         customerId = "",
         creationDate = todayDay(),
@@ -299,7 +281,29 @@ object OrdersPage:
         workDeadlineManuallyEdited = false,
         priority = "normal",
         description = "",
-      ))
+      ),
+    )
+
+    def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8", Set.empty, "")))
+    def newMfg(): MfgDraft =
+      MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())))
+
+    val mfgs = Var(List(newMfg()))
+
+    def resetCreate(): Unit =
+      createState.set(
+        CreateOrderState(
+          number = GeneratedCodes.next("ORD", ordersSnapshot.now().map(_.number)),
+          numberManuallyEdited = false,
+          customerId = "",
+          creationDate = todayDay(),
+          deliveryDate = "",
+          workDeadline = "",
+          workDeadlineManuallyEdited = false,
+          priority = "normal",
+          description = "",
+        ),
+      )
       mfgs.set(List(newMfg()))
       pageError.set(None)
 
@@ -433,6 +437,8 @@ object OrdersPage:
                   case Right(_) => resetCreate(); showCreate.set(false); AppBus.mutatedOrders()
                   case Left(err) => showError(pageError, "Creazione ordine")(err)
                 }
+      end match
+    end submitCreate
 
     // ---- Edit modal state ------------------------------------------------------------------------
     val editing = Var(Option.empty[OrderResponse])
@@ -626,6 +632,7 @@ object OrdersPage:
               parseUuid(s.employee),
             )
             applyStructural(ApiClient.addManufacturing(order.id, dto))
+      end if
     }
 
     def submitAddTask(mfgId: UUID): Unit = editing.now().foreach { order =>
@@ -841,7 +848,10 @@ object OrdersPage:
         div(
           cls := "grid grid-cols-1 gap-2 sm:grid-cols-[11rem_10rem_auto] sm:items-end",
           field("Tipo", staticSelect(m.state.signal.map(_.mode), Observer[String](v => m.state.update(_.copy(mode = v))), manufacturingModeOptions)),
-          field("Completamento (default: deadline)", textInput(completionDisplay, Observer[String](v => m.state.update(_.copy(completionDate = v))), "", "date")),
+          field(
+            "Completamento (default: deadline)",
+            textInput(completionDisplay, Observer[String](v => m.state.update(_.copy(completionDate = v))), "", "date"),
+          ),
           button(
             tpe := "button",
             cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
@@ -849,7 +859,13 @@ object OrdersPage:
             onClick --> (_ => mfgs.update(_.filterNot(_.key == m.key))),
           ),
         ),
-        div(cls := "mt-2", field("Dipendente preferito", selectInput(m.state.signal.map(_.employeeId), Observer[String](v => m.state.update(_.copy(employeeId = v))), employeeOptions))),
+        div(
+          cls := "mt-2",
+          field(
+            "Dipendente preferito",
+            selectInput(m.state.signal.map(_.employeeId), Observer[String](v => m.state.update(_.copy(employeeId = v))), employeeOptions),
+          ),
+        ),
         dependsOnChips(
           mfgDependencyChoices(m),
           m.state.signal.map(_.dependsOn),
@@ -889,12 +905,16 @@ object OrdersPage:
                   onInput.mapToValue --> (_ => mfgs.update(_.map(identity))),
                 ),
               ),
-              field("Descrizione lavorazione", textInput(m.state.signal.map(_.description), Observer[String](v => m.state.update(_.copy(description = v))), "Opzionale")),
+              field(
+                "Descrizione lavorazione",
+                textInput(m.state.signal.map(_.description), Observer[String](v => m.state.update(_.copy(description = v))), "Opzionale"),
+              ),
               div(cls := "space-y-2", children <-- m.tasks.signal.split(_.key)((_, initial, _) => renderTask(m, initial))),
               button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => m.tasks.update(_ :+ newTask()))),
             )
         },
       )
+    end renderMfg
 
     val createForm =
       div(
@@ -914,15 +934,18 @@ object OrdersPage:
               Observer[String](v => createState.update(_.copy(customerId = v))),
               customerOptions,
               "Cerca cliente…",
+              maxResults = 20,
             ),
           ),
-          field("Creazione", textInput(createState.signal.map(_.creationDate), Observer[String](v => createState.update(_.copy(creationDate = v))), "", "date")),
+          field(
+            "Creazione",
+            textInput(createState.signal.map(_.creationDate), Observer[String](v => createState.update(_.copy(creationDate = v))), "", "date"),
+          ),
           field(
             "Consegna cliente",
             textInput(createState.signal.map(_.deliveryDate), Observer[String](v => createState.update(_.copy(deliveryDate = v))), "", "date").amend(
               onInput.mapToValue --> { value =>
-                if !createState.now().workDeadlineManuallyEdited then
-                  createState.update(_.copy(workDeadline = daysBefore(value, 5)))
+                if !createState.now().workDeadlineManuallyEdited then createState.update(_.copy(workDeadline = daysBefore(value, 5)))
               },
             ),
           ),
@@ -932,9 +955,15 @@ object OrdersPage:
               onInput.mapToValue --> (_ => createState.update(_.copy(workDeadlineManuallyEdited = true))),
             ),
           ),
-          field("Priorità", staticSelect(createState.signal.map(_.priority), Observer[String](v => createState.update(_.copy(priority = v))), priorityOptions)),
+          field(
+            "Priorità",
+            staticSelect(createState.signal.map(_.priority), Observer[String](v => createState.update(_.copy(priority = v))), priorityOptions),
+          ),
         ),
-        field("Descrizione ordine", textInput(createState.signal.map(_.description), Observer[String](v => createState.update(_.copy(description = v))), "Opzionale")),
+        field(
+          "Descrizione ordine",
+          textInput(createState.signal.map(_.description), Observer[String](v => createState.update(_.copy(description = v))), "Opzionale"),
+        ),
         div(
           cls := "space-y-2",
           div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Lavorazioni"),
@@ -945,7 +974,13 @@ object OrdersPage:
         div(
           cls := "flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end",
           button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => showCreate.set(false))),
-          button(tpe := "button", cls := s"$btnPrimary justify-center", "Crea ordine", disabled <-- createFormErrors.map(_.nonEmpty), onClick --> (_ => submitCreate())),
+          button(
+            tpe := "button",
+            cls := s"$btnPrimary justify-center",
+            "Crea ordine",
+            disabled <-- createFormErrors.map(_.nonEmpty),
+            onClick --> (_ => submitCreate()),
+          ),
         ),
       )
 
@@ -990,11 +1025,21 @@ object OrdersPage:
                 ),
                 field(
                   "Previste",
-                  textInput(row.tracker.current.signal.map(_.expected), Observer[String](v => row.tracker.current.update(_.copy(expected = v))), "", "number"),
+                  textInput(
+                    row.tracker.current.signal.map(_.expected),
+                    Observer[String](v => row.tracker.current.update(_.copy(expected = v))),
+                    "",
+                    "number",
+                  ),
                 ),
                 field(
                   "Fatte",
-                  textInput(row.tracker.current.signal.map(_.completed), Observer[String](v => row.tracker.current.update(_.copy(completed = v))), "", "number"),
+                  textInput(
+                    row.tracker.current.signal.map(_.completed),
+                    Observer[String](v => row.tracker.current.update(_.copy(completed = v))),
+                    "",
+                    "number",
+                  ),
                 ),
                 button(
                   tpe := "button",
@@ -1017,7 +1062,7 @@ object OrdersPage:
               div(
                 cls := "text-xs text-slate-500",
                 child.text <-- employeeSuffix.map(suffix =>
-                  s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${statusLabel(t.status)}$suffix"
+                  s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${statusLabel(t.status)}$suffix",
                 ),
               ),
             )
@@ -1031,9 +1076,21 @@ object OrdersPage:
             if target.contains(m.id) then
               div(
                 cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_11rem_5rem_auto_auto] sm:items-end",
-                div(cls := "flex-1", field("Task", selectInput(addTaskState.signal.map(_.taskId), Observer[String](v => addTaskState.update(_.copy(taskId = v))), taskOptions))),
-                field("Dipendente", selectInput(addTaskState.signal.map(_.employee), Observer[String](v => addTaskState.update(_.copy(employee = v))), employeeOptions)),
-                field("Ore", textInput(addTaskState.signal.map(_.hours), Observer[String](v => addTaskState.update(_.copy(hours = v))), "", "number")),
+                div(
+                  cls := "flex-1",
+                  field(
+                    "Task",
+                    selectInput(addTaskState.signal.map(_.taskId), Observer[String](v => addTaskState.update(_.copy(taskId = v))), taskOptions),
+                  ),
+                ),
+                field(
+                  "Dipendente",
+                  selectInput(addTaskState.signal.map(_.employee), Observer[String](v => addTaskState.update(_.copy(employee = v))), employeeOptions),
+                ),
+                field(
+                  "Ore",
+                  textInput(addTaskState.signal.map(_.hours), Observer[String](v => addTaskState.update(_.copy(hours = v))), "", "number"),
+                ),
                 button(
                   tpe := "button",
                   cls := s"$btnSmall w-full justify-center sm:mb-0.5 sm:w-auto",
@@ -1104,7 +1161,11 @@ object OrdersPage:
                     ),
                     field(
                       "Stato",
-                      staticSelect(row.tracker.current.signal.map(_.status), Observer[String](v => row.tracker.current.update(_.copy(status = v))), mfgStatusOptions),
+                      staticSelect(
+                        row.tracker.current.signal.map(_.status),
+                        Observer[String](v => row.tracker.current.update(_.copy(status = v))),
+                        mfgStatusOptions,
+                      ),
                     ),
                     field(
                       "Dipendente preferito",
@@ -1155,10 +1216,23 @@ object OrdersPage:
                 cls := "space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3",
                 div(
                   cls := "grid grid-cols-1 gap-2 sm:grid-cols-2",
-                  field("Tipo", staticSelect(addMfgState.signal.map(_.mode), Observer[String](v => addMfgState.update(_.copy(mode = v))), manufacturingModeOptions)),
-                  field("Completamento", textInput(addMfgState.signal.map(_.date), Observer[String](v => addMfgState.update(_.copy(date = v))), "", "date")),
+                  field(
+                    "Tipo",
+                    staticSelect(
+                      addMfgState.signal.map(_.mode),
+                      Observer[String](v => addMfgState.update(_.copy(mode = v))),
+                      manufacturingModeOptions,
+                    ),
+                  ),
+                  field(
+                    "Completamento",
+                    textInput(addMfgState.signal.map(_.date), Observer[String](v => addMfgState.update(_.copy(date = v))), "", "date"),
+                  ),
                 ),
-                field("Dipendente preferito", selectInput(addMfgState.signal.map(_.employee), Observer[String](v => addMfgState.update(_.copy(employee = v))), employeeOptions)),
+                field(
+                  "Dipendente preferito",
+                  selectInput(addMfgState.signal.map(_.employee), Observer[String](v => addMfgState.update(_.copy(employee = v))), employeeOptions),
+                ),
                 // `.distinct` avoids recreating the subtree (and losing input focus) on every keystroke.
                 child <-- addMfgState.signal.map(_.mode).distinct.map {
                   case "catalog" =>
@@ -1183,12 +1257,28 @@ object OrdersPage:
                   case _ =>
                     div(
                       cls := "space-y-2",
-                      field("Codice lavorazione", textInput(addMfgState.signal.map(_.code), Observer[String](v => addMfgState.update(_.copy(code = v))), "MFG-2026-002")),
-                      field("Descrizione", textInput(addMfgState.signal.map(_.description), Observer[String](v => addMfgState.update(_.copy(description = v))), "Opzionale")),
+                      field(
+                        "Codice lavorazione",
+                        textInput(addMfgState.signal.map(_.code), Observer[String](v => addMfgState.update(_.copy(code = v))), "MFG-2026-002"),
+                      ),
+                      field(
+                        "Descrizione",
+                        textInput(
+                          addMfgState.signal.map(_.description),
+                          Observer[String](v => addMfgState.update(_.copy(description = v))),
+                          "Opzionale",
+                        ),
+                      ),
                       div(
                         cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem]",
-                        field("Primo task", selectInput(addMfgState.signal.map(_.taskId), Observer[String](v => addMfgState.update(_.copy(taskId = v))), taskOptions)),
-                        field("Ore", textInput(addMfgState.signal.map(_.hours), Observer[String](v => addMfgState.update(_.copy(hours = v))), "", "number")),
+                        field(
+                          "Primo task",
+                          selectInput(addMfgState.signal.map(_.taskId), Observer[String](v => addMfgState.update(_.copy(taskId = v))), taskOptions),
+                        ),
+                        field(
+                          "Ore",
+                          textInput(addMfgState.signal.map(_.hours), Observer[String](v => addMfgState.update(_.copy(hours = v))), "", "number"),
+                        ),
                       ),
                     )
                 },
@@ -1229,10 +1319,19 @@ object OrdersPage:
             cls := "space-y-3",
             div(
               cls := "grid grid-cols-1 gap-3 sm:grid-cols-2",
-              field("Priorità", staticSelect(editHeader.signal.map(_.priority), Observer[String](v => editHeader.update(_.copy(priority = v))), priorityOptions)),
-              field("Deadline fine lavorazione", textInput(editHeader.signal.map(_.promised), Observer[String](v => editHeader.update(_.copy(promised = v))), "", "date")),
+              field(
+                "Priorità",
+                staticSelect(editHeader.signal.map(_.priority), Observer[String](v => editHeader.update(_.copy(priority = v))), priorityOptions),
+              ),
+              field(
+                "Deadline fine lavorazione",
+                textInput(editHeader.signal.map(_.promised), Observer[String](v => editHeader.update(_.copy(promised = v))), "", "date"),
+              ),
             ),
-            field("Descrizione ordine", textInput(editHeader.signal.map(_.description), Observer[String](v => editHeader.update(_.copy(description = v))), "Opzionale")),
+            field(
+              "Descrizione ordine",
+              textInput(editHeader.signal.map(_.description), Observer[String](v => editHeader.update(_.copy(description = v))), "Opzionale"),
+            ),
           )
         else
           div(

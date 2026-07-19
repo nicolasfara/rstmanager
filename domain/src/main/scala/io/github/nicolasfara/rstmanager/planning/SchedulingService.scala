@@ -37,8 +37,8 @@ final case class SchedulingOutcome(
  *     ([[io.github.nicolasfara.rstmanager.hr.domain.BudgetHours.getWorkingHoursForDay]]), skipping employees whose contract is not active on that
  *     day;
  *   - when a production day is the same calendar day as `PlanningRequest.requestedOn`, capacity for that day is additionally capped to the working
- *     hours still remaining in the 09:00-18:00 workday (with its 13:00-14:00 lunch break), so a plan requested late in the day does not assume a
- *     full day is still available;
+ *     hours still remaining in the 09:00-18:00 workday (with its 13:00-14:00 lunch break), so a plan requested late in the day does not assume a full
+ *     day is still available;
  *   - orders are visited in [[PlanningPriorityPolicy]] sequence, so urgent and earlier-due orders consume capacity first;
  *   - each order is planned atomically: if any of its remaining work cannot be placed, no capacity is consumed for that order and it is returned as
  *     an [[UnplannedOrder]];
@@ -97,9 +97,8 @@ object SchedulingService:
   /**
    * Returns the daily capacity of every employee active on the given day, excluding zero-hour days.
    *
-   * When `day` is the same calendar day as `now`, each employee's hours are capped to the working time still remaining in the standard
-   * 09:00-18:00 workday (with its 13:00-14:00 lunch break), so capacity reflects what is actually left of the day rather than the full budgeted
-   * amount.
+   * When `day` is the same calendar day as `now`, each employee's hours are capped to the working time still remaining in the standard 09:00-18:00
+   * workday (with its 13:00-14:00 lunch break), so capacity reflects what is actually left of the day rather than the full budgeted amount.
    */
   def dailyCapacity(day: DateTime, employees: List[Employee], now: DateTime): Map[EmployeeId, DailyHours] =
     val cap = remainingWorkingHoursToday(day, now)

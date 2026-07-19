@@ -32,7 +32,11 @@ final class JwtValidator(keyFor: String => IO[Option[RSAPublicKey]], config: Aut
     yield user).value
 
   private def decodeVerified(token: String, key: RSAPublicKey): Either[ApiFailure, JwtClaim] =
-    JwtCirce.decode(token, key, Seq(JwtAlgorithm.RS256)).toEither.left.map(_ => Secured.unauthorized("The token signature or validity period is invalid."))
+    JwtCirce
+      .decode(token, key, Seq(JwtAlgorithm.RS256))
+      .toEither
+      .left
+      .map(_ => Secured.unauthorized("The token signature or validity period is invalid."))
 end JwtValidator
 
 object JwtValidator:

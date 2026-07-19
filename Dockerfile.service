@@ -15,8 +15,9 @@ RUN sbt -batch domain/update service/update
 COPY domain/src/main ./domain/src/main
 COPY service/src/main ./service/src/main
 
+# sbt 2 writes all build output under the root target/out directory.
 RUN sbt -batch service/assembly \
-  && cp service/target/scala-*/rstmanager-service.jar /tmp/rstmanager-service.jar
+  && cp target/out/jvm/scala-*/rstmanager-service/rstmanager-service.jar /tmp/rstmanager-service.jar
 
 FROM ${RUNTIME_IMAGE} AS runtime
 

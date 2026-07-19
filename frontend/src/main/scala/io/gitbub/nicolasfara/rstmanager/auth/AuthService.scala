@@ -56,17 +56,17 @@ object AuthService:
     case _ => false
 
   def init(): Unit =
-    val kc = new Keycloak(new KeycloakConfig { val url = s"$origin/auth"; val realm = AuthService.realm; val clientId = AuthService.clientId })
+    val kc = new Keycloak(new KeycloakConfig:
+      val url = s"$origin/auth"; val realm = AuthService.realm; val clientId = AuthService.clientId)
     keycloak = Some(kc)
     kc.onTokenExpired = () => { val _ = kc.updateToken(30).`catch`(_ => forceReauth()) }
     kc.onAuthLogout = () => becomeAnonymous()
     val initialized: Future[Boolean] = kc.init(
-      new KeycloakInitOptions {
+      new KeycloakInitOptions:
         val onLoad = "check-sso"
         val pkceMethod = "S256"
         val silentCheckSsoRedirectUri = s"$origin/silent-check-sso.html"
-        val checkLoginIframe = false
-      },
+        val checkLoginIframe = false,
     )
     initialized
       .map(authenticated => if authenticated then state.set(AuthState.Authenticated(parseUser(kc))) else becomeAnonymous())
@@ -75,11 +75,17 @@ object AuthService:
   end init
 
   def login(): Unit =
-    keycloak.foreach(kc => kc.login(new KeycloakRedirectOptions { val redirectUri = origin }))
+    keycloak.foreach(kc =>
+      kc.login(new KeycloakRedirectOptions:
+        val redirectUri = origin),
+    )
 
   def logout(): Unit =
     ApiClient.clearCache()
-    keycloak.foreach(kc => kc.logout(new KeycloakRedirectOptions { val redirectUri = origin }))
+    keycloak.foreach(kc =>
+      kc.logout(new KeycloakRedirectOptions:
+        val redirectUri = origin),
+    )
 
   /** Fresh bearer token for an API call, refreshing it when close to expiry; a dead session forces a new login. */
   def bearerToken(): Future[Option[String]] =
@@ -105,12 +111,26 @@ object AuthService:
   private def parseUser(kc: Keycloak): AuthUser =
     val parsed = kc.tokenParsed.toOption
     val username = parsed
-      .flatMap(t => t.selectDynamic("preferred_username").asInstanceOf[js.UndefOr[String]].toOption)
-      .orElse(parsed.flatMap(t => t.selectDynamic("sub").asInstanceOf[js.UndefOr[String]].toOption))
+      .flatMap(stringClaim(_, "preferred_username"))
+      .orElse(parsed.flatMap(stringClaim(_, "sub")))
       .getOrElse("utente")
     val roles = parsed
-      .flatMap(t => t.selectDynamic("realm_access").asInstanceOf[js.UndefOr[js.Dynamic]].toOption)
-      .flatMap(access => access.selectDynamic("roles").asInstanceOf[js.UndefOr[js.Array[String]]].toOption)
-      .fold(Set.empty[Role])(_.toList.flatMap(Role.fromString).toSet)
+      .flatMap(rolesClaim)
+      .fold(Set.empty[Role])(_.flatMap(Role.fromString).toSet)
     AuthUser(username, roles)
+
+  /** Reads a top-level string claim from the parsed token, tolerating missing or non-string values. */
+  private def stringClaim(claims: js.Dynamic, field: String): Option[String] =
+    (claims.selectDynamic(field): Any) match
+      case value: String => Some(value)
+      case _ => None
+
+  /** Extracts `realm_access.roles`, tolerating a missing object or a malformed roles array. */
+  private def rolesClaim(claims: js.Dynamic): Option[List[String]] =
+    val access = claims.selectDynamic("realm_access")
+    Option[Any](access).filterNot(js.isUndefined).flatMap { _ =>
+      (access.selectDynamic("roles"): Any) match
+        case values: js.Array[?] => Some(values.toList.collect { case role: String => role })
+        case _ => None
+    }
 end AuthService

@@ -1,13 +1,13 @@
 package io.github.nicolasfara.rstmanager.planning.service
 
+import scala.concurrent.duration.DurationInt
+
 import io.github.nicolasfara.rstmanager.customer.service.CustomerApp
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.ApiServer
 import io.github.nicolasfara.rstmanager.service.auth.{ AuthConfig, JwksClient, JwtValidator }
 import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, OrderApp, TaskApp }
-
-import scala.concurrent.duration.DurationInt
 
 import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
@@ -124,7 +124,7 @@ object PlanningHttpServer:
     for
       client <- EmberClientBuilder.default[IO].build
       jwksUri <- Resource.eval(IO.fromEither(Uri.fromString(keycloak.jwksUrl)))
-      jwks <- Resource.eval(JwksClient.build(client, jwksUri))
+      jwks <- Resource.eval(JwksClient.build(client, jwksUri, minRefetchInterval = 30.seconds))
       _ <- Resource.eval(initialJwksFetch(jwks, attempts = 30))
     yield ApiSecurity(new JwtValidator(jwks.keyFor, AuthConfig(keycloak.issuer, keycloak.clientId)))
 

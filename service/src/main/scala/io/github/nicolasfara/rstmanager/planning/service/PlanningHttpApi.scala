@@ -168,6 +168,7 @@ object PlanningRoutes:
               // `templates` mirrors the non-empty `ids`, so the selection is provably non-empty.
               SimulationDemand.FromManufacturings(NonEmptyList.fromListUnsafe(selection)).asRight
         }
+      end if
     }
 
   private def simulationRejected(errors: NonEmptyList[PlanningError]): ApiFailure =

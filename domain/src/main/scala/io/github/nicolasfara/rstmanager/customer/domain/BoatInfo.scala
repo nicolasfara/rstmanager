@@ -28,4 +28,3 @@ object BoatInfo:
     BoatInfo(normalized(model), normalized(name), normalized(berth), normalized(port))
 
   private def normalized(value: Option[String]): Option[String] = value.map(_.trim.nn).filter(_.nonEmpty)
-end BoatInfo

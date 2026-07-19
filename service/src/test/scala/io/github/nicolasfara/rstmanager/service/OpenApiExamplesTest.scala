@@ -17,7 +17,7 @@ import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{
   OrderRequest,
   OrderUpdateRequest,
   TaskProgressUpdateRequest,
-  TransitionRequest,
+  TransitionRequest
 }
 import io.github.nicolasfara.rstmanager.work.service.TaskHttpApi.TaskRequest
 

@@ -61,7 +61,7 @@ object Manufacturing:
       description: Option[String],
       taskIds: List[TaskId],
       dependencies: ManufacturingDependencies,
-      defaultEmployees: Map[TaskId, EmployeeId] = Map.empty,
+      defaultEmployees: Map[TaskId, EmployeeId],
   ): ValidatedNec[String, Manufacturing] =
     (
       Validated.validNec(id),

@@ -18,4 +18,3 @@ object Role:
     case "operator" => Some(Operator)
     case "admin" => Some(Admin)
     case _ => None
-end Role

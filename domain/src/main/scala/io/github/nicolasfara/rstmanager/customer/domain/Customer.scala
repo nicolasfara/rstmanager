@@ -75,9 +75,8 @@ object Customer:
   /**
    * Creates a `Customer` aggregate from raw input values.
    *
-   * Validation is delegated to the value objects that make up the aggregate. The fiscal identifier is validated as an
-   * Italian fiscal code for individuals and as a VAT number (including check digit) for companies. The business name is
-   * required for companies and optional for individuals.
+   * Validation is delegated to the value objects that make up the aggregate. The fiscal identifier is validated as an Italian fiscal code for
+   * individuals and as a VAT number (including check digit) for companies. The business name is required for companies and optional for individuals.
    *
    * @param id
    *   Customer identifier.
@@ -128,13 +127,13 @@ object Customer:
       country: String,
       fiscalCode: String,
       customerType: CustomerType,
-      businessName: Option[String] = None,
-      pec: Option[String] = None,
-      notes: Option[String] = None,
-      boatModel: Option[String] = None,
-      boatName: Option[String] = None,
-      boatBerth: Option[String] = None,
-      port: Option[String] = None,
+      businessName: Option[String],
+      pec: Option[String],
+      notes: Option[String],
+      boatModel: Option[String],
+      boatName: Option[String],
+      boatBerth: Option[String],
+      port: Option[String],
   ): ValidatedNec[String, Customer] =
     (
       Validated.validNec(id),

@@ -210,8 +210,10 @@ object PlanningPage:
         val completed = state.completed.trim.nn.toIntOption
         val expected = state.expected.trim.nn.toIntOption
         val reactivating = editKind.now() == EditKind.Reactivate
-        if completed.exists(_ < 0) then showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore svolte non possono essere negative.", Nil))
-        else if expected.exists(_ < 1) then showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali devono essere almeno 1.", Nil))
+        if completed.exists(_ < 0) then
+          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore svolte non possono essere negative.", Nil))
+        else if expected.exists(_ < 1) then
+          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali devono essere almeno 1.", Nil))
         else if reactivating && !completed.zip(expected).exists((done, total) => done < total) then
           showError(modalError, "Aggiornamento task")(
             ApiError("invalid", "Per riportare il task in lavorazione le ore svolte devono essere inferiori alle ore totali.", Nil),
@@ -262,12 +264,21 @@ object PlanningPage:
           div(cls := "text-sm font-semibold text-slate-800", child.text <-- editName.signal),
           div(
             cls := "grid grid-cols-2 gap-3",
-            field("Ore svolte", textInput(editState.signal.map(_.completed), Observer[String](v => editState.update(_.copy(completed = v))), "", "number")),
-            field("Ore totali", textInput(editState.signal.map(_.expected), Observer[String](v => editState.update(_.copy(expected = v))), "", "number")),
+            field(
+              "Ore svolte",
+              textInput(editState.signal.map(_.completed), Observer[String](v => editState.update(_.copy(completed = v))), "", "number"),
+            ),
+            field(
+              "Ore totali",
+              textInput(editState.signal.map(_.expected), Observer[String](v => editState.update(_.copy(expected = v))), "", "number"),
+            ),
           ),
           child <-- editKind.signal.map {
             case EditKind.Progress =>
-              field("Dipendente preferito", selectInput(editState.signal.map(_.employeeId), Observer[String](v => editState.update(_.copy(employeeId = v))), employeeOptions))
+              field(
+                "Dipendente preferito",
+                selectInput(editState.signal.map(_.employeeId), Observer[String](v => editState.update(_.copy(employeeId = v))), employeeOptions),
+              )
             case EditKind.Reactivate => emptyNode
           },
           p(
@@ -426,10 +437,7 @@ object PlanningPage:
         // Normalize each day to a YYYY-MM-DD key so that weekKey and weekDays align regardless of the
         // timezone or time component in the backend-produced datetime strings.
         val byWeek: List[(String, Map[String, List[ScheduledTaskSliceDto]])] =
-          days
-            .map { case (day, slices) => Formats.dateKey(day) -> slices }
-            .groupBy { case (dk, _) => Formats.weekKey(dk) }
-            .toList
+          days.map { case (day, slices) => Formats.dateKey(day) -> slices }.groupBy { case (dk, _) => Formats.weekKey(dk) }.toList
             .sortBy(_._1)
             .map { case (wk, pairs) => wk -> pairs.toMap }
 
@@ -622,7 +630,10 @@ object PlanningPage:
                 order.map(_.number).getOrElse(Formats.shortId(delay.orderId)),
               ),
             ),
-            order.flatMap(_.description).map(description => div(cls := "mt-0.5 break-words text-xs leading-snug text-slate-600", description)).getOrElse(emptyNode),
+            order
+              .flatMap(_.description)
+              .map(description => div(cls := "mt-0.5 break-words text-xs leading-snug text-slate-600", description))
+              .getOrElse(emptyNode),
           ),
           div(
             cls := "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800",
@@ -659,7 +670,10 @@ object PlanningPage:
                 manufacturing.map(_.code).getOrElse(Formats.shortId(delay.manufacturingId)),
               ),
             ),
-            div(cls := "mt-0.5 text-xs leading-snug text-slate-600", order.map(o => s"Ordine ${o.number}").getOrElse(s"Ordine ${Formats.shortId(delay.orderId)}")),
+            div(
+              cls := "mt-0.5 text-xs leading-snug text-slate-600",
+              order.map(o => s"Ordine ${o.number}").getOrElse(s"Ordine ${Formats.shortId(delay.orderId)}"),
+            ),
             manufacturing
               .flatMap(_.description)
               .map(description => div(cls := "mt-0.5 break-words text-xs leading-snug text-slate-600", description))
@@ -702,6 +716,7 @@ object PlanningPage:
             )
         },
       )
+    end delaysSection
 
     def panel(title: String, items: List[String], tone: String): com.raquo.laminar.nodes.ChildNode.Base =
       if items.isEmpty then emptyNode
@@ -847,7 +862,8 @@ object PlanningPage:
                     // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
                     onMouseDown.preventDefault --> { _ => simAdd(entry.id) },
                   )
-                },
+                }
+              ,
               if hiddenCount > 0 then
                 div(
                   cls := "border-t border-slate-100 px-2.5 py-1.5 text-xs text-slate-400",
@@ -907,8 +923,7 @@ object PlanningPage:
         div(
           cls := "rounded-md border border-rose-200 bg-rose-50 p-3",
           div(cls := "text-sm font-semibold text-rose-800", "Non pianificabile con la forza lavoro attuale"),
-          if response.reasons.nonEmpty then
-            ul(cls := "mt-1 list-disc pl-5 text-xs text-rose-700", response.reasons.map(reason => li(reason.message)))
+          if response.reasons.nonEmpty then ul(cls := "mt-1 list-disc pl-5 text-xs text-rose-700", response.reasons.map(reason => li(reason.message)))
           else emptyNode,
         )
 
@@ -952,7 +967,11 @@ object PlanningPage:
                           child <-- simRows.map { rows =>
                             if rows.isEmpty then
                               div(cls := "text-xs text-slate-400", "Nessuna lavorazione selezionata: cerca e clicca per aggiungerla.")
-                            else div(cls := "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3", rows.map((entry, count) => simSelectedRow(entry, count)))
+                            else
+                              div(
+                                cls := "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3",
+                                rows.map((entry, count) => simSelectedRow(entry, count)),
+                              )
                           },
                           div(
                             cls := "text-xs text-slate-500",

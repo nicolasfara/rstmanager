@@ -7,7 +7,7 @@ import java.security.interfaces.RSAPublicKey
 import java.security.spec.RSAPublicKeySpec
 import java.util.Base64
 
-import scala.concurrent.duration.{ DurationInt, FiniteDuration }
+import scala.concurrent.duration.FiniteDuration
 
 import cats.effect.{ Clock, IO, Ref }
 import cats.syntax.all.*
@@ -55,7 +55,7 @@ end JwksClient
 object JwksClient:
   final case class State(keys: Map[String, RSAPublicKey], lastFetch: FiniteDuration)
 
-  def build(client: Client[IO], jwksUri: Uri, minRefetchInterval: FiniteDuration = 30.seconds): IO[JwksClient] =
+  def build(client: Client[IO], jwksUri: Uri, minRefetchInterval: FiniteDuration): IO[JwksClient] =
     Ref.of[IO, State](State(Map.empty, -minRefetchInterval)).map(new JwksClient(client, jwksUri, _, minRefetchInterval))
 
   /** Parses a JWKS document into `kid -> RSAPublicKey`, skipping non-RSA/non-signature/malformed entries. */

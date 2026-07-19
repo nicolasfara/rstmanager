@@ -55,6 +55,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
       ),
       monday.plusDays(5).nn,
     )
+  end existingOrder
 
   private def catalogTask(id: TaskId, name: String, hours: Int): Task =
     Task(id, name.refineUnsafe[TaskName], None, TaskHours.applyUnsafe(hours))

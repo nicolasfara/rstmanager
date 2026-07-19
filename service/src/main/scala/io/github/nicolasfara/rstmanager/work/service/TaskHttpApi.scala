@@ -32,7 +32,7 @@ object TaskHttpApi:
     def fromDomain(task: Task): TaskResponse = TaskResponse(task.id, task.name, task.taskDescription, task.requiredHours.value)
 
   private def conflict(error: TaskError): ApiFailure = error match
-    case TaskError.TaskAlreadyExists => ApiError.conflict("task-already-exists", "A task with this id already exists.")
+    case TaskError.TaskAlreadyExists => ApiError.conflict("task-already-exists", "A task with this id already exists.", Nil)
     case TaskError.TaskNotFound => ApiError.notFound("Task", "")
 
   given Codec[TaskRequest] = deriveCodec

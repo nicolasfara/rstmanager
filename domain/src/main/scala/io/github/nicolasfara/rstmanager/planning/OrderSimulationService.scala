@@ -20,9 +20,9 @@ import io.github.iltotore.iron.*
  * Domain service estimating the first date on which a hypothetical new order could be completed.
  *
  * The simulation builds a synthetic in-progress order from the requested demand and runs one regular [[SchedulingService]] pass over the real open
- * orders plus the synthetic one. The synthetic order is given normal priority and a work deadline far beyond every real order, so the priority
- * policy plans it after all current commitments: existing orders keep exactly the capacity they would get today, and the synthetic order only
- * consumes what is left. Nothing is persisted; the result is a pure estimate.
+ * orders plus the synthetic one. The synthetic order is given normal priority and a work deadline far beyond every real order, so the priority policy
+ * plans it after all current commitments: existing orders keep exactly the capacity they would get today, and the synthetic order only consumes what
+ * is left. Nothing is persisted; the result is a pure estimate.
  */
 object OrderSimulationService:
   /** What the hypothetical order requires, in one of the two supported shapes. */

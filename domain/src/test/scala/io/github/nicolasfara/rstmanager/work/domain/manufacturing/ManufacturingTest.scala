@@ -32,6 +32,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
         Some("Ciclo standard"),
         List(cutting, assembly),
         dependencies,
+        Map.empty,
       )
       .toEither
       .toOption
@@ -50,7 +51,8 @@ class ManufacturingTest extends AnyFlatSpecLike:
     ManufacturingService[Id].execute(RequestContext(message, state))
 
   "Manufacturing.createManufacturing" should "accept a valid non-empty task composition with dependencies" in:
-    val result = Manufacturing.createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), dependencies)
+    val result =
+      Manufacturing.createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), dependencies, Map.empty)
 
     result.isValid shouldEqual true
     result.foreach { manufacturing =>
@@ -61,19 +63,19 @@ class ManufacturingTest extends AnyFlatSpecLike:
 
   it should "reject an empty task composition" in:
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies())
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies(), Map.empty)
       .isValid shouldEqual false
 
   it should "reject duplicate task ids" in:
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, cutting), ManufacturingDependencies())
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, cutting), ManufacturingDependencies(), Map.empty)
       .isValid shouldEqual false
 
   it should "reject dependencies that reference tasks outside the composition" in:
     val outsideDependency = ManufacturingDependencies().addTaskDependencies(assembly, Set(finishing))
 
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency)
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency, Map.empty)
       .isValid shouldEqual false
 
   it should "accept default employees referencing tasks of the composition" in:
@@ -112,7 +114,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
       .addTaskDependencies(assembly, Set(cutting))
 
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle)
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle, Map.empty)
       .isValid shouldEqual false
 
   "ManufacturingService" should "create a catalog manufacturing through the event-sourced service" in:

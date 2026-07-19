@@ -64,6 +64,7 @@ object ManufacturingHttpApi:
         dependencyGraph,
         defaultEmployees.getOrElse(Nil).map(entry => entry.taskId -> entry.employeeId).toMap,
       )
+  end ManufacturingRequest
 
   object ManufacturingRequest:
     val example: ManufacturingRequest =
@@ -108,7 +109,7 @@ object ManufacturingHttpApi:
 
   private def conflict(error: ManufacturingError): ApiFailure = error match
     case ManufacturingError.ManufacturingAlreadyExists =>
-      ApiError.conflict("manufacturing-already-exists", "A manufacturing with this id already exists.")
+      ApiError.conflict("manufacturing-already-exists", "A manufacturing with this id already exists.", Nil)
     case ManufacturingError.ManufacturingNotFound => ApiError.notFound("Manufacturing", "")
 
   given Codec[ManufacturingDependencyDto] = deriveCodec

@@ -59,8 +59,8 @@ object ApiClient:
     }
 
   private def rawSend(method: dom.HttpMethod, path: String, body: Option[String]): Future[(Int, String)] =
-    // Cast avoids the strict-equality CanEqual constraint on dom.HttpMethod.
-    if method.asInstanceOf[String] == "GET" then
+    // String comparison sidesteps the missing CanEqual instance on dom.HttpMethod under -language:strictEquality.
+    if method.toString == "GET" then
       responseCache.get(path) match
         case Some(entry) if js.Date.now() < entry.expiresAt => Future.successful((entry.status, entry.text))
         case _ =>

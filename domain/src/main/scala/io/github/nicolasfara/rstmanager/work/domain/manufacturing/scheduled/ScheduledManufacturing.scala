@@ -45,7 +45,7 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   def completedHours: TaskHours = info.tasks.foldMap(_.completedHours)
 
   /** Adds a scheduled task, registering its dependency edges and (optionally) its preferred employee. */
-  def addTask(task: ScheduledTask, dependsOn: Set[TaskId], preferredEmployee: Option[EmployeeId] = None): ScheduledManufacturing =
+  def addTask(task: ScheduledTask, dependsOn: Set[TaskId], preferredEmployee: Option[EmployeeId]): ScheduledManufacturing =
     val withTask = updateTasks(info.tasks :+ task, info.dependencies.addTaskDependencies(task.taskId, dependsOn))
     preferredEmployee.fold(withTask) { employeeId =>
       withTask.withInfo(withTask.info.copy(taskPreferredEmployees = withTask.info.taskPreferredEmployees.updated(task.id, employeeId)))

@@ -121,12 +121,13 @@ lazy val frontend = project
     },
     // The frontend is a Scala.js module: it needs `%%%` (Scala.js) artifacts and cannot depend on the
     // JVM `domain`/`service` code, so the API DTOs are mirrored locally with circe codecs.
+    // sbt 2: `%%` is platform-aware, so it resolves the `_sjs1` artifacts here (no more `%%%`).
     libraryDependencies ++= Seq(
-      "org.scala-js" %%% "scalajs-dom" % "2.8.0",
-      "com.raquo" %%% "laminar" % "17.2.0",
-      "io.circe" %%% "circe-core" % circeVersion,
-      "io.circe" %%% "circe-generic" % circeVersion,
-      "io.circe" %%% "circe-parser" % circeVersion
+      "org.scala-js" %% "scalajs-dom" % "2.8.0",
+      "com.raquo" %% "laminar" % "17.2.0",
+      "io.circe" %% "circe-core" % circeVersion,
+      "io.circe" %% "circe-generic" % circeVersion,
+      "io.circe" %% "circe-parser" % circeVersion
     )
   )
 

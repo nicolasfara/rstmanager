@@ -7,16 +7,18 @@ import com.raquo.laminar.api.L.*
 /**
  * Global reactive refresh bus with per-domain granularity.
  *
- * Each data domain has its own tick signal. Pages subscribe only to the domains whose data they display, so a mutation on one domain no longer cascades a
- * full reload to every mounted page.
+ * Each data domain has its own tick signal. Pages subscribe only to the domains whose data they display, so a mutation on one domain no longer
+ * cascades a full reload to every mounted page.
  *
  * Mutations to orders or employees also trigger an asynchronous planning recalculation on the backend (outbox consumer). `mutatedOrders()` /
- * `mutatedEmployees()` therefore fire extra delayed ticks on `planningTicks` (not on the other domain signals) to converge on the recomputed plan. All
- * reloads are in-place (see `Components.loadable`), so these extra ticks are visually silent.
+ * `mutatedEmployees()` therefore fire extra delayed ticks on `planningTicks` (not on the other domain signals) to converge on the recomputed plan.
+ * All reloads are in-place (see `Components.loadable`), so these extra ticks are visually silent.
  */
 object AppBus:
 
-  /** Delays (ms) of the extra planning refreshes fired after an order/employee mutation, to catch the async plan recalculation once it has settled. */
+  /**
+   * Delays (ms) of the extra planning refreshes fired after an order/employee mutation, to catch the async plan recalculation once it has settled.
+   */
   private val settleDelaysMs = List(1200, 3200)
 
   private val ordersVersion = Var(0)

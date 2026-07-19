@@ -13,7 +13,9 @@ final class JwksClientTest extends AnyFlatSpecLike with Matchers with EitherValu
   private def rsaJwkEntry(kid: String): (String, RSAPublicKey) =
     val generator = KeyPairGenerator.getInstance("RSA").nn
     generator.initialize(2048)
-    val publicKey = generator.generateKeyPair().nn.getPublic.asInstanceOf[RSAPublicKey]
+    val publicKey = generator.generateKeyPair().nn.getPublic match
+      case rsa: RSAPublicKey => rsa
+      case other => fail(s"Expected an RSA public key, got $other")
     val encoder = Base64.getUrlEncoder.nn.withoutPadding.nn
     val n = encoder.encodeToString(publicKey.getModulus.nn.toByteArray).nn
     val e = encoder.encodeToString(publicKey.getPublicExponent.nn.toByteArray).nn
@@ -33,15 +35,17 @@ final class JwksClientTest extends AnyFlatSpecLike with Matchers with EitherValu
 
   it should "skip non-RSA, encryption-use, and malformed entries" in {
     val (entry, _) = rsaJwkEntry("good")
-    val doc = io.circe.parser.parse(
-      s"""{"keys":[
+    val doc = io.circe.parser
+      .parse(
+        s"""{"keys":[
             $entry,
             {"kty":"EC","use":"sig","kid":"ec-key","crv":"P-256","x":"AA","y":"AA"},
             {"kty":"RSA","use":"enc","kid":"enc-key","n":"AQAB","e":"AQAB"},
             {"kty":"RSA","use":"sig","kid":"broken","n":"%%not-base64%%","e":"AQAB"},
             {"kty":"RSA","use":"sig","n":"AQAB","e":"AQAB"}
           ]}""",
-    ).value
+      )
+      .value
 
     JwksClient.parseJwks(doc).value.keySet shouldBe Set("good")
   }

@@ -95,17 +95,17 @@ object Components:
     )
 
   /**
-   * Searchable single-select ("combobox"): a text input that filters `opts` in real time (case-insensitive substring match on the label);
-   * clicking a result selects it. While not editing, the input shows the label of the selected value; blurring without picking anything
-   * discards the search text and reverts to that label. At most `maxResults` matches are listed; beyond that, a footer invites the user to
-   * refine the search, so a large option list never floods the dropdown.
+   * Searchable single-select ("combobox"): a text input that filters `opts` in real time (case-insensitive substring match on the label); clicking a
+   * result selects it. While not editing, the input shows the label of the selected value; blurring without picking anything discards the search text
+   * and reverts to that label. At most `maxResults` matches are listed; beyond that, a footer invites the user to refine the search, so a large
+   * option list never floods the dropdown.
    */
   def searchableSelect(
       valueSignal: Signal[String],
       writer: Observer[String],
       opts: Signal[List[(String, String)]],
       placeholderText: String,
-      maxResults: Int = 20,
+      maxResults: Int,
   ): HtmlElement =
     // `None` = not editing (show the selected label); `Some(text)` = the search text being typed.
     val query = Var(Option.empty[String])
@@ -154,7 +154,8 @@ object Components:
                   // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
                   onMouseDown.preventDefault --> { _ => choose(id) },
                 )
-              },
+              }
+            ,
             if hiddenCount > 0 then
               div(
                 cls := "border-t border-slate-100 px-2.5 py-1.5 text-xs text-slate-400",

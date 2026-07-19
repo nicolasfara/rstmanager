@@ -10,14 +10,14 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
   ManufacturingDependencies,
   ManufacturingDescription,
   ManufacturingName,
-  ManufacturingService,
+  ManufacturingService
 }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ManufacturingStatus,
   ScheduledManufacturing,
   ScheduledManufacturingId,
-  ScheduledManufacturingInfo,
+  ScheduledManufacturingInfo
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent

@@ -106,7 +106,7 @@ lazy val service = project
     ) ++ sharedDependencies
   )
 
-lazy val circeVersion = "0.14.15"
+lazy val circeVersion = "0.14.16"
 
 lazy val frontend = project
   .in(file("frontend"))

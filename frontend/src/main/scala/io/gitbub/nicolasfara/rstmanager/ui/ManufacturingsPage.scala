@@ -107,11 +107,48 @@ object ManufacturingsPage:
         case Left(err) => showError(formError, "Salvataggio lavorazione")(err)
       }
 
+    val pendingDelete = Var(Option.empty[ManufacturingCatalogResponse])
+
     def delete(id: UUID): Unit =
       ApiClient.deleteManufacturingCatalog(id).foreach {
         case Right(_) => AppBus.mutatedManufacturings()
         case Left(err) => showError(formError, "Eliminazione lavorazione")(err)
       }
+
+    // ---- Confirmation (ACK) modal ----------------------------------------------------------------
+    val confirmDeleteModal =
+      div(
+        cls := "fixed inset-0 z-50 items-start justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4",
+        cls <-- pendingDelete.signal.map(p => if p.isDefined then "flex" else "hidden"),
+        div(
+          cls := "mt-12 w-full max-w-md sm:mt-24",
+          card(
+            div(
+              cls := "border-b border-slate-100 px-4 py-3",
+              h2(cls := "text-sm font-semibold text-slate-800", "Eliminare la lavorazione?"),
+            ),
+            div(
+              cls := "space-y-4 p-4",
+              p(
+                cls := "text-sm text-slate-600",
+                child.text <-- pendingDelete.signal.map(
+                  _.map(m => s"Stai per eliminare la lavorazione ${m.code} — ${m.name} dal catalogo. L'operazione è definitiva.").getOrElse("")
+                ),
+              ),
+              div(
+                cls := "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+                button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => pendingDelete.set(None))),
+                button(
+                  tpe := "button",
+                  cls := s"$btnDanger justify-center",
+                  "Elimina",
+                  onClick --> (_ => pendingDelete.now().foreach { m => delete(m.id); pendingDelete.set(None) }),
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
 
     def rowSignal(row: TaskRowState): Signal[TaskRowState] =
       form.signal.map(_.taskRows.find(_.key == row.key).getOrElse(row))
@@ -256,7 +293,7 @@ object ManufacturingsPage:
                         div(
                           cls := "flex justify-end gap-2",
                           button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(manufacturing))),
-                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(manufacturing.id))),
+                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(manufacturing)))),
                         ),
                       ),
                     ),
@@ -266,6 +303,7 @@ object ManufacturingsPage:
             )
         },
       ),
+      confirmDeleteModal,
     )
   end apply
 end ManufacturingsPage

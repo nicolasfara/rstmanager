@@ -31,10 +31,36 @@ object CustomerHttpApi:
       country: String,
       fiscalCode: String,
       customerType: String,
+      businessName: Option[String],
+      pec: Option[String],
+      notes: Option[String],
+      boatModel: Option[String],
+      boatName: Option[String],
+      boatBerth: Option[String],
+      port: Option[String],
   ):
     def toDomain(id: UUID): ValidatedNec[String, Customer] =
       customerTypeToDomain(customerType).andThen { parsedType =>
-        Customer.createCustomer(id, name, surname, email, phone, street, city, postalCode, country, fiscalCode, parsedType)
+        Customer.createCustomer(
+          id,
+          name,
+          surname,
+          email,
+          phone,
+          street,
+          city,
+          postalCode,
+          country,
+          fiscalCode,
+          parsedType,
+          businessName,
+          pec,
+          notes,
+          boatModel,
+          boatName,
+          boatBerth,
+          port,
+        )
       }
 
   object CustomerRequest:
@@ -50,6 +76,13 @@ object CustomerHttpApi:
         "IT",
         "RSSMRA85M01H501Z",
         "individual",
+        None,
+        Some("giulia.bianchi@pec.example.com"),
+        Some("Cliente storico"),
+        Some("Sun Odyssey 410"),
+        Some("Aurora"),
+        Some("B12"),
+        Some("Marina di Rimini"),
       )
 
   final case class CustomerResponse(
@@ -64,6 +97,13 @@ object CustomerHttpApi:
       country: String,
       fiscalCode: String,
       customerType: String,
+      businessName: Option[String],
+      pec: Option[String],
+      notes: Option[String],
+      boatModel: Option[String],
+      boatName: Option[String],
+      boatBerth: Option[String],
+      port: Option[String],
   )
 
   object CustomerResponse:
@@ -80,6 +120,13 @@ object CustomerHttpApi:
         customer.address.country,
         customer.fiscalCode,
         customer.customerType.toString.toLowerCase(Locale.ROOT).nn,
+        customer.businessName,
+        customer.pec,
+        customer.notes,
+        customer.boat.model,
+        customer.boat.name,
+        customer.boat.berth,
+        customer.boat.port,
       )
 
   private def customerTypeToDomain(value: String): ValidatedNec[String, CustomerType] =

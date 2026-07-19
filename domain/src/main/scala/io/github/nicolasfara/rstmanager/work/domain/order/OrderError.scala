@@ -14,7 +14,7 @@ enum OrderError derives CanEqual:
   case OrderMustBeInProgressOrPaused
   case OrderAlreadyCancelled
   case NoSuchOrder
-  case OnlyCancelledOrdersCanBeReactivated
+  case OnlyCancelledOrCompletedOrdersCanBeReopened
   case ManufacturingNotFound(manufacturingId: ScheduledManufacturingId)
   case ManufacturingError(error: ScheduledManufacturingError)
   case UnknownManufacturingInDependencies(manufacturingIds: Set[ScheduledManufacturingId])

@@ -70,6 +70,15 @@ object Components:
   def textInput(valueSignal: Signal[String], writer: Observer[String], placeholderText: String): HtmlElement =
     textInput(valueSignal, writer, placeholderText, "text")
 
+  /** Variant of [[textInput]] rendered as a multi-line textarea. */
+  def textAreaInput(valueSignal: Signal[String], writer: Observer[String], placeholderText: String): HtmlElement =
+    textArea(
+      cls := inputCls,
+      placeholder := placeholderText,
+      rows := 3,
+      controlled(value <-- valueSignal, onInput.mapToValue --> writer),
+    )
+
   def selectInput(state: Var[String], opts: Signal[List[(String, String)]]): HtmlElement =
     select(
       cls := inputCls,
@@ -84,6 +93,78 @@ object Components:
       controlled(value <-- valueSignal, onChange.mapToValue --> writer),
       children <-- opts.map(_.map { case (optValue, optLabel) => option(value := optValue, optLabel) }),
     )
+
+  /**
+   * Searchable single-select ("combobox"): a text input that filters `opts` in real time (case-insensitive substring match on the label);
+   * clicking a result selects it. While not editing, the input shows the label of the selected value; blurring without picking anything
+   * discards the search text and reverts to that label. At most `maxResults` matches are listed; beyond that, a footer invites the user to
+   * refine the search, so a large option list never floods the dropdown.
+   */
+  def searchableSelect(
+      valueSignal: Signal[String],
+      writer: Observer[String],
+      opts: Signal[List[(String, String)]],
+      placeholderText: String,
+      maxResults: Int = 20,
+  ): HtmlElement =
+    // `None` = not editing (show the selected label); `Some(text)` = the search text being typed.
+    val query = Var(Option.empty[String])
+    val open = Var(false)
+    val displayValue: Signal[String] =
+      query.signal.combineWith(valueSignal, opts).map { case (typed, selected, options) =>
+        typed.getOrElse(options.collectFirst { case (id, labelText) if id == selected => labelText }.getOrElse(""))
+      }
+    // Visible matches plus how many further matches were cut off by `maxResults`.
+    val filtered: Signal[(List[(String, String)], Int)] =
+      query.signal.combineWith(opts).map { case (typed, options) =>
+        val needle = typed.getOrElse("").trim.nn.toLowerCase.nn
+        val matches =
+          if needle.isEmpty then options
+          else options.filter((_, labelText) => labelText.toLowerCase.nn.contains(needle))
+        (matches.take(maxResults), (matches.size - maxResults).max(0))
+      }
+    def choose(id: String): Unit =
+      writer.onNext(id)
+      query.set(None)
+      open.set(false)
+    div(
+      cls := "relative",
+      input(
+        typ := "text",
+        cls := inputCls,
+        placeholder := placeholderText,
+        controlled(value <-- displayValue, onInput.mapToValue --> { text => query.set(Some(text)); open.set(true) }),
+        onFocus --> { _ => open.set(true) },
+        // Selection happens on the options' mousedown, which fires before this blur.
+        onBlur --> { _ => open.set(false); query.set(None) },
+        onKeyDown.filter(_.key == "Escape") --> { _ => open.set(false); query.set(None) },
+      ),
+      child <-- open.signal.combineWith(filtered).map { case (isOpen, options, hiddenCount) =>
+        if !isOpen then emptyNode
+        else
+          div(
+            cls := "absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg",
+            if options.isEmpty then div(cls := "px-2.5 py-2 text-sm text-slate-400", "Nessun risultato")
+            else
+              options.map { case (id, labelText) =>
+                div(
+                  cls := "cursor-pointer px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-100",
+                  cls <-- valueSignal.map(selected => if selected == id then "bg-slate-50 font-medium" else ""),
+                  labelText,
+                  // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
+                  onMouseDown.preventDefault --> { _ => choose(id) },
+                )
+              },
+            if hiddenCount > 0 then
+              div(
+                cls := "border-t border-slate-100 px-2.5 py-1.5 text-xs text-slate-400",
+                s"… e altri $hiddenCount risultati — continua a digitare per affinare la ricerca",
+              )
+            else emptyNode,
+          )
+      },
+    )
+  end searchableSelect
 
   def staticSelect(state: Var[String], opts: List[(String, String)]): HtmlElement =
     selectInput(state, Signal.fromValue(opts))

@@ -22,7 +22,7 @@ import skunk.Session
 
 /**
  * Application backend for the order CRUD API, wired to the existing event-sourced [[OrderService]] plus a durable id registry. "Delete" maps to the
- * domain `Cancel` transition and removes the order from the collection index.
+ * domain `Cancel` transition; the id stays in the collection index so cancelled orders remain listable (and reopenable).
  */
 object OrderApp:
   given BackendCodec[OrderEvent] = CirceCodec.jsonb
@@ -57,14 +57,18 @@ object OrderApp:
 
   /** Dispatches any order lifecycle command (suspend, complete, deliver, change priority, …). */
   def command(store: Store, id: OrderId, command: OrderService.Command): IO[Either[OrderError, Unit]] =
-    dispatch(store, id, command)
-
-  /** Cancels the order and removes it from the collection index. */
-  def delete(store: Store, id: OrderId, reason: Option[String :| CancellationReason]): IO[Either[OrderError, Unit]] =
-    dispatch(store, id, OrderService.Command.Cancel(reason)).flatTap {
-      case Right(_) => RegistryBackend.deregister(store.registry, id)
-      case Left(_) => IO.unit
+    dispatch(store, id, command).flatTap {
+      // Orders cancelled before the index kept cancelled ids were deregistered; re-registering on reopen (idempotent) heals them.
+      case Right(_) if command == OrderService.Command.Reopen => RegistryBackend.register(store.registry, id)
+      case _ => IO.unit
     }
+
+  /**
+   * Cancels the order. The id is intentionally kept in the collection index: consumers that only want open orders (e.g. planning) already filter by
+   * state, while the orders list must keep showing cancelled orders so they can be inspected and reopened.
+   */
+  def delete(store: Store, id: OrderId, reason: Option[String :| CancellationReason]): IO[Either[OrderError, Unit]] =
+    dispatch(store, id, OrderService.Command.Cancel(reason))
 
   def get(store: Store, id: OrderId): IO[Option[Order]] =
     store.entity.repository.get(id.toString).map {

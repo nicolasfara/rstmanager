@@ -218,7 +218,7 @@ object OrdersPage:
     val manufacturingCatalogs = Var(List.empty[ManufacturingCatalogResponse])
 
     val customersMap: Signal[Map[UUID, String]] = customersData.map {
-      case Some(Right(list)) => list.map(c => c.id -> s"${c.name} ${c.surname}").toMap
+      case Some(Right(list)) => list.map(c => c.id -> c.businessName.getOrElse(s"${c.name} ${c.surname}")).toMap
       case _ => Map.empty
     }
     val tasksMap: Signal[Map[UUID, String]] = tasksData.map {
@@ -226,8 +226,8 @@ object OrdersPage:
       case _ => Map.empty
     }
     val customerOptions: Signal[List[(String, String)]] = customersData.map {
-      case Some(Right(list)) => ("" -> "— seleziona cliente —") :: list.map(c => c.id.toString -> s"${c.name} ${c.surname}")
-      case _ => List("" -> "—")
+      case Some(Right(list)) => list.map(c => c.id.toString -> c.businessName.getOrElse(s"${c.name} ${c.surname}"))
+      case _ => Nil
     }
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
       case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
@@ -294,7 +294,7 @@ object OrdersPage:
         parseUuid(employeeId),
       )
 
-    def fromCustom(m: MfgDraft): ManufacturingDto =
+    def fromCustom(m: MfgDraft, completionDate: String): ManufacturingDto =
       val ms = m.state.now()
       val tasks = m.tasks.now().flatMap { t =>
         val ts = t.state.now()
@@ -312,7 +312,7 @@ object OrdersPage:
       }
       ManufacturingDto(
         ms.code.trim.nn,
-        toIso(ms.completionDate),
+        toIso(completionDate),
         "not_started",
         tasks,
         dependencies,
@@ -327,11 +327,13 @@ object OrdersPage:
 
     def manufacturingFromDraft(m: MfgDraft): Either[ApiError, ManufacturingDto] =
       val ms = m.state.now()
+      // Empty completion date falls back to the order-level work deadline (validated non-empty before this runs).
+      val completionDate = Some(ms.completionDate.trim.nn).filter(_.nonEmpty).getOrElse(createState.now().workDeadline)
       if ms.mode == "catalog" then
         catalogById(ms.catalogId).toRight(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil)).map { template =>
-          fromCatalog(template, ms.completionDate, ms.employeeId)
+          fromCatalog(template, completionDate, ms.employeeId)
         }
-      else Right(fromCustom(m))
+      else Right(fromCustom(m, completionDate))
 
     def collectManufacturings(): Either[ApiError, List[ManufacturingDto]] =
       mfgs.now().foldLeft(Right(List.empty): Either[ApiError, List[ManufacturingDto]]) { (acc, draft) =>
@@ -633,7 +635,7 @@ object OrdersPage:
       val actions = order.status match
         case "in_progress" => List("suspend" -> "Sospendi", "complete" -> "Completa")
         case "suspended" => List("reactivate" -> "Riattiva", "complete" -> "Completa")
-        case "completed" => List("deliver" -> "Consegna")
+        case "completed" => List("deliver" -> "Consegna", "reopen" -> "Riapri")
         case "cancelled" => List("reopen" -> "Riapri")
         case _ => Nil
       actions.map { case (action, label) =>
@@ -729,12 +731,18 @@ object OrdersPage:
 
     def renderMfg(m: MfgDraft): HtmlElement =
       val catalogIdSignal = m.state.signal.map(_.catalogId)
+      // Shows the order-level work deadline as the effective value while the field is untouched;
+      // clearing the field snaps back to the deadline, matching the submit-time fallback.
+      val completionDisplay = m.state.signal
+        .map(_.completionDate)
+        .combineWith(createState.signal.map(_.workDeadline))
+        .map((completion, deadline) => if completion.nonEmpty then completion else deadline)
       div(
         cls := "rounded-lg border border-slate-200 p-3",
         div(
           cls := "grid grid-cols-1 gap-2 sm:grid-cols-[11rem_10rem_auto] sm:items-end",
           field("Tipo", staticSelect(m.state.signal.map(_.mode), Observer[String](v => m.state.update(_.copy(mode = v))), manufacturingModeOptions)),
-          field("Completamento", textInput(m.state.signal.map(_.completionDate), Observer[String](v => m.state.update(_.copy(completionDate = v))), "", "date")),
+          field("Completamento (default: deadline)", textInput(completionDisplay, Observer[String](v => m.state.update(_.copy(completionDate = v))), "", "date")),
           button(
             tpe := "button",
             cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
@@ -748,7 +756,9 @@ object OrdersPage:
           m.state.signal.map(_.dependsOn),
           (id, checked) => m.state.update(s => s.copy(dependsOn = if checked then s.dependsOn + id else s.dependsOn - id)),
         ),
-        child <-- m.state.signal.map(_.mode).map {
+        // `.distinct` is required: without it every keystroke into the fields below re-emits the
+        // state Var, recreating this whole subtree and stealing focus from the active input.
+        child <-- m.state.signal.map(_.mode).distinct.map {
           case "catalog" =>
             div(
               cls := "mt-2 space-y-2",
@@ -789,7 +799,15 @@ object OrdersPage:
               onInput.mapToValue --> (_ => createState.update(_.copy(numberManuallyEdited = true))),
             ),
           ),
-          field("Cliente", selectInput(createState.signal.map(_.customerId), Observer[String](v => createState.update(_.copy(customerId = v))), customerOptions)),
+          field(
+            "Cliente",
+            searchableSelect(
+              createState.signal.map(_.customerId),
+              Observer[String](v => createState.update(_.copy(customerId = v))),
+              customerOptions,
+              "Cerca cliente…",
+            ),
+          ),
           field("Creazione", textInput(createState.signal.map(_.creationDate), Observer[String](v => createState.update(_.copy(creationDate = v))), "", "date")),
           field(
             "Consegna cliente",
@@ -1012,7 +1030,8 @@ object OrdersPage:
                   field("Completamento", textInput(addMfgState.signal.map(_.date), Observer[String](v => addMfgState.update(_.copy(date = v))), "", "date")),
                 ),
                 field("Dipendente preferito", selectInput(addMfgState.signal.map(_.employee), Observer[String](v => addMfgState.update(_.copy(employee = v))), employeeOptions)),
-                child <-- addMfgState.signal.map(_.mode).map {
+                // `.distinct` avoids recreating the subtree (and losing input focus) on every keystroke.
+                child <-- addMfgState.signal.map(_.mode).distinct.map {
                   case "catalog" =>
                     div(
                       cls := "space-y-2",

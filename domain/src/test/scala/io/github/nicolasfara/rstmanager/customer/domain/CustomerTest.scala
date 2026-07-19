@@ -46,6 +46,20 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
       digits3 <- Gen.listOfN(3, Gen.numChar).map(_.mkString)
       letter4 <- Gen.choose('A', 'Z').map(_.toString)
     yield s"$letters1$digits1$letter2$digits2$letter3$digits3$letter4"
+  private val genVatNumber: Gen[String] =
+    Gen.listOfN(10, Gen.numChar).map(_.mkString).map { digits =>
+      val total = digits
+        .map(_.asDigit)
+        .zipWithIndex
+        .map { (digit, index) =>
+          if index % 2 == 0 then digit
+          else
+            val doubled = digit * 2
+            if doubled > 9 then doubled - 9 else doubled
+        }
+        .sum
+      s"$digits${(10 - total % 10) % 10}"
+    }
   private val genValidCustomerInput: Gen[ValidCustomerInput] =
     for
       id <- genUUID
@@ -97,7 +111,14 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.postalCode,
           input.country,
           input.fiscalCode,
-          CustomerType.Company,
+          CustomerType.Individual,
+          businessName = Some("Nautica Srl"),
+          pec = Some("nautica@pec.example.com"),
+          notes = Some("Cliente storico"),
+          boatModel = Some("Sun Odyssey 410"),
+          boatName = Some("Aurora"),
+          boatBerth = Some("B12"),
+          port = Some("Marina di Rimini"),
         )
         .foreach: customer =>
           customer.id shouldEqual input.id
@@ -110,7 +131,93 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           customer.address.postalCode.toString shouldEqual input.postalCode
           customer.address.country.toString shouldEqual input.country
           customer.fiscalCode.toString shouldEqual input.fiscalCode
-          customer.customerType shouldEqual CustomerType.Company
+          customer.customerType shouldEqual CustomerType.Individual
+          customer.businessName.map(_.toString) shouldEqual Some("Nautica Srl")
+          customer.pec.map(_.toString) shouldEqual Some("nautica@pec.example.com")
+          customer.notes shouldEqual Some("Cliente storico")
+          customer.boat shouldEqual BoatInfo(Some("Sun Odyssey 410"), Some("Aurora"), Some("B12"), Some("Marina di Rimini"))
+
+  it should "validate the VAT number and require the business name for companies" in:
+    forAll(genValidCustomerInput, genVatNumber): (input, vatNumber) =>
+      val result = Customer.createCustomer(
+        input.id,
+        input.name,
+        input.surname,
+        input.email,
+        input.phone,
+        input.street,
+        input.city,
+        input.postalCode,
+        input.country,
+        vatNumber,
+        CustomerType.Company,
+        businessName = Some("Cantiere Navale Srl"),
+      )
+      result.isValid shouldEqual true
+      result.foreach: customer =>
+        customer.fiscalCode.toString shouldEqual vatNumber
+        customer.businessName.map(_.toString) shouldEqual Some("Cantiere Navale Srl")
+
+  it should "reject a company without business name" in:
+    forAll(genValidCustomerInput, genVatNumber): (input, vatNumber) =>
+      Customer
+        .createCustomer(
+          input.id,
+          input.name,
+          input.surname,
+          input.email,
+          input.phone,
+          input.street,
+          input.city,
+          input.postalCode,
+          input.country,
+          vatNumber,
+          CustomerType.Company,
+        )
+        .isValid shouldEqual false
+
+  it should "reject a company VAT number with an invalid check digit" in:
+    forAll(genValidCustomerInput, genVatNumber): (input, vatNumber) =>
+      val corrupted = vatNumber.init + ((vatNumber.last.asDigit + 1) % 10).toString
+      Customer
+        .createCustomer(
+          input.id,
+          input.name,
+          input.surname,
+          input.email,
+          input.phone,
+          input.street,
+          input.city,
+          input.postalCode,
+          input.country,
+          corrupted,
+          CustomerType.Company,
+          businessName = Some("Cantiere Navale Srl"),
+        )
+        .isValid shouldEqual false
+
+  it should "reject an invalid PEC address" in:
+    forAll(genValidCustomerInput): input =>
+      Customer
+        .createCustomer(
+          input.id,
+          input.name,
+          input.surname,
+          input.email,
+          input.phone,
+          input.street,
+          input.city,
+          input.postalCode,
+          input.country,
+          input.fiscalCode,
+          CustomerType.Individual,
+          pec = Some("not-a-pec"),
+        )
+        .isValid shouldEqual false
+
+  "VatNumber.createVatNumber" should "accept VAT numbers with a valid check digit" in:
+    forAll(genVatNumber): vatNumber =>
+      VatNumber.createVatNumber(vatNumber).isValid shouldEqual true
 
   it should "accumulate errors coming from nested validation" in:
     forAll(genUUID): id =>
@@ -146,7 +253,7 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         postalCode = "12345".refineUnsafe[PostalCode],
         country = "USA".refineUnsafe[Country],
       ),
-      fiscalCode = "RSSMRA85T10A562S".refineUnsafe[FiscalCodeRule],
+      fiscalCode = "RSSMRA85T10A562S".refineUnsafe[TaxCodeRule],
       customerType = CustomerType.Individual,
     )
 

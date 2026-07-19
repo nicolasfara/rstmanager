@@ -61,6 +61,13 @@ object Dtos:
       country: String,
       fiscalCode: String,
       customerType: String,
+      businessName: Option[String],
+      pec: Option[String],
+      notes: Option[String],
+      boatModel: Option[String],
+      boatName: Option[String],
+      boatBerth: Option[String],
+      port: Option[String],
   )
 
   final case class CustomerResponse(
@@ -75,6 +82,13 @@ object Dtos:
       country: String,
       fiscalCode: String,
       customerType: String,
+      businessName: Option[String],
+      pec: Option[String],
+      notes: Option[String],
+      boatModel: Option[String],
+      boatName: Option[String],
+      boatBerth: Option[String],
+      port: Option[String],
   )
 
   // ---- Tasks (catalog) ---------------------------------------------------------------------------

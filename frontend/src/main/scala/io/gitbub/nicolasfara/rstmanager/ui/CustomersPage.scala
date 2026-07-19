@@ -27,7 +27,16 @@ object CustomersPage:
       country: String,
       fiscalCode: String,
       customerType: String,
+      businessName: String,
+      pec: String,
+      notes: String,
+      boatModel: String,
+      boatName: String,
+      boatBerth: String,
+      port: String,
   ):
+    def isCompany: Boolean = customerType == "company"
+
     def request: CustomerRequest =
       CustomerRequest(
         name.trim.nn,
@@ -40,6 +49,13 @@ object CustomersPage:
         country.trim.nn,
         fiscalCode.trim.nn,
         customerType,
+        opt(businessName),
+        opt(pec),
+        opt(notes),
+        opt(boatModel),
+        opt(boatName),
+        opt(boatBerth),
+        opt(port),
       )
 
     def errors: List[String] =
@@ -51,12 +67,25 @@ object CustomersPage:
         Option.when(street.trim.nn.isEmpty)("Via obbligatoria"),
         Option.when(city.trim.nn.isEmpty)("Città obbligatoria"),
         Option.when(postalCode.trim.nn.isEmpty)("CAP obbligatorio"),
-        Option.when(fiscalCode.trim.nn.isEmpty)("Codice fiscale obbligatorio"),
+        Option.when(fiscalCode.trim.nn.isEmpty)(if isCompany then "Partita IVA obbligatoria" else "Codice fiscale obbligatorio"),
+        Option.when(isCompany && businessName.trim.nn.isEmpty)("Ragione sociale obbligatoria per le aziende"),
       ).flatten
+
+  private def opt(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
+
+  private def boatCell(c: CustomerResponse): HtmlElement =
+    val mooring = List(c.port, c.boatBerth.map(b => s"posto $b")).flatten.mkString(", ")
+    if c.boatName.isEmpty && c.boatModel.isEmpty && mooring.isEmpty then div(cls := "text-xs text-slate-400", "—")
+    else
+      div(
+        c.boatName.map(n => div(n)),
+        c.boatModel.map(m => div(cls := "text-xs", m)),
+        Option.when(mooring.nonEmpty)(div(cls := "text-xs text-slate-400", mooring)),
+      )
 
   private object CustomerFormState:
     val empty: CustomerFormState =
-      CustomerFormState(None, "", "", "", "", "", "", "", "IT", "", "individual")
+      CustomerFormState(None, "", "", "", "", "", "", "", "IT", "", "individual", "", "", "", "", "", "", "")
 
     def fromResponse(c: CustomerResponse): CustomerFormState =
       CustomerFormState(
@@ -71,6 +100,13 @@ object CustomersPage:
         c.country,
         c.fiscalCode,
         c.customerType,
+        c.businessName.getOrElse(""),
+        c.pec.getOrElse(""),
+        c.notes.getOrElse(""),
+        c.boatModel.getOrElse(""),
+        c.boatName.getOrElse(""),
+        c.boatBerth.getOrElse(""),
+        c.port.getOrElse(""),
       )
 
   def apply(): HtmlElement =
@@ -117,14 +153,35 @@ object CustomersPage:
             cls := "mt-3 grid grid-cols-2 gap-3",
             field("Nome", textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "")),
             field("Cognome", textInput(form.signal.map(_.surname), Observer[String](v => form.update(_.copy(surname = v))), "")),
+            div(
+              cls := "col-span-2",
+              field("Ragione sociale", textInput(form.signal.map(_.businessName), Observer[String](v => form.update(_.copy(businessName = v))), "Opzionale per i privati")),
+            ),
             field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "", "email")),
             field("Telefono", textInput(form.signal.map(_.phone), Observer[String](v => form.update(_.copy(phone = v))), "")),
             field("Via", textInput(form.signal.map(_.street), Observer[String](v => form.update(_.copy(street = v))), "")),
             field("Città", textInput(form.signal.map(_.city), Observer[String](v => form.update(_.copy(city = v))), "")),
             field("CAP", textInput(form.signal.map(_.postalCode), Observer[String](v => form.update(_.copy(postalCode = v))), "")),
             field("Paese", textInput(form.signal.map(_.country), Observer[String](v => form.update(_.copy(country = v))), "")),
-            field("Codice fiscale", textInput(form.signal.map(_.fiscalCode), Observer[String](v => form.update(_.copy(fiscalCode = v))), "")),
             field("Tipo", staticSelect(form.signal.map(_.customerType), Observer[String](v => form.update(_.copy(customerType = v))), typeOptions)),
+            child <-- form.signal.map(_.isCompany).distinct.map { company =>
+              field(
+                if company then "Partita IVA" else "Codice fiscale",
+                textInput(form.signal.map(_.fiscalCode), Observer[String](v => form.update(_.copy(fiscalCode = v))), ""),
+              )
+            },
+            div(
+              cls := "col-span-2",
+              field("PEC", textInput(form.signal.map(_.pec), Observer[String](v => form.update(_.copy(pec = v))), "Opzionale", "email")),
+            ),
+            field("Modello barca", textInput(form.signal.map(_.boatModel), Observer[String](v => form.update(_.copy(boatModel = v))), "Opzionale")),
+            field("Nome barca", textInput(form.signal.map(_.boatName), Observer[String](v => form.update(_.copy(boatName = v))), "Opzionale")),
+            field("Posto barca", textInput(form.signal.map(_.boatBerth), Observer[String](v => form.update(_.copy(boatBerth = v))), "Opzionale")),
+            field("Porto", textInput(form.signal.map(_.port), Observer[String](v => form.update(_.copy(port = v))), "Opzionale")),
+            div(
+              cls := "col-span-2",
+              field("Note", textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)")),
+            ),
           ),
           child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
           div(
@@ -143,7 +200,13 @@ object CustomersPage:
               cls := "w-full text-sm",
               thead(
                 cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                tr(th(cls := "px-4 py-2", "Cliente"), th(cls := "px-4 py-2", "Contatti"), th(cls := "px-4 py-2", "Tipo"), th(cls := "px-4 py-2")),
+                tr(
+                  th(cls := "px-4 py-2", "Cliente"),
+                  th(cls := "px-4 py-2", "Contatti"),
+                  th(cls := "px-4 py-2", "Barca"),
+                  th(cls := "px-4 py-2", "Tipo"),
+                  th(cls := "px-4 py-2"),
+                ),
               ),
               tbody(
                 customers.map { c =>
@@ -151,10 +214,12 @@ object CustomersPage:
                     cls := "border-b border-slate-100 last:border-0",
                     td(
                       cls := "px-4 py-2",
-                      div(cls := "font-medium text-slate-800", s"${c.name} ${c.surname}"),
+                      div(cls := "font-medium text-slate-800", c.businessName.getOrElse(s"${c.name} ${c.surname}")),
+                      c.businessName.map(_ => div(cls := "text-xs text-slate-500", s"${c.name} ${c.surname}")),
                       div(cls := "text-xs text-slate-400", s"${c.city}, ${c.country}"),
                     ),
                     td(cls := "px-4 py-2 text-slate-500", div(c.email), div(cls := "text-xs", c.phone)),
+                    td(cls := "px-4 py-2 text-slate-500", boatCell(c)),
                     td(cls := "px-4 py-2", statusBadge(c.customerType)),
                     td(
                       cls := "px-4 py-2 text-right",

@@ -249,6 +249,51 @@ class OrderServiceTest extends AnyFlatSpecLike:
         reasons.toChain.toList shouldEqual List(UnknownManufacturingInDependencies(Set(unknownId)))
       case other => fail(s"Unexpected result: $other")
 
+  it should "reopen a completed order back to in progress" in:
+    val data = orderData()
+    val result = run(Command.Reopen, CompletedOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        newState.data shouldEqual data
+        newState.promisedDeliveryDate shouldEqual data.deliveryDate
+        events.toChain.toList should matchPattern { case List(OrderReactivated(_)) => }
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reopen a cancelled order back to in progress" in:
+    val data = orderData()
+    val result = run(Command.Reopen, CancelledOrder(data, nextDay, None))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        newState.data shouldEqual data
+        events.toChain.toList should matchPattern { case List(OrderReactivated(_)) => }
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject reopening an order that is neither cancelled nor completed" in:
+    val data = orderData()
+    val result = run(Command.Reopen, InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Rejected(_, reasons) =>
+        reasons.toChain.toList shouldEqual List(OnlyCancelledOrCompletedOrdersCanBeReopened)
+      case other => fail(s"Unexpected result: $other")
+
+  it should "allow adding a manufacturing after reopening a completed order" in:
+    val data = orderData()
+    val reopened = run(Command.Reopen, CompletedOrder(data, nextDay)) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) => newState
+      case other => fail(s"Unexpected result: $other")
+    val added = manufacturing(secondManufacturingId, NonEmptyList.one(task(otherTaskId)))
+    val result = run(Command.AddManufacturing(added), reopened)
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
+        newState.data.setOfManufacturing.toList.map(_.info.id) should contain(secondManufacturingId)
+      case other => fail(s"Unexpected result: $other")
+
   it should "create an order carrying manufacturing dependencies" in:
     val data = twoManufacturingsData()
       .withDependencies(OrderDependencies.empty.addManufacturingDependencies(secondManufacturingId, Set(manufacturingId)))

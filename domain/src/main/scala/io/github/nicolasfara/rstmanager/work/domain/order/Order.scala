@@ -30,7 +30,7 @@ type SuspensionReason = DescribedAs[Not[Empty], "The suspension reason, if provi
  *   - `NewOrder`: initial empty state.
  *   - `InProgressOrder`: active order being executed.
  *   - `SuspendedOrder`: temporarily paused order.
- *   - `CompletedOrder`: work is complete.
+ *   - `CompletedOrder`: work is complete (can still be reopened for further changes until delivered).
  *   - `DeliveredOrder`: completed order already delivered.
  *   - `CancelledOrder`: order cancelled before delivery.
  *
@@ -94,11 +94,11 @@ enum Order derives CanEqual:
     }
       .validate(_.mustBeInProgressOrSuspended)
 
-  /** Reopens a cancelled order, returning it to the in-progress state. */
+  /** Reopens a cancelled or completed order, returning it to the in-progress state. */
   def reopen: Decision[OrderError, OrderEvent, Order] =
     this.decide {
-      case CancelledOrder(_, _, _) => Decision.accept(OrderReactivated(DateTime.now()))
-      case _ => Decision.reject(OnlyCancelledOrdersCanBeReactivated)
+      case CancelledOrder(_, _, _) | CompletedOrder(_, _) => Decision.accept(OrderReactivated(DateTime.now()))
+      case _ => Decision.reject(OnlyCancelledOrCompletedOrdersCanBeReopened)
     }
       .validate(_.mustBeInProgress)
 
@@ -279,6 +279,7 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
     case OrderReactivated(_) => {
       case SuspendedOrder(orderData, promisedDeliveryDate, _, _) => InProgressOrder(orderData, promisedDeliveryDate).validNec
       case CancelledOrder(data, _, _) => InProgressOrder(data, data.deliveryDate).validNec
+      case CompletedOrder(data, _) => InProgressOrder(data, data.deliveryDate).validNec
       case _ => OrderMustBeSuspended.invalidNec
     }
     case OrderCompleted(date) =>

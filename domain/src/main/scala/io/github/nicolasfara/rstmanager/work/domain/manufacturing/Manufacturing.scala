@@ -2,6 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
 
 import cats.data.*
@@ -38,6 +39,8 @@ type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing descr
  *   Ordered, non-empty list of catalog task ids required by the manufacturing.
  * @param dependencies
  *   Dependency graph between tasks.
+ * @param defaultEmployees
+ *   Default employee proposed for each task when the manufacturing is scheduled inside an order; keys must reference `taskIds`.
  */
 final case class Manufacturing(
     id: ManufacturingId,
@@ -46,6 +49,7 @@ final case class Manufacturing(
     description: Option[String :| ManufacturingDescription],
     taskIds: NonEmptyList[TaskId],
     dependencies: ManufacturingDependencies,
+    defaultEmployees: Map[TaskId, EmployeeId] = Map.empty,
 )
 
 object Manufacturing:
@@ -57,6 +61,7 @@ object Manufacturing:
       description: Option[String],
       taskIds: List[TaskId],
       dependencies: ManufacturingDependencies,
+      defaultEmployees: Map[TaskId, EmployeeId] = Map.empty,
   ): ValidatedNec[String, Manufacturing] =
     (
       Validated.validNec(id),
@@ -65,7 +70,8 @@ object Manufacturing:
       description.traverse(_.refineValidatedNec[ManufacturingDescription]),
       validateTaskIds(taskIds),
       validateDependencies(taskIds, dependencies),
-    ).mapN(Manufacturing(_, _, _, _, _, _))
+      validateDefaultEmployees(taskIds, defaultEmployees),
+    ).mapN(Manufacturing(_, _, _, _, _, _, _))
 
   private def validateTaskIds(taskIds: List[TaskId]): ValidatedNec[String, NonEmptyList[TaskId]] =
     val duplicateIds = taskIds.groupBy(identity).collect { case (id, ids) if ids.size > 1 => id }.toList
@@ -82,4 +88,13 @@ object Manufacturing:
       else s"Dependencies reference task ids that are not part of this manufacturing: ${outside.mkString(", ")}".invalidNec,
       if dependencies.hasCycle then "Manufacturing dependencies cannot contain cycles.".invalidNec else ().validNec,
     ).mapN((_, _) => dependencies)
+
+  private def validateDefaultEmployees(
+      taskIds: List[TaskId],
+      defaultEmployees: Map[TaskId, EmployeeId],
+  ): ValidatedNec[String, Map[TaskId, EmployeeId]] =
+    val allowed = taskIds.toSet
+    val outside = defaultEmployees.keys.filterNot(allowed.contains).toList
+    if outside.isEmpty then defaultEmployees.validNec
+    else s"Default employees reference task ids that are not part of this manufacturing: ${outside.mkString(", ")}".invalidNec
 end Manufacturing

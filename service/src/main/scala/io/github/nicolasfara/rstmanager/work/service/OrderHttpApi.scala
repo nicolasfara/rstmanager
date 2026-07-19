@@ -128,6 +128,14 @@ object OrderHttpApi:
       .in(jsonBody[SetPreferredEmployeeRequest].example(SetPreferredEmployeeRequest.example))
       .out(jsonBody[OrderResponse])
 
+  val setTaskPreferredEmployee: Secured.SecuredEndpoint[(UUID, UUID, UUID, SetPreferredEmployeeRequest), OrderResponse] =
+    Secured.base.put
+      .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "tasks" / path[UUID]("taskId") / "employee")
+      .tag("Orders")
+      .summary("Set or clear the preferred employee of a scheduled task")
+      .in(jsonBody[SetPreferredEmployeeRequest].example(SetPreferredEmployeeRequest.example))
+      .out(jsonBody[OrderResponse])
+
   val delete: Secured.SecuredEndpoint[(UUID, Option[String]), Unit] =
     Secured.base.delete
       .in(collection / path[UUID]("id"))
@@ -152,6 +160,7 @@ object OrderHttpApi:
       addTask,
       removeTask,
       setPreferredEmployee,
+      setTaskPreferredEmployee,
       delete,
     )
 
@@ -176,6 +185,7 @@ object OrderHttpApi:
     security.secure(addTask, Role.Operator)(addTaskLogic(store, tasks)),
     security.secure(removeTask, Role.Operator)(removeTaskLogic(store)),
     security.secure(setPreferredEmployee, Role.Operator)(setPreferredEmployeeLogic(store, employees)),
+    security.secure(setTaskPreferredEmployee, Role.Operator)(setTaskPreferredEmployeeLogic(store, employees)),
     security.secure(delete, Role.Admin)(deleteLogic(store)),
   )
 
@@ -302,12 +312,29 @@ object OrderHttpApi:
       store: OrderApp.Store,
       employees: EmployeeApp.Store,
   )(id: UUID, manufacturingId: UUID, request: SetPreferredEmployeeRequest): IO[Either[ApiFailure, OrderResponse]] =
-    request.employeeId match
-      case None => runCommands(store, id, List(request.toCommand(manufacturingId)))
+    withExistingEmployee(employees, request.employeeId) {
+      runCommands(store, id, List(request.toCommand(manufacturingId)))
+    }
+
+  private def setTaskPreferredEmployeeLogic(
+      store: OrderApp.Store,
+      employees: EmployeeApp.Store,
+  )(id: UUID, manufacturingId: UUID, taskId: UUID, request: SetPreferredEmployeeRequest): IO[Either[ApiFailure, OrderResponse]] =
+    withExistingEmployee(employees, request.employeeId) {
+      runCommands(store, id, List(request.toTaskCommand(manufacturingId, taskId)))
+    }
+
+  /** Runs `body` after verifying the referenced employee exists; a `None` employee (clearing the preference) needs no check. */
+  private def withExistingEmployee(
+      employees: EmployeeApp.Store,
+      employeeId: Option[UUID],
+  )(body: IO[Either[ApiFailure, OrderResponse]]): IO[Either[ApiFailure, OrderResponse]] =
+    employeeId match
+      case None => body
       case Some(empId) =>
         EmployeeApp.exists(employees, empId).flatMap {
           case false => IO.pure(ApiError.notFound("Employee", empId.toString).asLeft)
-          case true => runCommands(store, id, List(request.toCommand(manufacturingId)))
+          case true => body
         }
 
   private def deleteLogic(store: OrderApp.Store)(id: UUID, reason: Option[String]): IO[Either[ApiFailure, Unit]] =

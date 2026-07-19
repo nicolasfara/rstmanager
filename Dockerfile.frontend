@@ -1,17 +1,9 @@
-ARG NODE_IMAGE=node:24-bookworm
+ARG BUILD_IMAGE=cimg/openjdk:17.0-node
 ARG NGINX_IMAGE=nginx:1.31-alpine
 
-FROM ${NODE_IMAGE} AS build
+FROM ${BUILD_IMAGE} AS build
 
-ARG SBT_VERSION=1.12.11
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl openjdk-17-jdk-headless tar \
-  && curl -fsSL "https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt-${SBT_VERSION}.tgz" -o /tmp/sbt.tgz \
-  && mkdir -p /opt/sbt \
-  && tar -xzf /tmp/sbt.tgz -C /opt/sbt --strip-components=1 \
-  && ln -s /opt/sbt/bin/sbt /usr/local/bin/sbt \
-  && rm -rf /var/lib/apt/lists/* /tmp/sbt.tgz
+USER root
 
 WORKDIR /app
 
@@ -19,6 +11,11 @@ ENV SBT_OPTS="-Dsbt.supershell=false"
 
 COPY package.json package-lock.json ./
 RUN npm ci
+
+COPY build.sbt ./
+COPY project/build.properties project/plugins.sbt project/
+RUN mkdir -p domain service frontend \
+  && sbt -batch frontend/update
 
 COPY . .
 RUN npm run build

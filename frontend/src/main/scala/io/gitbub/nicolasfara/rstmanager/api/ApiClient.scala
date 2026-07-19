@@ -182,6 +182,12 @@ object ApiClient:
     sendJson(dom.HttpMethod.DELETE, s"/orders/$orderId/manufacturings/$manufacturingId/tasks/$taskId", None)
   def setPreferredEmployee(orderId: UUID, manufacturingId: UUID, employeeId: Option[UUID]): Future[Result[OrderResponse]] =
     sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/manufacturings/$manufacturingId/employee", jsonBody(SetPreferredEmployeeRequest(employeeId)))
+  def setTaskPreferredEmployee(orderId: UUID, manufacturingId: UUID, taskId: UUID, employeeId: Option[UUID]): Future[Result[OrderResponse]] =
+    sendJson(
+      dom.HttpMethod.PUT,
+      s"/orders/$orderId/manufacturings/$manufacturingId/tasks/$taskId/employee",
+      jsonBody(SetPreferredEmployeeRequest(employeeId)),
+    )
   def deleteOrder(id: UUID, reason: Option[String]): Future[Result[Unit]] =
     val query = reason.filter(_.nonEmpty).fold("")(r => s"?reason=${js.URIUtils.encodeURIComponent(r)}")
     sendUnit(dom.HttpMethod.DELETE, s"/orders/$id$query", None)

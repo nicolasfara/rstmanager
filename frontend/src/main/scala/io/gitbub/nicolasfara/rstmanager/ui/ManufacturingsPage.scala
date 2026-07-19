@@ -15,7 +15,7 @@ import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 /** Catalog of reusable manufacturings composed from live catalog task references. */
 object ManufacturingsPage:
 
-  private final case class TaskRowState(key: Int, taskId: String, dependsOn: Set[String])
+  private final case class TaskRowState(key: Int, taskId: String, dependsOn: Set[String], employeeId: String)
 
   private final case class ManufacturingFormState(
       editingId: Option[UUID],
@@ -39,11 +39,21 @@ object ManufacturingsPage:
     var keyCounter = 0
     def nextKey(): Int =
       keyCounter += 1; keyCounter
-    def newTaskRow(): TaskRowState = TaskRowState(nextKey(), "", Set.empty)
+    def newTaskRow(): TaskRowState = TaskRowState(nextKey(), "", Set.empty, "")
 
     val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
     val manufacturingsData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
+    val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
     val manufacturingsSnapshot = Var(List.empty[ManufacturingCatalogResponse])
+
+    val employeeOptions: Signal[List[(String, String)]] = employeesData.map {
+      case Some(Right(list)) => ("" -> "— nessuno —") :: list.map(e => e.id.toString -> s"${e.name} ${e.surname}")
+      case _ => List("" -> "—")
+    }
+    val employeesById: Signal[Map[String, EmployeeResponse]] = employeesData.map {
+      case Some(Right(list)) => list.map(employee => employee.id.toString -> employee).toMap
+      case _ => Map.empty
+    }
 
     def freshForm(): ManufacturingFormState =
       ManufacturingFormState(None, GeneratedCodes.next("MFG", manufacturingsSnapshot.now().map(_.code)), false, "", "", List(newTaskRow()))
@@ -65,6 +75,7 @@ object ManufacturingsPage:
 
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
       val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
+      val defaultEmployeeMap = manufacturing.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap
       form.set(
         ManufacturingFormState(
           Some(manufacturing.id),
@@ -72,7 +83,9 @@ object ManufacturingsPage:
           false,
           manufacturing.name,
           manufacturing.description.getOrElse(""),
-          manufacturing.taskIds.map(id => TaskRowState(nextKey(), id.toString, dependencyMap.getOrElse(id.toString, Set.empty))).toList,
+          manufacturing.taskIds.map { id =>
+            TaskRowState(nextKey(), id.toString, dependencyMap.getOrElse(id.toString, Set.empty), defaultEmployeeMap.getOrElse(id.toString, ""))
+          }.toList,
         )
       )
       formError.set(None)
@@ -87,12 +100,19 @@ object ManufacturingsPage:
           ManufacturingCatalogDependencyDto(taskId, dependsOn)
         }
       }
+      val defaultEmployees = current.taskRows.flatMap { row =>
+        for
+          taskId <- parseUuid(row.taskId)
+          employeeId <- parseUuid(row.employeeId)
+        yield TaskDefaultEmployeeDto(taskId, employeeId)
+      }
       ManufacturingCatalogRequest(
         current.code.trim.nn,
         current.name.trim.nn,
         Some(current.description.trim.nn).filter(_.nonEmpty),
         selectedIds,
         dependencies,
+        Some(defaultEmployees),
       )
 
     def submit(): Unit =
@@ -174,6 +194,13 @@ object ManufacturingsPage:
         }
       }
 
+    def employeeSelect(row: TaskRowState): HtmlElement =
+      selectInput(
+        rowSignal(row).map(_.employeeId),
+        Observer[String](next => updateTaskRow(row.key)(_.copy(employeeId = next))),
+        employeeOptions,
+      )
+
     def renderTaskRow(row: TaskRowState): HtmlElement =
       div(
         cls := "rounded-md border border-slate-200 p-2",
@@ -188,6 +215,7 @@ object ManufacturingsPage:
             onClick --> (_ => if form.now().taskRows.size > 1 then form.update(state => state.copy(taskRows = state.taskRows.filterNot(_.key == row.key)))),
           ),
         ),
+        div(cls := "mt-2", field("Dipendente predefinito", employeeSelect(row))),
         child <-- dependencyChoices(row).map { choices =>
           if choices.isEmpty then emptyNode
           else
@@ -285,7 +313,17 @@ object ManufacturingsPage:
                       div(cls := "font-medium text-slate-700", manufacturing.name),
                       manufacturing.description.map(d => div(cls := "text-xs text-slate-400", d)).getOrElse(emptyNode),
                     ),
-                    td(cls := "px-4 py-2 text-slate-500", manufacturing.tasks.map(_.name).mkString(", ")),
+                    td(
+                      cls := "px-4 py-2 text-slate-500",
+                      child.text <-- employeesById.map { employees =>
+                        val defaults = manufacturing.defaultEmployees.map(d => d.taskId -> d.employeeId.toString).toMap
+                        manufacturing.tasks.map { task =>
+                          defaults.get(task.id).flatMap(employees.get) match
+                            case Some(employee) => s"${task.name} (${employee.name} ${employee.surname})"
+                            case None => task.name
+                        }.mkString(", ")
+                      },
+                    ),
                     td(cls := "px-4 py-2 tabular-nums", manufacturing.totalRequiredHours.toString),
                     td(
                       cls := "px-4 py-2 text-right",

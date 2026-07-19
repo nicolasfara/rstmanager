@@ -148,6 +148,41 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       roundtrip.isRight shouldEqual true
       roundtrip.foreach(_.info.tasks.size shouldEqual mfg.info.tasks.size)
 
+  it should "record the preferred employee of the new task when provided" in:
+    forAll(genNotStarted, genPendingTask, genUUID): (mfg, task, employeeId) =>
+      mfg.addTask(task, Set.empty, Some(employeeId)).info.taskPreferredEmployees.get(task.id) shouldEqual Some(employeeId)
+
+  it should "not record any preferred employee when none is provided" in:
+    forAll(genNotStarted, genPendingTask): (mfg, task) =>
+      mfg.addTask(task, Set.empty).info.taskPreferredEmployees.contains(task.id) shouldEqual false
+
+  "removeTask" should "drop the removed task's preferred employee" in:
+    forAll(genNotStarted, genPendingTask, genUUID): (mfg, task, employeeId) =>
+      val removed = mfg.addTask(task, Set.empty, Some(employeeId)).removeTask(task.id)
+      removed.isRight shouldEqual true
+      removed.foreach(_.info.taskPreferredEmployees.contains(task.id) shouldEqual false)
+
+  // ---------------------------------------------------------------------------
+  // withTaskPreferredEmployee
+  // ---------------------------------------------------------------------------
+
+  "withTaskPreferredEmployee" should "set and then clear the preference of an existing task" in:
+    forAll(genNotStarted, genUUID): (mfg, employeeId) =>
+      val targetId = mfg.info.tasks.head.id
+      val set = mfg.withTaskPreferredEmployee(targetId, Some(employeeId))
+      set.isRight shouldEqual true
+      set.foreach { updated =>
+        updated.info.taskPreferredEmployees.get(targetId) shouldEqual Some(employeeId)
+        updated
+          .withTaskPreferredEmployee(targetId, None)
+          .foreach(_.info.taskPreferredEmployees.contains(targetId) shouldEqual false)
+      }
+
+  it should "return TaskIdNotFound for an unknown task" in:
+    forAll(genNotStarted, genUUID, genUUID): (mfg, unknownId, employeeId) =>
+      whenever(!mfg.info.tasks.exists(_.id == unknownId)):
+        mfg.withTaskPreferredEmployee(unknownId, Some(employeeId)) shouldEqual Left(TaskIdNotFound(unknownId))
+
   // ---------------------------------------------------------------------------
   // advanceTask / rollbackTask
   // ---------------------------------------------------------------------------

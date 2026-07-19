@@ -123,6 +123,19 @@ enum Order derives CanEqual:
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingPreferredEmployeeChanged(manufacturingId, employeeId, DateTime.now()).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
+  /** Sets (or clears) the preferred employee of a task inside a manufacturing of an active or suspended order. */
+  def changeTaskPreferredEmployee(
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      employeeId: Option[UUID],
+  ): Decision[OrderError, OrderEvent, Order] =
+    this
+      .perform(
+        mustBeInProgressOrSuspended.toDecision *>
+          ManufacturingTaskPreferredEmployeeChanged(manufacturingId, taskId, employeeId, DateTime.now()).accept,
+      )
+      .validate(_.mustBeInProgressOrSuspended)
+
   /** Changes the description of a manufacturing inside an active or suspended order. */
   def changeManufacturingDescription(
       manufacturingId: ScheduledManufacturingId,
@@ -158,9 +171,12 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       task: ScheduledTask,
       dependsOn: List[TaskId],
+      preferredEmployeeId: Option[UUID] = None,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskAdded(manufacturingId, task, dependsOn, DateTime.now()).accept)
+      .perform(
+        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskAdded(manufacturingId, task, dependsOn, DateTime.now(), preferredEmployeeId).accept,
+      )
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Removes a task from a manufacturing inside an active or suspended order. */
@@ -308,14 +324,16 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
     case ManufacturingRemoved(manufacturingId, _) => _.mustBeInProgressOrSuspended.map(removeManufacturing(_, manufacturingId))
     case ManufacturingPreferredEmployeeChanged(manufacturingId, employeeId, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingPreferredEmployee(_, manufacturingId, employeeId).toValidatedNec)
+    case ManufacturingTaskPreferredEmployeeChanged(manufacturingId, taskId, employeeId, _) =>
+      _.mustBeInProgressOrSuspended.andThen(changeTaskPreferredEmployee(_, manufacturingId, taskId, employeeId).toValidatedNec)
     case ManufacturingDescriptionChanged(manufacturingId, newDescription, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingDescription(_, manufacturingId, newDescription).toValidatedNec)
     case ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingCompletionDate(_, manufacturingId, newCompletionDate).toValidatedNec)
     case ManufacturingStatusChanged(manufacturingId, newStatus, reason, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingStatus(_, manufacturingId, newStatus, reason).toValidatedNec)
-    case ManufacturingTaskAdded(manufacturingId, task, dependsOn, _) =>
-      _.mustBeInProgressOrSuspended.andThen(addManufacturingTask(_, manufacturingId, task, dependsOn.toSet).toValidatedNec)
+    case ManufacturingTaskAdded(manufacturingId, task, dependsOn, _, preferredEmployeeId) =>
+      _.mustBeInProgressOrSuspended.andThen(addManufacturingTask(_, manufacturingId, task, dependsOn.toSet, preferredEmployeeId).toValidatedNec)
     case ManufacturingTaskRemoved(manufacturingId, taskId, _) =>
       _.mustBeInProgressOrSuspended.andThen(removeManufacturingTask(_, manufacturingId, taskId).toValidatedNec)
     case ManufacturingTaskAdvanced(manufacturingId, taskId, advancedBy) =>

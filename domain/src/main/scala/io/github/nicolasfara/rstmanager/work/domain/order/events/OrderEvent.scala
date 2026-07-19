@@ -59,6 +59,14 @@ enum OrderEvent:
   /** The preferred employee for a manufacturing has been set or cleared. */
   case ManufacturingPreferredEmployeeChanged(manufacturingId: ScheduledManufacturingId, employeeId: Option[UUID], changedOn: DateTime)
 
+  /** The preferred employee of a task within a manufacturing has been set or cleared. */
+  case ManufacturingTaskPreferredEmployeeChanged(
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      employeeId: Option[UUID],
+      changedOn: DateTime,
+  )
+
   /** A manufacturing has been manually moved to a new lifecycle status. */
   case ManufacturingStatusChanged(
       manufacturingId: ScheduledManufacturingId,
@@ -67,8 +75,14 @@ enum OrderEvent:
       changedOn: DateTime,
   )
 
-  /** A task has been added to a manufacturing. */
-  case ManufacturingTaskAdded(manufacturingId: ScheduledManufacturingId, task: ScheduledTask, dependsOn: List[TaskId], addedOn: DateTime)
+  /** A task has been added to a manufacturing, optionally with a preferred employee for the planner. */
+  case ManufacturingTaskAdded(
+      manufacturingId: ScheduledManufacturingId,
+      task: ScheduledTask,
+      dependsOn: List[TaskId],
+      addedOn: DateTime,
+      preferredEmployeeId: Option[UUID] = None,
+  )
 
   /** A task has been removed from a manufacturing. */
   case ManufacturingTaskRemoved(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, removedOn: DateTime)

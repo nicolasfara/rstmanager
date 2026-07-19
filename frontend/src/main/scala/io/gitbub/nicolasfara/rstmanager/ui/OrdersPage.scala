@@ -112,13 +112,25 @@ object OrdersPage:
   // ---- State case classes ----------------------------------------------------------------------
 
   /** Immutable state for a task draft in the create form; held in a single `Var`. */
-  private case class TaskState(taskId: String, hours: String, dependsOn: Set[String])
+  private case class TaskState(taskId: String, hours: String, dependsOn: Set[String], employeeId: String)
 
   /** Mutable draft holder: stable key for `split`, all mutable fields consolidated in one `Var`. `dependsOn` holds template-task id strings. */
   private final case class TaskDraft(key: Int, state: Var[TaskState])
 
-  /** Immutable state for the non-list fields of a manufacturing draft. */
-  private case class MfgCoreState(mode: String, catalogId: String, code: String, completionDate: String, description: String, employeeId: String, dependsOn: Set[String])
+  /**
+   * Immutable state for the non-list fields of a manufacturing draft. `taskEmployees` holds, for catalog mode, the per-task preferred employee
+   * (template-task id -> employee id), prefilled from the catalog defaults and overridable before submit.
+   */
+  private case class MfgCoreState(
+      mode: String,
+      catalogId: String,
+      code: String,
+      completionDate: String,
+      description: String,
+      employeeId: String,
+      dependsOn: Set[String],
+      taskEmployees: Map[String, String],
+  )
 
   /** `tasks` is kept as a separate `Var` because it undergoes its own add/remove mutations. `dependsOn` holds sibling draft key strings. */
   private final case class MfgDraft(key: Int, state: Var[MfgCoreState], tasks: Var[List[TaskDraft]])
@@ -136,19 +148,29 @@ object OrdersPage:
       description: String,
   )
 
-  /** State for the inline add-manufacturing form. */
-  private case class AddMfgState(mode: String, catalogId: String, code: String, date: String, description: String, taskId: String, hours: String, employee: String)
+  /** State for the inline add-manufacturing form. `taskEmployees` mirrors the create-form per-task employee overrides for catalog mode. */
+  private case class AddMfgState(
+      mode: String,
+      catalogId: String,
+      code: String,
+      date: String,
+      description: String,
+      taskId: String,
+      hours: String,
+      employee: String,
+      taskEmployees: Map[String, String],
+  )
   private object AddMfgState:
-    val empty: AddMfgState = AddMfgState("custom", "", "", "", "", "", "8", "")
+    val empty: AddMfgState = AddMfgState("custom", "", "", "", "", "", "8", "", Map.empty)
 
   /** State for the inline add-task form fields. */
-  private case class AddTaskState(taskId: String, hours: String)
+  private case class AddTaskState(taskId: String, hours: String, employee: String)
 
   /** Editable header fields for the edit modal (priority, promised delivery date, description). */
   private case class EditHeaderState(priority: String, promised: String, description: String) derives CanEqual
 
   /** Consolidated mutable state for one editable scheduled-task row inside the edit modal. */
-  private case class TaskEditState(expected: String, completed: String, dependsOn: Set[String]) derives CanEqual
+  private case class TaskEditState(expected: String, completed: String, dependsOn: Set[String], employee: String) derives CanEqual
 
   /** One editable scheduled-task row. `dependsOn` holds template-task id strings. */
   private final case class TaskEditRow(
@@ -159,7 +181,8 @@ object OrdersPage:
   )
 
   /** Consolidated mutable state for one editable manufacturing row inside the edit modal. */
-  private case class MfgEditState(description: String, completionDate: String, status: String, dependsOn: Set[String]) derives CanEqual
+  private case class MfgEditState(description: String, completionDate: String, status: String, dependsOn: Set[String], employee: String)
+      derives CanEqual
 
   /** One editable manufacturing row inside the edit modal. `dependsOn` holds manufacturing id strings. */
   private final case class MfgEditRow(
@@ -225,6 +248,10 @@ object OrdersPage:
       case Some(Right(list)) => list.map(t => t.id -> t.name).toMap
       case _ => Map.empty
     }
+    val employeesMap: Signal[Map[UUID, String]] = employeesData.map {
+      case Some(Right(list)) => list.map(e => e.id -> s"${e.name} ${e.surname}").toMap
+      case _ => Map.empty
+    }
     val customerOptions: Signal[List[(String, String)]] = customersData.map {
       case Some(Right(list)) => list.map(c => c.id.toString -> c.businessName.getOrElse(s"${c.name} ${c.surname}"))
       case _ => Nil
@@ -255,9 +282,9 @@ object OrdersPage:
       description = "",
     ))
 
-    def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8", Set.empty)))
+    def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8", Set.empty, "")))
     def newMfg(): MfgDraft =
-      MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty)), Var(List(newTask())))
+      MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())))
 
     val mfgs = Var(List(newMfg()))
 
@@ -279,12 +306,31 @@ object OrdersPage:
     def catalogById(rawId: String): Option[ManufacturingCatalogResponse] =
       parseUuid(rawId).flatMap(id => manufacturingCatalogs.now().find(_.id == id))
 
-    def fromCatalog(template: ManufacturingCatalogResponse, completionDate: String, employeeId: String): ManufacturingDto =
+    /** Per-task employee prefill for a catalog template: the defaults configured on the catalog manufacturing. */
+    def defaultTaskEmployees(rawCatalogId: String): Map[String, String] =
+      catalogById(rawCatalogId).map(_.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap).getOrElse(Map.empty)
+
+    def fromCatalog(
+        template: ManufacturingCatalogResponse,
+        completionDate: String,
+        employeeId: String,
+        taskEmployees: Map[String, String],
+    ): ManufacturingDto =
       ManufacturingDto(
         template.code,
         toIso(completionDate),
         "not_started",
-        template.tasks.map(task => ScheduledTaskDto(randomUuid(), task.id, "pending", task.requiredHours, Some(0), None)),
+        template.tasks.map { task =>
+          ScheduledTaskDto(
+            randomUuid(),
+            task.id,
+            "pending",
+            task.requiredHours,
+            Some(0),
+            None,
+            taskEmployees.get(task.id.toString).flatMap(parseUuid),
+          )
+        },
         template.dependencies.map(dependency => TaskDependencyDto(dependency.taskId, dependency.dependsOn)),
         None,
         None,
@@ -299,7 +345,7 @@ object OrdersPage:
       val tasks = m.tasks.now().flatMap { t =>
         val ts = t.state.now()
         parseUuid(ts.taskId).map { taskId =>
-          ScheduledTaskDto(randomUuid(), taskId, "pending", ts.hours.toIntOption.getOrElse(0), Some(0), None)
+          ScheduledTaskDto(randomUuid(), taskId, "pending", ts.hours.toIntOption.getOrElse(0), Some(0), None, parseUuid(ts.employeeId))
         }
       }
       val selectedIds = tasks.map(_.taskId.toString).toSet
@@ -331,7 +377,7 @@ object OrdersPage:
       val completionDate = Some(ms.completionDate.trim.nn).filter(_.nonEmpty).getOrElse(createState.now().workDeadline)
       if ms.mode == "catalog" then
         catalogById(ms.catalogId).toRight(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil)).map { template =>
-          fromCatalog(template, completionDate, ms.employeeId)
+          fromCatalog(template, completionDate, ms.employeeId, ms.taskEmployees)
         }
       else Right(fromCustom(m, completionDate))
 
@@ -406,11 +452,11 @@ object OrdersPage:
 
     // Inline "add task" form (targets the manufacturing whose id is held here)
     val addTaskMfgId = Var(Option.empty[UUID])
-    val addTaskState = Var(AddTaskState("", "8"))
+    val addTaskState = Var(AddTaskState("", "8", ""))
 
     def resetAddTask(): Unit =
       addTaskMfgId.set(None)
-      addTaskState.set(AddTaskState("", "8"))
+      addTaskState.set(AddTaskState("", "8", ""))
 
     def openEdit(order: OrderResponse): Unit =
       val orderDepsByMfg: Map[UUID, Set[String]] =
@@ -428,7 +474,7 @@ object OrdersPage:
         m.tasks.map { t =>
           val completed = t.completedHours.getOrElse(0)
           val deps = taskDepsByTemplate.getOrElse(t.taskId, Set.empty)
-          val state = TaskEditState(t.expectedHours.toString, completed.toString, deps)
+          val state = TaskEditState(t.expectedHours.toString, completed.toString, deps, t.preferredEmployeeId.map(_.toString).getOrElse(""))
           TaskEditRow(m.id, t.id, t.taskId, DirtyTracker(state, Var(state)))
         }
       })
@@ -436,7 +482,7 @@ object OrdersPage:
         val desc = m.description.getOrElse("")
         val completionDate = dayOf(m.completionDate)
         val deps = orderDepsByMfg.getOrElse(m.id, Set.empty)
-        val state = MfgEditState(desc, completionDate, m.status, deps)
+        val state = MfgEditState(desc, completionDate, m.status, deps, m.preferredEmployeeId.map(_.toString).getOrElse(""))
         MfgEditRow(m.id, DirtyTracker(state, Var(state)))
       })
       editError.set(None)
@@ -493,6 +539,14 @@ object OrdersPage:
         else Nil
       }
 
+      // The preferred employee travels on its own endpoint (both levels), so changed selections become dedicated effects.
+      val mfgEmployeeUpdates: List[() => Future[ApiClient.Result[Unit]]] = editMfgs.now().flatMap { row =>
+        if row.tracker.changed(_.employee) then
+          val employeeId = parseUuid(row.tracker.current.now().employee)
+          List(() => ApiClient.setPreferredEmployee(order.id, row.id, employeeId).map(_.map(_ => ())))
+        else Nil
+      }
+
       val taskUpdates: List[() => Future[ApiClient.Result[Unit]]] = editTasks.now().flatMap { row =>
         val es = row.tracker.current.now()
         val newExpected = es.expected.toIntOption
@@ -502,6 +556,13 @@ object OrdersPage:
         if expectedChanged || completedChanged then
           val request = TaskProgressUpdateRequest(if completedChanged then newCompleted else None, if expectedChanged then newExpected else None)
           List(() => ApiClient.updateScheduledTask(order.id, row.manufacturingId, row.taskId, request).map(_.map(_ => ())))
+        else Nil
+      }
+
+      val taskEmployeeUpdates: List[() => Future[ApiClient.Result[Unit]]] = editTasks.now().flatMap { row =>
+        if row.tracker.changed(_.employee) then
+          val employeeId = parseUuid(row.tracker.current.now().employee)
+          List(() => ApiClient.setTaskPreferredEmployee(order.id, row.manufacturingId, row.taskId, employeeId).map(_.map(_ => ())))
         else Nil
       }
 
@@ -531,7 +592,7 @@ object OrdersPage:
           else Nil
         }
 
-      val effects = orderUpdate ++ mfgUpdates ++ taskUpdates ++ orderDepsUpdate ++ taskDepsUpdates
+      val effects = orderUpdate ++ mfgUpdates ++ mfgEmployeeUpdates ++ taskUpdates ++ taskEmployeeUpdates ++ orderDepsUpdate ++ taskDepsUpdates
       if effects.isEmpty then editing.set(None)
       else
         runSequential(effects).foreach {
@@ -545,7 +606,7 @@ object OrdersPage:
       if s.mode == "catalog" then
         catalogById(s.catalogId) match
           case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil))
-          case Some(template) => applyStructural(ApiClient.addManufacturing(order.id, fromCatalog(template, s.date, s.employee)))
+          case Some(template) => applyStructural(ApiClient.addManufacturing(order.id, fromCatalog(template, s.date, s.employee, s.taskEmployees)))
       else
         parseUuid(s.taskId) match
           case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona un task valido per la nuova lavorazione.", Nil))
@@ -572,7 +633,9 @@ object OrdersPage:
       parseUuid(s.taskId) match
         case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona un task valido.", Nil))
         case Some(taskId) =>
-          applyStructural(ApiClient.addManufacturingTask(order.id, mfgId, AddTaskRequest(taskId, s.hours.toIntOption.getOrElse(0), Nil)))
+          applyStructural(
+            ApiClient.addManufacturingTask(order.id, mfgId, AddTaskRequest(taskId, s.hours.toIntOption.getOrElse(0), Nil, parseUuid(s.employee))),
+          )
     }
 
     // ---- Row actions -----------------------------------------------------------------------------
@@ -660,7 +723,7 @@ object OrdersPage:
     def renderTask(m: MfgDraft, t: TaskDraft): HtmlElement =
       div(
         div(
-          cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_auto] sm:items-end",
+          cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_11rem_5rem_auto] sm:items-end",
           div(
             cls := "flex-1",
             field(
@@ -675,6 +738,10 @@ object OrdersPage:
                 taskOptions,
               ),
             ),
+          ),
+          field(
+            "Dipendente",
+            selectInput(t.state.signal.map(_.employeeId), Observer[String](v => t.state.update(_.copy(employeeId = v))), employeeOptions),
           ),
           field(
             "Ore",
@@ -692,6 +759,38 @@ object OrdersPage:
           t.state.signal.map(_.dependsOn),
           (id, checked) => t.state.update(s => s.copy(dependsOn = if checked then s.dependsOn + id else s.dependsOn - id)),
         ),
+      )
+
+    /**
+     * Per-task employee selects for a catalog-mode manufacturing: one row per template task, prefilled with the catalog default and overridable
+     * before submit. Hidden until a valid template is selected.
+     */
+    def catalogTaskEmployeeOverrides(
+        catalogIdSignal: Signal[String],
+        currentMap: Signal[Map[String, String]],
+        setEmployee: (String, String) => Unit,
+    ): HtmlElement =
+      div(
+        child <-- catalogIdSignal.combineWith(manufacturingCatalogs.signal).map { case (rawId, catalogs) =>
+          parseUuid(rawId).flatMap(id => catalogs.find(_.id == id)) match
+            case None => emptyNode
+            case Some(template) =>
+              div(
+                cls := "space-y-1 rounded-md border border-slate-200 p-2",
+                div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Dipendente per task"),
+                template.tasks.map { task =>
+                  div(
+                    cls := "grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)] sm:items-center",
+                    div(cls := "text-sm text-slate-700", s"${task.name} (${task.requiredHours}h)"),
+                    selectInput(
+                      currentMap.map(_.getOrElse(task.id.toString, "")),
+                      Observer[String](v => setEmployee(task.id.toString, v)),
+                      employeeOptions,
+                    ),
+                  )
+                },
+              )
+        },
       )
 
     def catalogPreview(catalogIdSignal: Signal[String]): HtmlElement =
@@ -766,11 +865,20 @@ object OrdersPage:
                 "Lavorazione catalogo",
                 selectInput(
                   catalogIdSignal,
-                  Observer[String] { v => m.state.update(_.copy(catalogId = v)); mfgs.update(_.map(identity)) },
+                  // Selecting a template also prefills the per-task employees from the catalog defaults.
+                  Observer[String] { v =>
+                    m.state.update(_.copy(catalogId = v, taskEmployees = defaultTaskEmployees(v)))
+                    mfgs.update(_.map(identity))
+                  },
                   manufacturingCatalogOptions,
                 ),
               ),
               catalogPreview(catalogIdSignal),
+              catalogTaskEmployeeOverrides(
+                catalogIdSignal,
+                m.state.signal.map(_.taskEmployees),
+                (taskId, employeeId) => m.state.update(s => s.copy(taskEmployees = s.taskEmployees.updated(taskId, employeeId))),
+              ),
             )
           case _ =>
             div(
@@ -859,16 +967,26 @@ object OrdersPage:
 
       def renderTaskEdit(m: ManufacturingResponse, t: ScheduledTaskDto): HtmlElement =
         val nameNode = child.text <-- tasksMap.map(_.getOrElse(t.taskId, Formats.shortId(t.taskId)))
+        val employeeSuffix: Signal[String] =
+          employeesMap.map(names => t.preferredEmployeeId.fold("")(empId => s" · ${names.getOrElse(empId, Formats.shortId(empId))}"))
         rowsByTask.get(t.id) match
           case Some(row) if editable =>
             div(
               cls := "border-t border-slate-100 pt-2 first:border-0 first:pt-0",
               div(
-                cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_5rem_auto] sm:items-end",
+                cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_11rem_5rem_5rem_auto] sm:items-end",
                 div(
                   cls := "flex-1",
                   div(cls := "text-sm text-slate-700", nameNode),
                   div(cls := "text-xs text-slate-400", statusLabel(t.status)),
+                ),
+                field(
+                  "Dipendente",
+                  selectInput(
+                    row.tracker.current.signal.map(_.employee),
+                    Observer[String](v => row.tracker.current.update(_.copy(employee = v))),
+                    employeeOptions,
+                  ),
                 ),
                 field(
                   "Previste",
@@ -898,7 +1016,9 @@ object OrdersPage:
               div(cls := "text-slate-700", nameNode),
               div(
                 cls := "text-xs text-slate-500",
-                s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${statusLabel(t.status)}",
+                child.text <-- employeeSuffix.map(suffix =>
+                  s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${statusLabel(t.status)}$suffix"
+                ),
               ),
             )
         end match
@@ -910,8 +1030,9 @@ object OrdersPage:
           child <-- addTaskMfgId.signal.map { target =>
             if target.contains(m.id) then
               div(
-                cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_5rem_auto_auto] sm:items-end",
+                cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_11rem_5rem_auto_auto] sm:items-end",
                 div(cls := "flex-1", field("Task", selectInput(addTaskState.signal.map(_.taskId), Observer[String](v => addTaskState.update(_.copy(taskId = v))), taskOptions))),
+                field("Dipendente", selectInput(addTaskState.signal.map(_.employee), Observer[String](v => addTaskState.update(_.copy(employee = v))), employeeOptions)),
                 field("Ore", textInput(addTaskState.signal.map(_.hours), Observer[String](v => addTaskState.update(_.copy(hours = v))), "", "number")),
                 button(
                   tpe := "button",
@@ -963,7 +1084,7 @@ object OrdersPage:
                 div(
                   cls := "mb-2",
                   div(
-                    cls := "grid grid-cols-1 gap-2 sm:grid-cols-3",
+                    cls := "grid grid-cols-1 gap-2 sm:grid-cols-2",
                     field(
                       "Descrizione",
                       textInput(
@@ -984,6 +1105,14 @@ object OrdersPage:
                     field(
                       "Stato",
                       staticSelect(row.tracker.current.signal.map(_.status), Observer[String](v => row.tracker.current.update(_.copy(status = v))), mfgStatusOptions),
+                    ),
+                    field(
+                      "Dipendente preferito",
+                      selectInput(
+                        row.tracker.current.signal.map(_.employee),
+                        Observer[String](v => row.tracker.current.update(_.copy(employee = v))),
+                        employeeOptions,
+                      ),
                     ),
                   ),
                   dependsOnChips(
@@ -1035,8 +1164,21 @@ object OrdersPage:
                   case "catalog" =>
                     div(
                       cls := "space-y-2",
-                      field("Lavorazione catalogo", selectInput(addMfgState.signal.map(_.catalogId), Observer[String](v => addMfgState.update(_.copy(catalogId = v))), manufacturingCatalogOptions)),
+                      field(
+                        "Lavorazione catalogo",
+                        selectInput(
+                          addMfgState.signal.map(_.catalogId),
+                          // Selecting a template also prefills the per-task employees from the catalog defaults.
+                          Observer[String](v => addMfgState.update(_.copy(catalogId = v, taskEmployees = defaultTaskEmployees(v)))),
+                          manufacturingCatalogOptions,
+                        ),
+                      ),
                       catalogPreview(addMfgState.signal.map(_.catalogId)),
+                      catalogTaskEmployeeOverrides(
+                        addMfgState.signal.map(_.catalogId),
+                        addMfgState.signal.map(_.taskEmployees),
+                        (taskId, employeeId) => addMfgState.update(s => s.copy(taskEmployees = s.taskEmployees.updated(taskId, employeeId))),
+                      ),
                     )
                   case _ =>
                     div(

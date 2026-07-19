@@ -74,9 +74,9 @@ The backend image uses a multi-stage build: the build stage starts from `eclipse
 stage starts from `eclipse-temurin:17-jre-jammy` and runs only the assembled service jar. These can be overridden with `RSTMANAGER_JDK_IMAGE`,
 `RSTMANAGER_RUNTIME_IMAGE`, and `RSTMANAGER_SBT_VERSION`.
 
-The frontend image also uses a multi-stage build: the build stage starts from `node:22-bookworm`, installs OpenJDK 17 plus sbt, and runs
+The frontend image also uses a multi-stage build: the build stage starts from `cimg/openjdk:17.0-node`, which includes JDK, sbt, and Node, and runs
 `npm run build`; the runtime stage starts from `nginx:1.27-alpine`, serves `dist`, and proxies `/api` plus `/docs` to the backend service. Override
-those base images with `RSTMANAGER_NODE_IMAGE` and `RSTMANAGER_NGINX_IMAGE`.
+those base images with `RSTMANAGER_FRONTEND_BUILD_IMAGE` and `RSTMANAGER_NGINX_IMAGE`.
 
 To remove the persisted database volume:
 

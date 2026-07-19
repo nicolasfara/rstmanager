@@ -54,6 +54,7 @@ object OrderDtos:
       expectedHours: Int,
       completedHours: Option[Int],
       completionDate: Option[String],
+      preferredEmployeeId: Option[UUID] = None,
   ):
     def toDomain(path: String): ValidatedNec[String, ScheduledTask] =
       TaskHours.validatedNec(expectedHours).andThen { expected =>
@@ -83,11 +84,12 @@ object OrderDtos:
         None,
       )
 
-    def fromDomain(task: ScheduledTask): ScheduledTaskDto = task match
-      case PendingTask(id, taskId, expected) => ScheduledTaskDto(id, taskId, "pending", expected.value, Some(0), None)
-      case InProgressTask(id, taskId, expected, completed) => ScheduledTaskDto(id, taskId, "in_progress", expected.value, Some(completed.value), None)
+    def fromDomain(task: ScheduledTask, preferredEmployeeId: Option[UUID] = None): ScheduledTaskDto = task match
+      case PendingTask(id, taskId, expected) => ScheduledTaskDto(id, taskId, "pending", expected.value, Some(0), None, preferredEmployeeId)
+      case InProgressTask(id, taskId, expected, completed) =>
+        ScheduledTaskDto(id, taskId, "in_progress", expected.value, Some(completed.value), None, preferredEmployeeId)
       case CompletedTask(id, taskId, expected, completed, completionDate) =>
-        ScheduledTaskDto(id, taskId, "completed", expected.value, Some(completed.value), Some(formatDate(completionDate)))
+        ScheduledTaskDto(id, taskId, "completed", expected.value, Some(completed.value), Some(formatDate(completionDate)), preferredEmployeeId)
 
   final case class ManufacturingDto(
       code: String,
@@ -120,6 +122,7 @@ object OrderDtos:
         else dependencyGraph.validNec
       }
 
+      val taskPreferredEmployees = tasks.flatMap(task => task.preferredEmployeeId.map(task.id -> _)).toMap
       val info = (manufacturingCode(code), parseDate(completionDate, s"$path.completionDate"), taskList, validatedDependencies).mapN {
         (code, expectedCompletionDate, scheduledTasks, taskDependencies) =>
           ScheduledManufacturingInfo(
@@ -130,6 +133,7 @@ object OrderDtos:
             taskDependencies,
             description.map(_.trim.nn).filter(_.nonEmpty),
             preferredEmployeeId,
+            taskPreferredEmployees,
           )
       }
 
@@ -195,7 +199,7 @@ object OrderDtos:
         startedAt.map(formatDate),
         endedAt.map(formatDate),
         reason,
-        info.tasks.toList.map(ScheduledTaskDto.fromDomain),
+        info.tasks.toList.map(task => ScheduledTaskDto.fromDomain(task, info.taskPreferredEmployees.get(task.id))),
         info.dependencies.toEdgePairs.groupMap(_._1)(_._2).toList.map((taskId, dependsOn) => TaskDependencyDto(taskId, dependsOn)),
         info.description,
         info.preferredEmployeeId,
@@ -360,11 +364,11 @@ object OrderDtos:
   object TaskDependenciesUpdateRequest:
     val example: TaskDependenciesUpdateRequest = TaskDependenciesUpdateRequest(List(TaskDependencyDto.example))
 
-  /** Adds a new scheduled task (referencing a catalog task) to a manufacturing. */
-  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID]):
+  /** Adds a new scheduled task (referencing a catalog task) to a manufacturing, optionally with a preferred employee. */
+  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID], preferredEmployeeId: Option[UUID] = None):
     def toCommand(manufacturingId: UUID, taskInstanceId: UUID): ValidatedNec[String, OrderService.Command] =
       ScheduledTask.createScheduledTask(taskInstanceId, taskId, expectedHours).map { task =>
-        OrderService.Command.AddManufacturingTask(manufacturingId, task, dependsOn)
+        OrderService.Command.AddManufacturingTask(manufacturingId, task, dependsOn, preferredEmployeeId)
       }
 
   object AddTaskRequest:
@@ -420,6 +424,9 @@ object OrderDtos:
   final case class SetPreferredEmployeeRequest(employeeId: Option[UUID]):
     def toCommand(manufacturingId: UUID): OrderService.Command =
       OrderService.Command.SetPreferredEmployee(manufacturingId, employeeId)
+
+    def toTaskCommand(manufacturingId: UUID, taskId: UUID): OrderService.Command =
+      OrderService.Command.SetTaskPreferredEmployee(manufacturingId, taskId, employeeId)
 
   object SetPreferredEmployeeRequest:
     val example: SetPreferredEmployeeRequest = SetPreferredEmployeeRequest(None)

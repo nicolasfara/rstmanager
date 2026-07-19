@@ -416,6 +416,20 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
     outcome.slices.map(slice => (slice.day, slice.candidateEmployee.employeeId)) shouldEqual List((wednesday, employeeB))
 
+  it should "prefer the task-level employee over the manufacturing-level one" in:
+    val taskWithPreference = pendingTask(UUID.randomUUID().nn, 4)
+    val taskWithFallback = pendingTask(UUID.randomUUID().nn, 4)
+    val base = manufacturing(manufacturingId, friday, NonEmptyList.of(taskWithPreference, taskWithFallback))
+    val withPreferences = ScheduledManufacturing.NotStartedManufacturing(
+      base.info.copy(preferredEmployeeId = Some(employeeA), taskPreferredEmployees = Map(taskWithPreference.id -> employeeB)),
+    )
+    val theOrder = order(orderId, friday, NonEmptyList.one(withPreferences))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA), employee(employeeB)))
+
+    val slicesByTask = outcome.slices.groupBy(_.taskId)
+    slicesByTask(taskWithPreference.id).map(_.candidateEmployee.employeeId).toSet shouldEqual Set(employeeB)
+    slicesByTask(taskWithFallback.id).map(_.candidateEmployee.employeeId).toSet shouldEqual Set(employeeA)
+
   it should "complete an empty request without slices or unplanned orders" in:
     val task = pendingTask(UUID.randomUUID().nn, 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))

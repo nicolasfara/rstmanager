@@ -94,6 +94,15 @@ object OrderOperations:
   ): Either[OrderError, InProgressOrder] =
     updateManufacturing(order, manufacturingId)(_.withPreferredEmployee(employeeId).asRight)
 
+  /** Sets (or clears) the preferred employee of a task inside one of the order manufacturings. */
+  def changeTaskPreferredEmployee(
+      order: InProgressOrder | SuspendedOrder,
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      employeeId: Option[UUID],
+  ): Either[OrderError, InProgressOrder] =
+    updateManufacturing(order, manufacturingId)(_.withTaskPreferredEmployee(taskId, employeeId))
+
   /** Sets (or clears) the description of one of the order manufacturings. */
   def changeManufacturingDescription(
       order: InProgressOrder | SuspendedOrder,
@@ -125,8 +134,9 @@ object OrderOperations:
       manufacturingId: ScheduledManufacturingId,
       task: ScheduledTask,
       dependsOn: Set[TaskId],
+      preferredEmployee: Option[UUID] = None,
   ): Either[OrderError, InProgressOrder] =
-    updateManufacturing(order, manufacturingId)(_.addTask(task, dependsOn).asRight)
+    updateManufacturing(order, manufacturingId)(_.addTask(task, dependsOn, preferredEmployee).asRight)
 
   /** Removes a task from one of the order manufacturings. */
   def removeManufacturingTask(

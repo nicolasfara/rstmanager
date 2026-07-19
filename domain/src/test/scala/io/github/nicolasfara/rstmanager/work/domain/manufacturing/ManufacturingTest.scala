@@ -76,6 +76,36 @@ class ManufacturingTest extends AnyFlatSpecLike:
       .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency)
       .isValid shouldEqual false
 
+  it should "accept default employees referencing tasks of the composition" in:
+    val employee = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+    val result = Manufacturing.createManufacturing(
+      manufacturingId,
+      "MFG-TEST",
+      "Serramento standard",
+      None,
+      List(cutting, assembly),
+      dependencies,
+      Map(cutting -> employee),
+    )
+
+    result.isValid shouldEqual true
+    result.foreach(_.defaultEmployees shouldEqual Map(cutting -> employee))
+
+  it should "reject default employees referencing tasks outside the composition" in:
+    val employee = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+
+    Manufacturing
+      .createManufacturing(
+        manufacturingId,
+        "MFG-TEST",
+        "Serramento standard",
+        None,
+        List(cutting, assembly),
+        dependencies,
+        Map(finishing -> employee),
+      )
+      .isValid shouldEqual false
+
   it should "reject cyclic dependencies" in:
     val cycle = ManufacturingDependencies()
       .addTaskDependencies(cutting, Set(assembly))

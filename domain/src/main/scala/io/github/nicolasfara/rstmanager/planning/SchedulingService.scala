@@ -301,7 +301,7 @@ object SchedulingService:
                     task.remainingHours.value,
                     earliestStart,
                     employees,
-                    manufacturing.info.preferredEmployeeId,
+                    manufacturing.info.preferredEmployeeForTask(task.id),
                   ) match
                     case Right((updatedState, lastDayIdx)) => plan.copy(state = updatedState).markCompleted(task.taskId, lastDayIdx)
                     case Left(reason) => plan.block(manufacturing.info.id, task, reason)

@@ -1,23 +1,19 @@
-ARG JDK_IMAGE=eclipse-temurin:25.0.3_9-jdk-jammy
+ARG BUILD_IMAGE=sbtscala/scala-sbt:eclipse-temurin-25.0.3_9_1.12.13_3.3.8
 ARG RUNTIME_IMAGE=eclipse-temurin:25.0.3_9-jre-jammy
 
-FROM ${JDK_IMAGE} AS build
-
-ARG SBT_VERSION=1.12.11
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl tar \
-  && curl -fsSL "https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt-${SBT_VERSION}.tgz" -o /tmp/sbt.tgz \
-  && mkdir -p /opt/sbt \
-  && tar -xzf /tmp/sbt.tgz -C /opt/sbt --strip-components=1 \
-  && ln -s /opt/sbt/bin/sbt /usr/local/bin/sbt \
-  && rm -rf /var/lib/apt/lists/* /tmp/sbt.tgz
+FROM ${BUILD_IMAGE} AS build
 
 WORKDIR /app
 
 ENV SBT_OPTS="-Dsbt.supershell=false"
 
-COPY . .
+COPY build.sbt ./
+COPY project ./project
+
+RUN sbt -batch domain/update service/update
+
+COPY domain/src/main ./domain/src/main
+COPY service/src/main ./service/src/main
 
 RUN sbt -batch service/assembly \
   && cp service/target/scala-*/rstmanager-service.jar /tmp/rstmanager-service.jar
@@ -28,7 +24,7 @@ WORKDIR /app
 
 RUN useradd --create-home --uid 10001 appuser
 
-COPY --from=build /tmp/rstmanager-service.jar /app/rstmanager-service.jar
+COPY --from=build --chown=appuser:appuser /tmp/rstmanager-service.jar /app/rstmanager-service.jar
 
 USER appuser
 

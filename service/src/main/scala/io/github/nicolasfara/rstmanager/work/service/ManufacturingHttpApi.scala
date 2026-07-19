@@ -33,18 +33,37 @@ object ManufacturingHttpApi:
         List(UUID.fromString("00000000-0000-0000-0000-000000000301").nn),
       )
 
+  /** Default employee proposed for one task of the template when the manufacturing is scheduled inside an order. */
+  final case class TaskDefaultEmployeeDto(taskId: UUID, employeeId: UUID)
+
+  object TaskDefaultEmployeeDto:
+    val example: TaskDefaultEmployeeDto =
+      TaskDefaultEmployeeDto(
+        UUID.fromString("00000000-0000-0000-0000-000000000301").nn,
+        UUID.fromString("00000000-0000-0000-0000-000000000101").nn,
+      )
+
   final case class ManufacturingRequest(
       code: String,
       name: String,
       description: Option[String],
       taskIds: List[UUID],
       dependencies: List[ManufacturingDependencyDto],
+      defaultEmployees: Option[List[TaskDefaultEmployeeDto]] = None,
   ):
     def toDomain(id: UUID): ValidatedNec[String, Manufacturing] =
       val dependencyGraph = dependencies.foldLeft(ManufacturingDependencies()) { (current, dependency) =>
         current.addTaskDependencies(dependency.taskId, dependency.dependsOn.toSet)
       }
-      Manufacturing.createManufacturing(id, code, name, description, taskIds, dependencyGraph)
+      Manufacturing.createManufacturing(
+        id,
+        code,
+        name,
+        description,
+        taskIds,
+        dependencyGraph,
+        defaultEmployees.getOrElse(Nil).map(entry => entry.taskId -> entry.employeeId).toMap,
+      )
 
   object ManufacturingRequest:
     val example: ManufacturingRequest =
@@ -57,6 +76,7 @@ object ManufacturingHttpApi:
           UUID.fromString("00000000-0000-0000-0000-000000000302").nn,
         ),
         List(ManufacturingDependencyDto.example),
+        Some(List(TaskDefaultEmployeeDto.example)),
       )
 
   final case class ManufacturingResponse(
@@ -68,6 +88,7 @@ object ManufacturingHttpApi:
       tasks: List[TaskResponse],
       dependencies: List[ManufacturingDependencyDto],
       totalRequiredHours: Int,
+      defaultEmployees: List[TaskDefaultEmployeeDto] = Nil,
   )
 
   object ManufacturingResponse:
@@ -82,6 +103,7 @@ object ManufacturingHttpApi:
         taskResponses,
         manufacturing.dependencies.toEdgePairs.groupMap(_._1)(_._2).toList.map((taskId, dependsOn) => ManufacturingDependencyDto(taskId, dependsOn)),
         taskResponses.map(_.requiredHours).sum,
+        manufacturing.taskIds.toList.flatMap(taskId => manufacturing.defaultEmployees.get(taskId).map(TaskDefaultEmployeeDto(taskId, _))),
       )
 
   private def conflict(error: ManufacturingError): ApiFailure = error match
@@ -90,9 +112,11 @@ object ManufacturingHttpApi:
     case ManufacturingError.ManufacturingNotFound => ApiError.notFound("Manufacturing", "")
 
   given Codec[ManufacturingDependencyDto] = deriveCodec
+  given Codec[TaskDefaultEmployeeDto] = deriveCodec
   given Codec[ManufacturingRequest] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
   given Schema[ManufacturingDependencyDto] = Schema.derived
+  given Schema[TaskDefaultEmployeeDto] = Schema.derived
   given Schema[ManufacturingRequest] = Schema.derived
   given Schema[ManufacturingResponse] = Schema.derived
 

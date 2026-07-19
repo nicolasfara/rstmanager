@@ -4,7 +4,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
@@ -61,4 +61,43 @@ class WorkCodecsTest extends AnyFlatSpecLike:
 
     decoded.dependencies.toEdgePairs shouldBe empty
     decoded.setOfManufacturing.map(_.info.id).toList shouldEqual List(firstManufacturingId, secondManufacturingId)
+
+  "ScheduledManufacturingInfo codec" should "round-trip per-task preferred employees" in:
+    val taskInstanceId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000705").nn
+    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+    val info = manufacturing(firstManufacturingId).info.copy(taskPreferredEmployees = Map(taskInstanceId -> employeeId))
+    val decoded = info.asJson.as[ScheduledManufacturingInfo].fold(err => fail(s"Decoding failed: $err"), identity)
+
+    decoded.taskPreferredEmployees shouldEqual Map(taskInstanceId -> employeeId)
+
+  it should "decode info persisted before per-task preferred employees existed" in:
+    val legacyJson = manufacturing(firstManufacturingId).info.asJson.mapObject(_.remove("taskPreferredEmployees"))
+    val decoded = legacyJson.as[ScheduledManufacturingInfo].fold(err => fail(s"Decoding failed: $err"), identity)
+
+    decoded.taskPreferredEmployees shouldBe empty
+    decoded.id shouldEqual firstManufacturingId
+
+  "Manufacturing codec" should "decode catalog templates persisted before default employees existed" in:
+    val taskId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000301").nn
+    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+    val template = Manufacturing
+      .createManufacturing(
+        UUID.fromString("00000000-0000-0000-0000-000000000706").nn,
+        "MFG-TEST",
+        "Serramento standard",
+        None,
+        List(taskId),
+        ManufacturingDependencies(),
+        Map(taskId -> employeeId),
+      )
+      .toEither
+      .fold(errors => fail(s"Invalid template: $errors"), identity)
+
+    val roundTripped = template.asJson.as[Manufacturing].fold(err => fail(s"Decoding failed: $err"), identity)
+    roundTripped.defaultEmployees shouldEqual Map(taskId -> employeeId)
+
+    val legacyJson = template.asJson.mapObject(_.remove("defaultEmployees"))
+    val decoded = legacyJson.as[Manufacturing].fold(err => fail(s"Decoding failed: $err"), identity)
+    decoded.defaultEmployees shouldBe empty
+    decoded.taskIds.toList shouldEqual List(taskId)
 end WorkCodecsTest

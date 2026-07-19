@@ -149,6 +149,40 @@ class OrderServiceTest extends AnyFlatSpecLike:
         newState.data.setOfManufacturing.head.info.tasks.head.expectedHours shouldEqual TaskHours(16)
       case other => fail(s"Unexpected result: $other")
 
+  it should "set and clear a task's preferred employee" in:
+    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
+    val data = orderData()
+    val afterSet = run(Command.SetTaskPreferredEmployee(manufacturingId, taskId, Some(employeeId)), InProgressOrder(data, nextDay))
+
+    val stateWithEmployee = afterSet match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        events.toChain.toList match
+          case List(ManufacturingTaskPreferredEmployeeChanged(eventManufacturingId, eventTaskId, eventEmployeeId, _)) =>
+            eventManufacturingId shouldEqual manufacturingId
+            eventTaskId shouldEqual taskId
+            eventEmployeeId shouldEqual Some(employeeId)
+          case other => fail(s"Unexpected events: $other")
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+        newState.data.setOfManufacturing.head.info.taskPreferredEmployees shouldEqual Map(taskId -> employeeId)
+        newState
+      case other => fail(s"Unexpected result: $other")
+
+    run(Command.SetTaskPreferredEmployee(manufacturingId, taskId, None), stateWithEmployee) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
+        newState.data.setOfManufacturing.head.info.taskPreferredEmployees shouldBe empty
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject setting the preferred employee of an unknown task" in:
+    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
+    val unknownTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-00000000010a").nn
+    val result = run(Command.SetTaskPreferredEmployee(manufacturingId, unknownTaskId, Some(employeeId)), InProgressOrder(orderData(), nextDay))
+
+    result match
+      case EdomatonResult.Rejected(notifications, reasons) =>
+        reasons.toChain.toList should matchPattern { case List(ManufacturingError(_)) => }
+        notifications shouldBe empty
+      case other => fail(s"Unexpected result: $other")
+
   it should "change a manufacturing work deadline" in:
     val data = orderData()
     val newCompletionDate = nextDay.plusDays(2).nn

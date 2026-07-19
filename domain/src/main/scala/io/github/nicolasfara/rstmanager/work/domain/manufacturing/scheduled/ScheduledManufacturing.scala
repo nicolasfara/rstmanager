@@ -2,6 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
@@ -43,9 +44,12 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   /** Returns the total completed work across all tasks. */
   def completedHours: TaskHours = info.tasks.foldMap(_.completedHours)
 
-  /** Adds a scheduled task and registers its dependency edges. */
-  def addTask(task: ScheduledTask, dependsOn: Set[TaskId]): ScheduledManufacturing =
-    updateTasks(info.tasks :+ task, info.dependencies.addTaskDependencies(task.taskId, dependsOn))
+  /** Adds a scheduled task, registering its dependency edges and (optionally) its preferred employee. */
+  def addTask(task: ScheduledTask, dependsOn: Set[TaskId], preferredEmployee: Option[EmployeeId] = None): ScheduledManufacturing =
+    val withTask = updateTasks(info.tasks :+ task, info.dependencies.addTaskDependencies(task.taskId, dependsOn))
+    preferredEmployee.fold(withTask) { employeeId =>
+      withTask.withInfo(withTask.info.copy(taskPreferredEmployees = withTask.info.taskPreferredEmployees.updated(task.id, employeeId)))
+    }
 
   /** Removes a scheduled task if doing so would not leave the manufacturing empty. */
   def removeTask(id: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
@@ -56,7 +60,9 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
         case head :: tail => Right(NonEmptyList(head, tail))
       updatedDependencies = info.dependencies.removeTask(task.taskId)
       newManufacturing = updateTasks(updatedTasks, updatedDependencies)
-    yield newManufacturing
+    yield newManufacturing.withInfo(
+      newManufacturing.info.copy(taskPreferredEmployees = newManufacturing.info.taskPreferredEmployees.removed(id)),
+    )
 
   /** Sets (or clears) the free-text description. */
   def withDescription(description: Option[String]): ScheduledManufacturing =
@@ -69,6 +75,16 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   /** Sets (or clears) the preferred employee for this manufacturing. */
   def withPreferredEmployee(employeeId: Option[UUID]): ScheduledManufacturing =
     withInfo(info.copy(preferredEmployeeId = employeeId))
+
+  /** Sets (or clears) the preferred employee of one scheduled task, failing when the task does not exist. */
+  def withTaskPreferredEmployee(
+      taskId: ScheduledTaskId,
+      employeeId: Option[EmployeeId],
+  ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    ensureTaskExists(taskId).map { _ =>
+      val updated = employeeId.fold(info.taskPreferredEmployees.removed(taskId))(info.taskPreferredEmployees.updated(taskId, _))
+      withInfo(info.copy(taskPreferredEmployees = updated))
+    }
 
   /** Replaces the task dependency graph. */
   def withDependencies(dependencies: ManufacturingDependencies): ScheduledManufacturing =

@@ -100,12 +100,16 @@ object Dtos:
 
   final case class ManufacturingCatalogDependencyDto(taskId: UUID, dependsOn: List[UUID])
 
+  /** Default employee proposed for one task of the template when the manufacturing is scheduled inside an order. */
+  final case class TaskDefaultEmployeeDto(taskId: UUID, employeeId: UUID)
+
   final case class ManufacturingCatalogRequest(
       code: String,
       name: String,
       description: Option[String],
       taskIds: List[UUID],
       dependencies: List[ManufacturingCatalogDependencyDto],
+      defaultEmployees: Option[List[TaskDefaultEmployeeDto]] = None,
   )
 
   final case class ManufacturingCatalogResponse(
@@ -117,6 +121,7 @@ object Dtos:
       tasks: List[TaskResponse],
       dependencies: List[ManufacturingCatalogDependencyDto],
       totalRequiredHours: Int,
+      defaultEmployees: List[TaskDefaultEmployeeDto] = Nil,
   )
 
   // ---- Orders ------------------------------------------------------------------------------------
@@ -136,6 +141,7 @@ object Dtos:
       expectedHours: Int,
       completedHours: Option[Int],
       completionDate: Option[String],
+      preferredEmployeeId: Option[UUID] = None,
   )
 
   final case class ManufacturingDto(
@@ -198,8 +204,8 @@ object Dtos:
       reason: Option[String],
   )
 
-  /** Add a new scheduled task (referencing a catalog task) to a manufacturing. */
-  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID])
+  /** Add a new scheduled task (referencing a catalog task) to a manufacturing, optionally with a preferred employee. */
+  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID], preferredEmployeeId: Option[UUID] = None)
 
   final case class OrderResponse(
       id: UUID,
@@ -316,6 +322,7 @@ object Dtos:
   given Codec[TaskRequest] = deriveCodec
   given Codec[TaskResponse] = deriveCodec
   given Codec[ManufacturingCatalogDependencyDto] = deriveCodec
+  given Codec[TaskDefaultEmployeeDto] = deriveCodec
   given Codec[ManufacturingCatalogRequest] = deriveCodec
   given Codec[ManufacturingCatalogResponse] = deriveCodec
 

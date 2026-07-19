@@ -9,6 +9,9 @@ object App:
   enum Page derives CanEqual:
     case Planning, Orders, Employees, Customers, Tasks, Manufacturings
 
+  private val catalogPages: List[Page] = List(Page.Tasks, Page.Manufacturings)
+  private val topLevelPages: List[Page] = Page.values.toList.filterNot(catalogPages.contains)
+
   private def label(page: Page): String = page match
     case Page.Planning => "Pianificazione"
     case Page.Orders => "Ordini"
@@ -33,6 +36,44 @@ object App:
       label(page),
       onClick --> (_ => current.set(page)),
     )
+
+  private def catalogDropdown(current: Var[Page]): HtmlElement =
+    val open = Var(false)
+    div(
+      cls := "relative",
+      button(
+        tpe := "button",
+        cls := "flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        cls <-- current.signal.map(active =>
+          if catalogPages.contains(active) then "bg-slate-900 text-white" else "text-slate-600 hover:bg-slate-200",
+        ),
+        "Cataloghi",
+        span(cls := "text-[10px]", child.text <-- open.signal.map(o => if o then "▲" else "▼")),
+        onClick.stopPropagation --> (_ => open.update(!_)),
+      ),
+      child.maybe <-- open.signal.map { isOpen =>
+        Option.when(isOpen)(
+          div(
+            cls := "absolute left-0 top-full z-40 mt-1 w-52 rounded-md border border-slate-200 bg-white py-1 shadow-lg",
+            catalogPages.map { page =>
+              button(
+                tpe := "button",
+                cls := "block w-full px-3 py-1.5 text-left text-sm font-medium transition-colors",
+                cls <-- current.signal.map(active =>
+                  if active == page then "bg-slate-100 text-slate-900" else "text-slate-600 hover:bg-slate-100",
+                ),
+                label(page),
+                onClick --> (_ =>
+                  current.set(page); open.set(false)
+                ),
+              )
+            },
+          ),
+        )
+      },
+      documentEvents(_.onClick) --> (_ => open.set(false)),
+    )
+  end catalogDropdown
 
   private def errorDetails(details: List[String]): com.raquo.laminar.nodes.ChildNode.Base =
     if details.nonEmpty then ul(cls := "mt-1 list-disc pl-5 text-xs text-rose-700", details.map(detail => li(detail)))
@@ -103,7 +144,11 @@ object App:
             span(cls := "text-sm font-semibold tracking-tight text-slate-900", "RST Manager"),
           ),
           // Desktop nav
-          navTag(cls := "hidden sm:flex flex-wrap gap-1 grow", Page.values.toList.map(navButton(_, current))),
+          navTag(
+            cls := "hidden sm:flex flex-wrap gap-1 grow",
+            topLevelPages.map(navButton(_, current)),
+            catalogDropdown(current),
+          ),
           div(
             cls := "flex items-center gap-2",
             logoutButton(user),
@@ -123,10 +168,22 @@ object App:
               cls := "sm:hidden border-t border-slate-200 px-4 py-2",
               div(
                 cls := "flex flex-col gap-1",
-                Page.values.toList.map { page =>
+                topLevelPages.map { page =>
                   button(
                     tpe := "button",
                     cls := "w-full rounded-md px-3 py-2 text-left text-sm font-medium transition-colors",
+                    cls <-- current.signal.map(active => if active == page then "bg-slate-900 text-white" else "text-slate-600 hover:bg-slate-100"),
+                    label(page),
+                    onClick --> (_ =>
+                      current.set(page); menuOpen.set(false)
+                    ),
+                  )
+                },
+                div(cls := "mt-1 border-t border-slate-200 pt-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-400", "Cataloghi"),
+                catalogPages.map { page =>
+                  button(
+                    tpe := "button",
+                    cls := "w-full rounded-md px-3 py-2 pl-6 text-left text-sm font-medium transition-colors",
                     cls <-- current.signal.map(active => if active == page then "bg-slate-900 text-white" else "text-slate-600 hover:bg-slate-100"),
                     label(page),
                     onClick --> (_ =>

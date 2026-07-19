@@ -95,7 +95,7 @@ lazy val service = project
       "io.github.iltotore" %% "iron-circe" % "3.3.2",
       "dev.hnaderi" %% "edomata-backend" % "0.13.0",
       "dev.hnaderi" %% "edomata-skunk-circe" % "0.13.0",
-      "com.github.jwt-scala" %% "jwt-circe" % "11.0.0",
+      "com.github.jwt-scala" %% "jwt-circe" % "11.0.4",
       "com.softwaremill.sttp.tapir" %% "tapir-http4s-server" % tapirVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-json-circe" % tapirVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapirVersion,

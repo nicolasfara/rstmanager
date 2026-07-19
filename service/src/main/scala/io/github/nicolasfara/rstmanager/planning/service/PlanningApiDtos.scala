@@ -300,6 +300,33 @@ object PlanningApiDtos:
   object PlanningWarningDto:
     def fromDomain(warning: PlanningWarning): PlanningWarningDto = PlanningWarningDto(warning.message)
 
+  /**
+   * Order-simulation request: exactly one of `totalHours` (estimated total effort of the hypothetical order) or `manufacturingIds` (catalog
+   * manufacturing templates the order would need) must be provided.
+   */
+  final case class OrderSimulationRequest(totalHours: Option[Int], manufacturingIds: Option[List[UUID]])
+
+  object OrderSimulationRequest:
+    val example: OrderSimulationRequest = OrderSimulationRequest(Some(40), None)
+
+  final case class OrderSimulationResponse(
+      feasible: Boolean,
+      totalHours: Int,
+      startDate: Option[String],
+      estimatedCompletionDate: Option[String],
+      reasons: List[UnplannedReasonDto],
+  )
+
+  object OrderSimulationResponse:
+    def fromDomain(result: OrderSimulationService.SimulationResult): OrderSimulationResponse =
+      OrderSimulationResponse(
+        result.estimatedCompletionDate.isDefined,
+        result.totalHours,
+        result.startDate.map(formatDate),
+        result.estimatedCompletionDate.map(formatDate),
+        result.unplannedReasons.map(UnplannedReasonDto.fromDomain),
+      )
+
   final case class PlanningDomainErrorDto(code: String, message: String)
 
   object PlanningDomainErrorDto:
@@ -375,6 +402,8 @@ object PlanningApiDtos:
   given CirceCodec[UnplannedReasonDto] = deriveCodec
   given CirceCodec[PlanningWarningDto] = deriveCodec
   given CirceCodec[PlanningDomainErrorDto] = deriveCodec
+  given CirceCodec[OrderSimulationRequest] = deriveCodec
+  given CirceCodec[OrderSimulationResponse] = deriveCodec
 
   given Schema[HealthResponse] = Schema.derived
   given Schema[PlanningTriggerDto] = Schema.derived
@@ -387,6 +416,8 @@ object PlanningApiDtos:
   given Schema[UnplannedTaskDto] = Schema.derived
   given Schema[UnplannedOrderDto] = Schema.derived
   given Schema[PlanningWarningDto] = Schema.derived
+  given Schema[OrderSimulationRequest] = Schema.derived
+  given Schema[OrderSimulationResponse] = Schema.derived
   given Schema[PlanningResultDto] = Schema.derived
   given Schema[DailyScheduleDto] = Schema.derived
   given Schema[PlanningDomainErrorDto] = Schema.derived

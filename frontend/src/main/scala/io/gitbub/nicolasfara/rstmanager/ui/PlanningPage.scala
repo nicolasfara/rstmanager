@@ -721,6 +721,268 @@ object PlanningPage:
         panel("Avvisi", warnings.map(_.message), "text-slate-500"),
       )
 
+    // ---- Order simulator ---------------------------------------------------------------------------
+    // Estimates the first feasible completion date for a hypothetical order (by total hours or by catalog
+    // manufacturings) without persisting anything: existing commitments keep their capacity.
+    val simOpen = Var(false)
+    val simMode = Var("hours")
+    val simHours = Var("")
+    // Ordered selection of catalog manufacturing ids; the same template may appear multiple times.
+    val simSelected = Var(List.empty[UUID])
+    val simRunning = Var(false)
+    val simResult = Var(Option.empty[ApiClient.Result[OrderSimulationResponse]])
+    val catalogData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
+    val catalogList: Signal[List[ManufacturingCatalogResponse]] = catalogData.map {
+      case Some(Right(list)) => list
+      case _ => Nil
+    }
+    // Selection grouped per template with its occurrence count, for the selected-items list.
+    val simRows: Signal[List[(ManufacturingCatalogResponse, Int)]] =
+      catalogList.combineWith(simSelected.signal).map { case (catalog, selected) =>
+        val byId = catalog.map(entry => entry.id -> entry).toMap
+        selected.groupBy(identity).toList.flatMap { case (id, occurrences) => byId.get(id).map(_ -> occurrences.size) }.sortBy(_._1.name)
+      }
+    // Client-side preview of the selected templates' default hours (the backend recomputes them authoritatively).
+    val simSelectedHours: Signal[Int] = simRows.map(_.map((entry, count) => entry.totalRequiredHours * count).sum)
+
+    def simAdd(id: UUID): Unit =
+      simSelected.update(_ :+ id)
+      simResult.set(None)
+
+    /** Removes one occurrence of the template from the selection. */
+    def simRemoveOne(id: UUID): Unit =
+      simSelected.update { selected =>
+        val index = selected.indexOf(id)
+        if index < 0 then selected else selected.patch(index, Nil, 1)
+      }
+      simResult.set(None)
+
+    /** Removes every occurrence of the template from the selection. */
+    def simRemoveAll(id: UUID): Unit =
+      simSelected.update(_.filterNot(_.equals(id)))
+      simResult.set(None)
+
+    def runSimulation(): Unit =
+      def invalid(message: String): Unit = simResult.set(Some(Left(ApiError("invalid", message, Nil))))
+      val request = simMode.now() match
+        case "hours" =>
+          simHours.now().trim.nn.toIntOption match
+            case Some(hours) if hours >= 1 => Some(OrderSimulationRequest(Some(hours), None))
+            case _ =>
+              invalid("Inserisci un numero di ore valido (almeno 1).")
+              None
+        case _ =>
+          val ids = simSelected.now().toList
+          if ids.isEmpty then
+            invalid("Seleziona almeno una lavorazione.")
+            None
+          else Some(OrderSimulationRequest(None, Some(ids)))
+      request.foreach { req =>
+        simRunning.set(true)
+        simResult.set(None)
+        ApiClient.simulateOrder(req).foreach { result =>
+          simRunning.set(false)
+          simResult.set(Some(result))
+        }
+      }
+    end runSimulation
+
+    def simModeButton(mode: String, labelText: String): HtmlElement =
+      button(
+        tpe := "button",
+        cls := "rounded-md px-3 py-1.5 text-sm font-medium transition",
+        cls <-- simMode.signal.map(current =>
+          if current == mode then "bg-slate-900 text-white" else "border border-slate-300 text-slate-600 hover:bg-slate-100",
+        ),
+        labelText,
+        onClick --> { _ =>
+          simMode.set(mode)
+          simResult.set(None)
+        },
+      )
+
+    /**
+     * Search box over the manufacturing catalog: typing filters by name or code, clicking a match appends one occurrence to the selection. The
+     * dropdown stays open after an add (the click keeps the input focused), so the same template can be added multiple times in a row.
+     */
+    def simCatalogPicker(catalog: List[ManufacturingCatalogResponse]): HtmlElement =
+      val maxResults = 8
+      val query = Var("")
+      val open = Var(false)
+      val filtered: Signal[(List[ManufacturingCatalogResponse], Int)] = query.signal.map { typed =>
+        val needle = typed.trim.nn.toLowerCase.nn
+        val matches =
+          if needle.isEmpty then catalog
+          else catalog.filter(entry => entry.name.toLowerCase.nn.contains(needle) || entry.code.toLowerCase.nn.contains(needle))
+        (matches.take(maxResults), (matches.size - maxResults).max(0))
+      }
+      div(
+        cls := "relative max-w-md",
+        input(
+          typ := "text",
+          cls := "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500",
+          placeholder := "Cerca una lavorazione per nome o codice…",
+          controlled(value <-- query.signal, onInput.mapToValue --> { text => query.set(text); open.set(true) }),
+          onFocus --> { _ => open.set(true) },
+          // Adds happen on the options' mousedown, which fires before this blur.
+          onBlur --> { _ => open.set(false) },
+          onKeyDown.filter(_.key == "Escape") --> { _ => open.set(false) },
+        ),
+        child <-- open.signal.combineWith(filtered).map { case (isOpen, options, hiddenCount) =>
+          if !isOpen then emptyNode
+          else
+            div(
+              cls := "absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg",
+              if options.isEmpty then div(cls := "px-2.5 py-2 text-sm text-slate-400", "Nessun risultato")
+              else
+                options.map { entry =>
+                  div(
+                    cls := "flex cursor-pointer items-center justify-between gap-2 px-2.5 py-1.5 hover:bg-slate-100",
+                    div(
+                      cls := "min-w-0",
+                      div(cls := "truncate text-sm text-slate-700", entry.name),
+                      div(cls := "truncate text-xs text-slate-400", entry.code),
+                    ),
+                    span(cls := "shrink-0 text-xs tabular-nums text-slate-500", s"${entry.totalRequiredHours}h"),
+                    // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
+                    onMouseDown.preventDefault --> { _ => simAdd(entry.id) },
+                  )
+                },
+              if hiddenCount > 0 then
+                div(
+                  cls := "border-t border-slate-100 px-2.5 py-1.5 text-xs text-slate-400",
+                  s"… e altri $hiddenCount risultati — continua a digitare per affinare la ricerca",
+                )
+              else emptyNode,
+            )
+        },
+      )
+    end simCatalogPicker
+
+    /** One selected template with its occurrence count: − removes one occurrence, + adds one, ✕ removes them all. */
+    def simSelectedRow(entry: ManufacturingCatalogResponse, count: Int): HtmlElement =
+      div(
+        cls := "flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5",
+        div(
+          cls := "min-w-0",
+          div(
+            cls := "flex items-baseline gap-1.5",
+            span(cls := "truncate text-sm font-medium text-slate-800", entry.name),
+            if count > 1 then span(cls := "shrink-0 rounded bg-slate-200 px-1.5 text-xs font-semibold tabular-nums text-slate-700", s"×$count")
+            else emptyNode,
+          ),
+          div(cls := "truncate text-xs text-slate-400", s"${entry.code} · ${entry.totalRequiredHours}h cad."),
+        ),
+        div(
+          cls := "flex shrink-0 items-center gap-1",
+          button(tpe := "button", cls := btnSmall, "−", onClick --> (_ => simRemoveOne(entry.id))),
+          button(tpe := "button", cls := btnSmall, "+", onClick --> (_ => simAdd(entry.id))),
+          button(tpe := "button", cls := btnDanger, "✕", onClick --> (_ => simRemoveAll(entry.id))),
+        ),
+      )
+
+    def simResultBanner(response: OrderSimulationResponse): HtmlElement =
+      if response.feasible then
+        div(
+          cls := "rounded-md border border-emerald-200 bg-emerald-50 p-3",
+          div(
+            cls := "flex flex-wrap items-baseline gap-x-2 gap-y-1",
+            span(cls := "text-sm font-semibold text-emerald-800", "Prima data utile:"),
+            span(
+              cls := "text-base font-bold tabular-nums text-emerald-900",
+              response.estimatedCompletionDate.map(Formats.date).getOrElse("—"),
+            ),
+          ),
+          div(
+            cls := "mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-emerald-700",
+            response.startDate.map(start => span(s"Inizio lavori: ${Formats.date(start)}")).getOrElse(emptyNode),
+            span(s"Ore da pianificare: ${response.totalHours}h"),
+          ),
+          p(
+            cls := "mt-1.5 text-xs text-emerald-600",
+            "Stima calcolata con la capacità residua: gli ordini già pianificati mantengono le loro assegnazioni.",
+          ),
+        )
+      else
+        div(
+          cls := "rounded-md border border-rose-200 bg-rose-50 p-3",
+          div(cls := "text-sm font-semibold text-rose-800", "Non pianificabile con la forza lavoro attuale"),
+          if response.reasons.nonEmpty then
+            ul(cls := "mt-1 list-disc pl-5 text-xs text-rose-700", response.reasons.map(reason => li(reason.message)))
+          else emptyNode,
+        )
+
+    val simulatorSection: HtmlElement =
+      card(
+        div(
+          cls := "flex cursor-pointer items-center justify-between px-4 py-3",
+          cls <-- simOpen.signal.map(open => if open then "border-b border-slate-100" else ""),
+          onClick --> (_ => simOpen.update(!_)),
+          div(
+            div(cls := "text-sm font-semibold text-slate-800", "Simulatore ordine"),
+            div(
+              cls := "text-xs text-slate-400",
+              "Stima la prima data utile di consegna per un nuovo ordine, senza modificare la pianificazione.",
+            ),
+          ),
+          span(cls := "text-slate-400", child.text <-- simOpen.signal.map(open => if open then "▲" else "▼")),
+        ),
+        child <-- simOpen.signal.map { open =>
+          if !open then emptyNode
+          else
+            div(
+              cls := "space-y-3 p-4",
+              div(cls := "flex gap-2", simModeButton("hours", "Ore totali"), simModeButton("manufacturings", "Lavorazioni dal catalogo")),
+              child <-- simMode.signal.map {
+                case "hours" =>
+                  div(
+                    cls := "max-w-xs",
+                    field("Ore complessive stimate", textInput(simHours, "es. 40", "number")),
+                  )
+                case _ =>
+                  div(
+                    child <-- catalogData.map {
+                      case None => spinner
+                      case Some(Left(err)) => errorBanner(err)
+                      case Some(Right(Nil)) => emptyState("Nessuna lavorazione a catalogo.")
+                      case Some(Right(catalog)) =>
+                        div(
+                          cls := "space-y-2",
+                          simCatalogPicker(catalog.sortBy(_.name)),
+                          child <-- simRows.map { rows =>
+                            if rows.isEmpty then
+                              div(cls := "text-xs text-slate-400", "Nessuna lavorazione selezionata: cerca e clicca per aggiungerla.")
+                            else div(cls := "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3", rows.map((entry, count) => simSelectedRow(entry, count)))
+                          },
+                          div(
+                            cls := "text-xs text-slate-500",
+                            child.text <-- simSelected.signal.combineWith(simSelectedHours).map { case (selected, hours) =>
+                              if selected.isEmpty then ""
+                              else s"${selected.size} lavorazioni selezionate · ${hours}h stimate da catalogo"
+                            },
+                          ),
+                        )
+                    },
+                  )
+              },
+              div(
+                button(
+                  tpe := "button",
+                  cls := btnPrimary,
+                  disabled <-- simRunning.signal,
+                  child.text <-- simRunning.signal.map(running => if running then "Simulazione…" else "Simula"),
+                  onClick --> (_ => runSimulation()),
+                ),
+              ),
+              child <-- simResult.signal.map {
+                case None => emptyNode
+                case Some(Left(err)) => errorBanner(err)
+                case Some(Right(response)) => simResultBanner(response)
+              },
+            )
+        },
+      )
+
     // Silent background poll: only planningData is refreshed (via pollTick, not AppBus.refresh),
     // so the poll does not cascade to orders/employees/tasks on other mounted pages.
     var pollHandle = Option.empty[SetIntervalHandle]
@@ -734,6 +996,7 @@ object PlanningPage:
       ),
       taskModal,
       sectionTitle("Pianificazione dei lavori"),
+      simulatorSection,
       renderResult(planningData) { state =>
         div(
           cls := "space-y-4",

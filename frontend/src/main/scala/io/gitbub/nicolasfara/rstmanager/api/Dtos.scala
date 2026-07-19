@@ -306,6 +306,17 @@ object Dtos:
 
   final case class PlanningAttemptResponse(commandId: String, planning: PlanningStateDto)
 
+  /** Order-simulation request: exactly one of `totalHours` or `manufacturingIds` must be provided. */
+  final case class OrderSimulationRequest(totalHours: Option[Int], manufacturingIds: Option[List[UUID]])
+
+  final case class OrderSimulationResponse(
+      feasible: Boolean,
+      totalHours: Int,
+      startDate: Option[String],
+      estimatedCompletionDate: Option[String],
+      reasons: List[UnplannedReasonDto],
+  )
+
   // ---- Codecs (lazy givens, derivation order-independent) ----------------------------------------
 
   given Codec[ApiError] = deriveCodec
@@ -360,4 +371,6 @@ object Dtos:
   given Codec[PlanningRequestDto] = deriveCodec
   given Codec[PlanningStateDto] = deriveCodec
   given Codec[PlanningAttemptResponse] = deriveCodec
+  given Codec[OrderSimulationRequest] = deriveCodec
+  given Codec[OrderSimulationResponse] = deriveCodec
 end Dtos

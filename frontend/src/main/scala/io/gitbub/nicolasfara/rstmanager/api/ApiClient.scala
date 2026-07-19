@@ -197,4 +197,6 @@ object ApiClient:
   def currentPlanning(): Future[Result[PlanningStateDto]] = sendJson(dom.HttpMethod.GET, "/planning/attempts/current", None)
   def createPlanningAttempt(request: PlanningAttemptRequest): Future[Result[PlanningAttemptResponse]] =
     sendJson(dom.HttpMethod.POST, "/planning/attempts", jsonBody(request))
+  def simulateOrder(request: OrderSimulationRequest): Future[Result[OrderSimulationResponse]] =
+    sendJson(dom.HttpMethod.POST, "/planning/simulate", jsonBody(request))
 end ApiClient

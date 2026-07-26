@@ -9,9 +9,8 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 /**
  * Pure transformations from the create-order form drafts to the order-creation DTOs.
  *
- * Deliberately free of Laminar `Var`s and the DOM: the caller resolves the mutable draft state into the immutable
- * snapshots below, and UUID minting is injected as `newId`, so the mapping and validation rules can be unit-tested
- * deterministically.
+ * Deliberately free of Laminar `Var`s and the DOM: the caller resolves the mutable draft state into the immutable snapshots below, and UUID minting
+ * is injected as `newId`, so the mapping and validation rules can be unit-tested deterministically.
  */
 object OrderDrafts:
 
@@ -19,8 +18,8 @@ object OrderDrafts:
   final case class TaskState(taskId: String, hours: String, dependsOn: Set[String], employeeId: String)
 
   /**
-   * Immutable state of the non-list fields of a manufacturing draft. `taskEmployees` holds, for catalog mode, the
-   * per-task preferred employee (template-task id -> employee id). `dependsOn` holds sibling draft key strings.
+   * Immutable state of the non-list fields of a manufacturing draft. `taskEmployees` holds, for catalog mode, the per-task preferred employee
+   * (template-task id -> employee id). `dependsOn` holds sibling draft key strings.
    */
   final case class MfgCoreState(
       mode: String,
@@ -73,8 +72,10 @@ object OrderDrafts:
       parseUuid(employeeId),
     )
 
-  /** Builds a manufacturing from a custom draft: only tasks with a valid id survive, and dependencies are kept only
-    * between tasks that made it into the manufacturing (self-edges dropped). */
+  /**
+   * Builds a manufacturing from a custom draft: only tasks with a valid id survive, and dependencies are kept only between tasks that made it into
+   * the manufacturing (self-edges dropped).
+   */
   def fromCustom(core: MfgCoreState, tasks: List[TaskState], completionDate: String, newId: () => UUID): ManufacturingDto =
     val scheduled = tasks.flatMap { ts =>
       parseUuid(ts.taskId).map { taskId =>

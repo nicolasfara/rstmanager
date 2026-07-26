@@ -505,7 +505,9 @@ object OrdersPage:
         catalogById(s.catalogId) match
           case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil))
           case Some(template) =>
-            applyStructural(ApiClient.addManufacturing(order.id, OrderDrafts.fromCatalog(template, s.date, s.employee, s.taskEmployees, () => randomUuid())))
+            applyStructural(
+              ApiClient.addManufacturing(order.id, OrderDrafts.fromCatalog(template, s.date, s.employee, s.taskEmployees, () => randomUuid())),
+            )
       else
         parseUuid(s.taskId) match
           case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona un task valido per la nuova lavorazione.", Nil))

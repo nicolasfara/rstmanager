@@ -91,37 +91,14 @@ object TasksPage:
 
     // Double-check before the destructive delete.
     val confirmDeleteModal =
-      div(
-        cls := "fixed inset-0 z-50 items-start justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4",
-        cls <-- confirmDelete.signal.map(c => if c.isDefined then "flex" else "hidden"),
-        div(
-          cls := "mt-12 w-full max-w-md sm:mt-24",
-          card(
-            div(
-              cls := "border-b border-slate-100 px-4 py-3",
-              h2(cls := "text-sm font-semibold text-slate-800", "Elimina task"),
-            ),
-            div(
-              cls := "space-y-4 p-4",
-              p(
-                cls := "text-sm text-slate-600",
-                child.text <-- confirmDelete.signal.map(
-                  _.fold("")(t => s"Eliminare definitivamente il task “${t.name}”? L'operazione non è reversibile."),
-                ),
-              ),
-              div(
-                cls := "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-                button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => confirmDelete.set(None))),
-                button(
-                  tpe := "button",
-                  cls := s"$btnDanger justify-center",
-                  "Elimina",
-                  onClick --> (_ => confirmDelete.now().foreach { t => delete(t.id); confirmDelete.set(None) }),
-                ),
-              ),
-            ),
-          ),
-        ),
+      confirmDialog(
+        isOpen = confirmDelete.signal.map(_.isDefined),
+        titleText = Signal.fromValue("Elimina task"),
+        message = confirmDelete.signal.map(_.fold("")(t => s"Eliminare definitivamente il task “${t.name}”? L'operazione non è reversibile.")),
+        confirmLabel = "Elimina",
+        tone = DialogTone.Danger,
+        onCancel = () => confirmDelete.set(None),
+        onConfirm = () => confirmDelete.now().foreach { t => delete(t.id); confirmDelete.set(None) },
       )
 
     div(
@@ -175,26 +152,33 @@ object TasksPage:
         ),
       ),
       div(
-        cls := "fixed inset-0 z-50 items-start justify-center overflow-y-auto bg-slate-900/50 p-4",
+        cls := "fixed inset-0 z-50 items-center justify-center overflow-y-auto bg-slate-900/50 p-4",
         cls <-- blockedDelete.signal.map(err => if err.isDefined then "flex" else "hidden"),
+        onClick --> (_ => blockedDelete.set(None)),
         div(
-          cls := "mt-24 w-full max-w-md",
+          cls := "w-full max-w-sm",
           card(
+            cls := "p-6",
+            onClick.stopPropagation --> (_ => ()),
             div(
-              cls := "border-b border-slate-100 px-4 py-3",
-              h2(cls := "text-sm font-semibold text-slate-800", "Task usato in lavorazioni"),
-            ),
-            div(
-              cls := "space-y-4 p-4",
-              p(cls := "text-sm text-slate-600", child.text <-- blockedDelete.signal.map(_.map(_.message).getOrElse(""))),
-              ul(
-                cls := "list-disc space-y-1 pl-5 text-sm text-slate-700",
-                children <-- blockedDelete.signal.map(_.fold(List.empty[String])(_.details).map(item => li(item))),
+              cls := "flex flex-col items-center gap-4 text-center",
+              div(
+                cls := "flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600",
+                span(cls := "text-2xl leading-none", "⚠"),
               ),
               div(
-                cls := "flex justify-end",
-                button(tpe := "button", cls := btnPrimary, "Ok", onClick --> (_ => blockedDelete.set(None))),
+                cls := "space-y-1",
+                h2(cls := "text-base font-semibold text-slate-900", "Task usato in lavorazioni"),
+                p(cls := "text-sm text-slate-500", child.text <-- blockedDelete.signal.map(_.map(_.message).getOrElse(""))),
               ),
+            ),
+            ul(
+              cls := "mt-4 list-disc space-y-1 rounded-md bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-700",
+              children <-- blockedDelete.signal.map(_.fold(List.empty[String])(_.details).map(item => li(item))),
+            ),
+            div(
+              cls := "mt-6",
+              button(tpe := "button", cls := s"$btnPrimary w-full justify-center", "Ok", onClick --> (_ => blockedDelete.set(None))),
             ),
           ),
         ),

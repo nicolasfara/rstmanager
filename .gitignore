@@ -9,6 +9,7 @@ node_modules/
 .metals/
 .vscode/
 metals.sbt
+.direnv
 
 .DS_Store
 

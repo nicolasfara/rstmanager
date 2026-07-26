@@ -4,7 +4,7 @@
 
   inputs = {
     # 24.11 provides nodejs_22 (Vite 8 requires Node >= 20.19); 23.05 only had an older nodejs_20.
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
   outputs = { self, nixpkgs, ... }:
@@ -21,6 +21,7 @@
               nodejs_22
               yarn
               git
+              postgresql
             ];
 
             shellHook = ''

@@ -25,7 +25,7 @@ object PlanningDailyScheduler:
   val defaultRecalculationHour: Int = 5
 
   /** Runs the daily consolidation loop as a background fiber for the lifetime of the resource. */
-  def resource(recalculator: PlanningRecalculator, atHour: Int = defaultRecalculationHour): Resource[IO, Unit] =
+  def resource(recalculator: PlanningRecalculator, atHour: Int): Resource[IO, Unit] =
     loop(recalculator, atHour).background.void
 
   private def loop(recalculator: PlanningRecalculator, atHour: Int): IO[Unit] =

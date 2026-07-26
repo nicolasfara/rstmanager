@@ -59,7 +59,7 @@ object AuthService:
     val kc = new Keycloak(new KeycloakConfig:
       val url = s"$origin/auth"; val realm = AuthService.realm; val clientId = AuthService.clientId)
     keycloak = Some(kc)
-    kc.onTokenExpired = () => val _ = kc.updateToken(30).`catch`(_ => forceReauth())
+    kc.onTokenExpired = () => kc.updateToken(30).`catch`(_ => forceReauth())
     kc.onAuthLogout = () => becomeAnonymous()
     val initialized: Future[Boolean] = kc.init(
       new KeycloakInitOptions:

@@ -39,6 +39,7 @@ final case class PlanningServerConfig(
     database: PlanningDatabaseConfig,
     keycloak: KeycloakConfig,
     corsAllowedOrigins: List[String],
+    dailyRecalculationHour: Int,
 )
 
 object PlanningServerConfig:
@@ -50,6 +51,7 @@ object PlanningServerConfig:
       httpPort <- intValue(env, "RSTMANAGER_HTTP_PORT", 8080)
       databasePort <- intValue(env, "RSTMANAGER_DB_PORT", 5432)
       poolSize <- intValue(env, "RSTMANAGER_DB_POOL_SIZE", 4)
+      dailyRecalculationHour <- hourValue(env, "RSTMANAGER_PLANNING_DAILY_RECALC_HOUR", PlanningDailyScheduler.defaultRecalculationHour)
     yield PlanningServerConfig(
       PlanningHttpConfig(
         env.getOrElse("RSTMANAGER_HTTP_HOST", "0.0.0.0"),
@@ -70,11 +72,17 @@ object PlanningServerConfig:
         env.getOrElse("RSTMANAGER_KEYCLOAK_CLIENT_ID", "rstmanager-frontend"),
       ),
       env.get("RSTMANAGER_CORS_ALLOWED_ORIGINS").fold(List.empty[String])(_.split(',').toList.map(_.trim.nn).filter(_.nonEmpty)),
+      dailyRecalculationHour,
     )
 
   private def intValue(env: Map[String, String], key: String, default: Int): Either[String, Int] =
     env.get(key).fold(Right(default)) { raw =>
       raw.toIntOption.toRight(s"$key must be an integer, got '$raw'.")
+    }
+
+  private def hourValue(env: Map[String, String], key: String, default: Int): Either[String, Int] =
+    intValue(env, key, default).flatMap { hour =>
+      Either.cond(hour >= 0 && hour <= 23, hour, s"$key must be an hour between 0 and 23, got '$hour'.")
     }
 end PlanningServerConfig
 
@@ -96,6 +104,7 @@ object PlanningHttpServer:
       planningGateway = PlanningEntityGateway.fromStores(orders, employees)
       planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
       _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator)
+      _ <- PlanningDailyScheduler.resource(planningRecalculator, config.dailyRecalculationHour)
       routes = ApiServer.routes(planningBackend, employees, customers, tasks, manufacturings, orders, security)
       httpApp = corsPolicy(config.corsAllowedOrigins)(routes).orNotFound
       loggedHttpApp = HttpLogger.httpApp[IO](

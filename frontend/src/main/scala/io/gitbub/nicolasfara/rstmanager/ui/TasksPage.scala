@@ -3,6 +3,7 @@ package io.gitbub.nicolasfara.rstmanager.ui
 import java.util.UUID
 
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.Try
 
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
@@ -19,22 +20,39 @@ object TasksPage:
     val name = Var("")
     val description = Var("")
     val hours = Var("8")
+    val defaultEmployee = Var("")
     val blockedDelete = Var(Option.empty[ApiError])
     // Task awaiting delete confirmation (double-check before the destructive action).
     val confirmDelete = Var(Option.empty[TaskResponse])
 
+    val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
+    val employeeOptions: Signal[List[(String, String)]] = employeesData.map {
+      case Some(Right(list)) => ("" -> "— nessuno —") :: list.map(e => e.id.toString -> s"${e.name} ${e.surname}")
+      case _ => List("" -> "—")
+    }
+    val employeesById: Signal[Map[String, EmployeeResponse]] = employeesData.map {
+      case Some(Right(list)) => list.map(e => e.id.toString -> e).toMap
+      case _ => Map.empty
+    }
+
     def resetForm(): Unit =
-      editingId.set(None); name.set(""); description.set(""); hours.set("8"); formError.set(None)
+      editingId.set(None); name.set(""); description.set(""); hours.set("8"); defaultEmployee.set(""); formError.set(None)
 
     def edit(task: TaskResponse): Unit =
       editingId.set(Some(task.id))
       name.set(task.name)
       description.set(task.description.getOrElse(""))
       hours.set(task.requiredHours.toString)
+      defaultEmployee.set(task.defaultEmployeeId.map(_.toString).getOrElse(""))
       formError.set(None)
 
     def submit(): Unit =
-      val request = TaskRequest(name.now().trim.nn, Some(description.now().trim.nn).filter(_.nonEmpty), hours.now().toIntOption.getOrElse(0))
+      val request = TaskRequest(
+        name.now().trim.nn,
+        Some(description.now().trim.nn).filter(_.nonEmpty),
+        hours.now().toIntOption.getOrElse(0),
+        Try(UUID.fromString(defaultEmployee.now()).nn).toOption,
+      )
       val effect = editingId.now() match
         case Some(id) => ApiClient.updateTask(id, request)
         case None => ApiClient.createTask(request)
@@ -52,6 +70,13 @@ object TasksPage:
 
     val data = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
 
+    def defaultEmployeeLabel(task: TaskResponse): Signal[String] =
+      employeesById.map { employees =>
+        task.defaultEmployeeId.flatMap(id => employees.get(id.toString)) match
+          case Some(e) => s"${e.name} ${e.surname}"
+          case None => "—"
+      }
+
     def actionButtons(task: TaskResponse): List[HtmlElement] =
       List(
         button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(task))),
@@ -64,6 +89,7 @@ object TasksPage:
         td(cls := "px-4 py-2 font-medium text-slate-800", task.name),
         td(cls := "px-4 py-2 text-slate-500", task.description.getOrElse("—")),
         td(cls := "px-4 py-2 tabular-nums", task.requiredHours.toString),
+        td(cls := "px-4 py-2 text-slate-500", child.text <-- defaultEmployeeLabel(task)),
         td(
           cls := "px-4 py-2 text-right",
           roleGated(Role.Admin)(div(cls := "flex justify-end gap-2", actionButtons(task))),
@@ -85,6 +111,11 @@ object TasksPage:
             div(cls := "text-xs font-medium text-slate-500", "Ore"),
             div(cls := "text-sm tabular-nums text-slate-800", task.requiredHours.toString),
           ),
+        ),
+        div(
+          cls := "text-sm text-slate-600",
+          span(cls := "text-xs font-medium text-slate-500", "Dipendente predefinito: "),
+          span(child.text <-- defaultEmployeeLabel(task)),
         ),
         roleGated(Role.Admin)(div(cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3", actionButtons(task))),
       )
@@ -114,6 +145,7 @@ object TasksPage:
               field("Nome", textInput(name, "Es. Taglio")),
               field("Descrizione", textInput(description, "Opzionale")),
               field("Ore richieste", textInput(hours, "8", inputType = "number")),
+              field("Dipendente predefinito", selectInput(defaultEmployee, employeeOptions)),
               child.maybe <-- formError.signal.map(_.map(errorBanner)),
               div(
                 cls := "flex gap-2",
@@ -142,7 +174,13 @@ object TasksPage:
                     cls := "w-full text-sm",
                     thead(
                       cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                      tr(th(cls := "px-4 py-2", "Nome"), th(cls := "px-4 py-2", "Descrizione"), th(cls := "px-4 py-2", "Ore"), th(cls := "px-4 py-2")),
+                      tr(
+                        th(cls := "px-4 py-2", "Nome"),
+                        th(cls := "px-4 py-2", "Descrizione"),
+                        th(cls := "px-4 py-2", "Ore"),
+                        th(cls := "px-4 py-2", "Dipendente"),
+                        th(cls := "px-4 py-2"),
+                      ),
                     ),
                     tbody(tasks.map(renderRow)),
                   ),

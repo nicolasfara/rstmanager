@@ -2,6 +2,8 @@ package io.github.nicolasfara.rstmanager.work.domain.task
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+
 import cats.Monoid
 import cats.data.*
 import cats.syntax.all.*
@@ -41,8 +43,16 @@ object TaskHours extends RefinedType[Int, Positive0]:
  *   Optional task description.
  * @param requiredHours
  *   Estimated effort required to complete the task.
+ * @param defaultEmployeeId
+ *   Default employee proposed for this task when it is added to a manufacturing or an order; overridable at both steps.
  */
-final case class Task(id: TaskId, name: String :| TaskName, taskDescription: Option[String :| TaskDescription], requiredHours: TaskHours)
+final case class Task(
+    id: TaskId,
+    name: String :| TaskName,
+    taskDescription: Option[String :| TaskDescription],
+    requiredHours: TaskHours,
+    defaultEmployeeId: Option[EmployeeId] = None,
+)
 
 object Task:
   /**
@@ -56,12 +66,21 @@ object Task:
    *   Optional raw description.
    * @param requiredHours
    *   Raw task effort in hours.
+   * @param defaultEmployeeId
+   *   Optional default employee proposed for this task.
    */
-  def createTask(id: UUID, name: String, description: Option[String], requiredHours: Int): ValidatedNec[String, Task] =
+  def createTask(
+      id: UUID,
+      name: String,
+      description: Option[String],
+      requiredHours: Int,
+      defaultEmployeeId: Option[EmployeeId],
+  ): ValidatedNec[String, Task] =
     (
       Validated.validNec(id),
       name.refineValidatedNec[TaskName],
       description.traverse(_.refineValidatedNec[TaskDescription]),
       TaskHours.validatedNec(requiredHours),
+      Validated.validNec(defaultEmployeeId),
     ).mapN(Task.apply)
 end Task

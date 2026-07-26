@@ -45,6 +45,8 @@ object ManufacturingsPage:
     val manufacturingsData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
     val manufacturingsSnapshot = Var(List.empty[ManufacturingCatalogResponse])
+    // Synchronous view of catalog tasks by id, used to propose a task's default employee when it is picked in a row.
+    val tasksSnapshot = Var(Map.empty[String, TaskResponse])
 
     val employeeOptions: Signal[List[(String, String)]] = employeesData.map {
       case Some(Right(list)) => ("" -> "— nessuno —") :: list.map(e => e.id.toString -> s"${e.name} ${e.surname}")
@@ -220,7 +222,13 @@ object ManufacturingsPage:
     def taskSelect(row: TaskRowState): HtmlElement =
       searchableSelect(
         rowSignal(row).map(_.taskId),
-        Observer[String](next => updateTaskRow(row.key)(current => current.copy(taskId = next, dependsOn = current.dependsOn.filter(_ != next)))),
+        Observer[String] { next =>
+          // Propose the newly picked task's default employee; the field stays overridable.
+          val proposedEmployee = tasksSnapshot.now().get(next).flatMap(_.defaultEmployeeId).map(_.toString).getOrElse("")
+          updateTaskRow(row.key)(current =>
+            current.copy(taskId = next, dependsOn = current.dependsOn.filter(_ != next), employeeId = proposedEmployee),
+          )
+        },
         taskOptions,
         "Cerca un task per nome…",
         maxResults = 8,
@@ -293,6 +301,10 @@ object ManufacturingsPage:
           manufacturingsSnapshot.set(list)
           val current = form.now()
           if current.editingId.isEmpty && !current.codeManuallyEdited then form.update(_.copy(code = GeneratedCodes.next("MFG", list.map(_.code))))
+        case _ => ()
+      },
+      tasksData --> {
+        case Some(Right(list)) => tasksSnapshot.set(list.map(task => task.id.toString -> task).toMap)
         case _ => ()
       },
       roleGated(Role.Admin)(

@@ -5,7 +5,7 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
@@ -26,7 +26,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // ---------------------------------------------------------------------------
 
   private val genUUID: Gen[UUID] = Gen.delay(UUID.randomUUID().nn)
-  private val genHours: Gen[TaskHours] = Gen.posNum[Int].map(TaskHours.applyUnsafe)
+  private val genHours: Gen[TaskDuration] = Gen.posNum[Int].map(TaskDuration.applyUnsafe)
 
   private val genPendingTask: Gen[PendingTask] =
     for
@@ -39,9 +39,9 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
     for
       id <- genUUID
       taskId <- genUUID
-      expectedHours <- genHours
-      completedHours <- genHours
-    yield InProgressTask(id, taskId, expectedHours, completedHours)
+      expectedDuration <- genHours
+      completedDuration <- genHours
+    yield InProgressTask(id, taskId, expectedDuration, completedDuration)
 
   private val genScheduledTask: Gen[ScheduledTask] =
     Gen.oneOf(genPendingTask, genInProgressTask)
@@ -58,7 +58,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
     genNonEmptyTaskList.flatMap(tasks => genInfo(tasks).map(NotStartedManufacturing.apply))
 
   // Flat triple (mfg, taskId, hours) for advance/rollback forAll lambdas.
-  private val genNotStartedWithInProgressAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskHours)] =
+  private val genNotStartedWithInProgressAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskDuration)] =
     for
       focus <- genInProgressTask
       rest <- Gen.listOf(genScheduledTask)
@@ -67,7 +67,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
     yield (NotStartedManufacturing(info), focus.id, hours)
 
   // Flat triple for single-task complete/revert forAll lambdas.
-  private val genNotStartedSingleAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskHours)] =
+  private val genNotStartedSingleAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskDuration)] =
     for
       task <- genInProgressTask
       info <- genInfo(NonEmptyList.one(task))
@@ -78,20 +78,20 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // Hours aggregation invariants
   // ---------------------------------------------------------------------------
 
-  "ScheduledManufacturing" should "report expectedHours equal to the sum of all tasks' expectedHours" in:
+  "ScheduledManufacturing" should "report expectedDuration equal to the sum of all tasks' expectedDuration" in:
     forAll(genNotStarted): mfg =>
-      val expected = mfg.info.tasks.foldMap(_.expectedHours)
-      mfg.expectedHours shouldEqual expected
+      val expected = mfg.info.tasks.foldMap(_.expectedDuration)
+      mfg.expectedDuration shouldEqual expected
 
-  it should "report remainingHours equal to the sum of all tasks' remainingHours" in:
+  it should "report remainingDuration equal to the sum of all tasks' remainingDuration" in:
     forAll(genNotStarted): mfg =>
-      val expected = mfg.info.tasks.foldMap(_.remainingHours)
-      mfg.remainingHours shouldEqual expected
+      val expected = mfg.info.tasks.foldMap(_.remainingDuration)
+      mfg.remainingDuration shouldEqual expected
 
-  it should "report completedHours equal to the sum of all tasks' completedHours" in:
+  it should "report completedDuration equal to the sum of all tasks' completedDuration" in:
     forAll(genNotStarted): mfg =>
-      val expected = mfg.info.tasks.foldMap(_.completedHours)
-      mfg.completedHours shouldEqual expected
+      val expected = mfg.info.tasks.foldMap(_.completedDuration)
+      mfg.completedDuration shouldEqual expected
 
   // ---------------------------------------------------------------------------
   // addTask
@@ -192,13 +192,13 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.advanceTask(unknownId, hours) shouldEqual Left(TaskIdNotFound(unknownId))
 
-  it should "increase the total completedHours by the advanced amount" in:
+  it should "increase the total completedDuration by the advanced amount" in:
     forAll(genNotStartedWithInProgressAndHours): t =>
       val (mfg, taskId, hours) = t
       val result = mfg.advanceTask(taskId, hours)
       result.isRight shouldEqual true
       result.foreach: updated =>
-        updated.completedHours.value shouldEqual mfg.completedHours.value + hours.value
+        updated.completedDuration.value shouldEqual mfg.completedDuration.value + hours.value
 
   it should "transition a NotStartedManufacturing to InProgressManufacturing" in:
     forAll(genNotStartedWithInProgressAndHours): t =>
@@ -210,12 +210,12 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.rollbackTask(unknownId, hours) shouldEqual Left(TaskIdNotFound(unknownId))
 
-  "advanceTask then rollbackTask" should "be a roundtrip: total completedHours is unchanged" in:
+  "advanceTask then rollbackTask" should "be a roundtrip: total completedDuration is unchanged" in:
     forAll(genNotStartedWithInProgressAndHours): t =>
       val (mfg, taskId, hours) = t
       val roundtrip = mfg.advanceTask(taskId, hours).flatMap(_.rollbackTask(taskId, hours))
       roundtrip.isRight shouldEqual true
-      roundtrip.foreach(_.completedHours shouldEqual mfg.completedHours)
+      roundtrip.foreach(_.completedDuration shouldEqual mfg.completedDuration)
 
   // ---------------------------------------------------------------------------
   // completeTask
@@ -232,7 +232,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       mfg.completeTask(taskId, hours).foreach(_ shouldBe a[CompletedManufacturing])
 
   it should "stay in InProgressManufacturing when there are still incomplete tasks" in:
-    val genTwoInProgressAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskHours)] =
+    val genTwoInProgressAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskDuration)] =
       for
         t1 <- genInProgressTask
         t2 <- genInProgressTask

@@ -150,6 +150,65 @@ object ManufacturingsPage:
         onConfirm = () => pendingDelete.now().foreach { m => delete(m.id); pendingDelete.set(None) },
       )
 
+    // Reactive "task (dipendente)" summary, shared by the desktop row and the mobile card.
+    def tasksSummary(manufacturing: ManufacturingCatalogResponse): Signal[String] =
+      employeesById.map { employees =>
+        val defaults = manufacturing.defaultEmployees.map(d => d.taskId -> d.employeeId.toString).toMap
+        manufacturing.tasks.map { task =>
+          defaults.get(task.id).flatMap(employees.get) match
+            case Some(employee) => s"${task.name} (${employee.name} ${employee.surname})"
+            case None => task.name
+        }.mkString(", ")
+      }
+
+    def actionButtons(manufacturing: ManufacturingCatalogResponse): List[HtmlElement] =
+      List(
+        button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(manufacturing))),
+        button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(manufacturing)))),
+      )
+
+    def renderRow(manufacturing: ManufacturingCatalogResponse): HtmlElement =
+      tr(
+        cls := "border-b border-slate-100 align-top last:border-0",
+        td(cls := "px-4 py-2 font-medium text-slate-800", manufacturing.code),
+        td(
+          cls := "px-4 py-2",
+          div(cls := "font-medium text-slate-700", manufacturing.name),
+          manufacturing.description.map(d => div(cls := "text-xs text-slate-400", d)).getOrElse(emptyNode),
+        ),
+        td(cls := "px-4 py-2 text-slate-500", child.text <-- tasksSummary(manufacturing)),
+        td(cls := "px-4 py-2 tabular-nums", manufacturing.totalRequiredHours.toString),
+        td(
+          cls := "px-4 py-2 text-right",
+          roleGated(Role.Admin)(div(cls := "flex justify-end gap-2", actionButtons(manufacturing))),
+        ),
+      )
+
+    def renderCard(manufacturing: ManufacturingCatalogResponse): HtmlElement =
+      div(
+        cls := "space-y-3 p-4",
+        div(
+          cls := "flex items-start justify-between gap-3",
+          div(
+            cls := "min-w-0",
+            div(cls := "text-xs font-medium text-slate-500", manufacturing.code),
+            div(cls := "break-words font-medium text-slate-800", manufacturing.name),
+            manufacturing.description.map(d => div(cls := "mt-1 break-words text-sm text-slate-500", d)).getOrElse(emptyNode),
+          ),
+          div(
+            cls := "shrink-0 text-right",
+            div(cls := "text-xs font-medium text-slate-500", "Ore"),
+            div(cls := "text-sm tabular-nums text-slate-800", manufacturing.totalRequiredHours.toString),
+          ),
+        ),
+        div(
+          cls := "text-sm text-slate-600",
+          div(cls := "text-xs font-medium text-slate-500", "Task"),
+          div(cls := "break-words", child.text <-- tasksSummary(manufacturing)),
+        ),
+        roleGated(Role.Admin)(div(cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3", actionButtons(manufacturing))),
+      )
+
     def rowSignal(row: TaskRowState): Signal[TaskRowState] =
       form.signal.map(_.taskRows.find(_.key == row.key).getOrElse(row))
 
@@ -280,52 +339,25 @@ object ManufacturingsPage:
         renderResult(manufacturingsData) { manufacturings =>
           if manufacturings.isEmpty then emptyState("Nessuna lavorazione nel catalogo.")
           else
-            table(
-              cls := "w-full text-sm",
-              thead(
-                cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                tr(
-                  th(cls := "px-4 py-2", "Codice"),
-                  th(cls := "px-4 py-2", "Nome"),
-                  th(cls := "px-4 py-2", "Task"),
-                  th(cls := "px-4 py-2", "Ore"),
-                  th(cls := "px-4 py-2"),
+            div(
+              // Mobile: stacked cards. Desktop (md+): the table.
+              div(cls := "divide-y divide-slate-100 md:hidden", manufacturings.map(renderCard)),
+              div(
+                cls := "hidden overflow-x-auto md:block",
+                table(
+                  cls := "w-full text-sm",
+                  thead(
+                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                    tr(
+                      th(cls := "px-4 py-2", "Codice"),
+                      th(cls := "px-4 py-2", "Nome"),
+                      th(cls := "px-4 py-2", "Task"),
+                      th(cls := "px-4 py-2", "Ore"),
+                      th(cls := "px-4 py-2"),
+                    ),
+                  ),
+                  tbody(manufacturings.map(renderRow)),
                 ),
-              ),
-              tbody(
-                manufacturings.map { manufacturing =>
-                  tr(
-                    cls := "border-b border-slate-100 align-top last:border-0",
-                    td(cls := "px-4 py-2 font-medium text-slate-800", manufacturing.code),
-                    td(
-                      cls := "px-4 py-2",
-                      div(cls := "font-medium text-slate-700", manufacturing.name),
-                      manufacturing.description.map(d => div(cls := "text-xs text-slate-400", d)).getOrElse(emptyNode),
-                    ),
-                    td(
-                      cls := "px-4 py-2 text-slate-500",
-                      child.text <-- employeesById.map { employees =>
-                        val defaults = manufacturing.defaultEmployees.map(d => d.taskId -> d.employeeId.toString).toMap
-                        manufacturing.tasks.map { task =>
-                          defaults.get(task.id).flatMap(employees.get) match
-                            case Some(employee) => s"${task.name} (${employee.name} ${employee.surname})"
-                            case None => task.name
-                        }.mkString(", ")
-                      },
-                    ),
-                    td(cls := "px-4 py-2 tabular-nums", manufacturing.totalRequiredHours.toString),
-                    td(
-                      cls := "px-4 py-2 text-right",
-                      roleGated(Role.Admin)(
-                        div(
-                          cls := "flex justify-end gap-2",
-                          button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(manufacturing))),
-                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(manufacturing)))),
-                        ),
-                      ),
-                    ),
-                  )
-                },
               ),
             )
         },

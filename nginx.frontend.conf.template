@@ -1,0 +1,81 @@
+# Rendered at container start by the official nginx template mechanism
+# (/etc/nginx/templates/*.template -> /etc/nginx/conf.d/*.conf via envsubst).
+# Only ${RSTMANAGER_*} placeholders are substituted (NGINX_ENVSUBST_FILTER),
+# so nginx runtime variables like $host or $scheme are left untouched.
+#
+# Values are populated by docker-entrypoint.d/10-rstmanager-resolver.envsh:
+#   RSTMANAGER_NGINX_PORT           listen port ($PORT on Railway, 80 in compose)
+#   RSTMANAGER_API_UPSTREAM         planning-service host:port
+#   RSTMANAGER_KC_UPSTREAM          keycloak host:port
+#   RSTMANAGER_NGINX_RESOLVER       DNS resolver from /etc/resolv.conf
+#   RSTMANAGER_NGINX_RESOLVER_IPV6  ipv6=on (Railway) / ipv6=off (Docker DNS)
+
+# Honour the edge-terminated TLS scheme: Railway (and any reverse proxy in
+# front) forwards the real scheme in X-Forwarded-Proto; fall back to the
+# connection scheme when the header is absent (e.g. local compose over http).
+map $http_x_forwarded_proto $rstmanager_fwd_proto {
+  default $scheme;
+  ""      $scheme;
+  https   https;
+  http    http;
+}
+
+server {
+  listen ${RSTMANAGER_NGINX_PORT};
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  resolver ${RSTMANAGER_NGINX_RESOLVER} valid=10s ${RSTMANAGER_NGINX_RESOLVER_IPV6};
+  set $rstmanager_api ${RSTMANAGER_API_UPSTREAM};
+  set $rstmanager_kc ${RSTMANAGER_KC_UPSTREAM};
+
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $rstmanager_fwd_proto;
+
+  location = /api {
+    proxy_pass http://$rstmanager_api;
+  }
+
+  location /api/ {
+    proxy_pass http://$rstmanager_api;
+  }
+
+  location = /auth {
+    proxy_pass http://$rstmanager_kc;
+  }
+
+  location /auth/ {
+    proxy_pass http://$rstmanager_kc;
+    # The Keycloak admin console sends large headers/cookies.
+    proxy_buffer_size 16k;
+    proxy_buffers 8 16k;
+  }
+
+  location = /docs {
+    proxy_pass http://$rstmanager_api;
+  }
+
+  location /docs/ {
+    proxy_pass http://$rstmanager_api;
+  }
+
+  location = /index.html {
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    try_files /index.html =404;
+  }
+
+  location /assets/ {
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    try_files $uri =404;
+  }
+
+  location / {
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    try_files $uri $uri/ /index.html;
+  }
+}

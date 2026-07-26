@@ -1,0 +1,32 @@
+#!/bin/sh
+# Sourced by the nginx image entrypoint (*.envsh) BEFORE 20-envsubst-on-templates.sh.
+# Populates the ${RSTMANAGER_*} placeholders used by default.conf.template so the
+# same image works both under docker compose (Docker embedded DNS, IPv4) and on
+# Railway (private networking, IPv6-only *.railway.internal names).
+
+# Public listen port: Railway injects $PORT; compose leaves it unset -> 80.
+export RSTMANAGER_NGINX_PORT="${RSTMANAGER_NGINX_PORT:-${PORT:-80}}"
+
+# Upstreams. Compose defaults use the compose service names; on Railway these
+# MUST be overridden with the fully-qualified private names, e.g.
+#   RSTMANAGER_API_UPSTREAM=planning-service.railway.internal:8080
+#   RSTMANAGER_KC_UPSTREAM=keycloak.railway.internal:8080
+export RSTMANAGER_API_UPSTREAM="${RSTMANAGER_API_UPSTREAM:-planning-service:8080}"
+export RSTMANAGER_KC_UPSTREAM="${RSTMANAGER_KC_UPSTREAM:-keycloak:8080}"
+
+# Derive the DNS resolver from the container's /etc/resolv.conf. Docker's
+# embedded DNS is 127.0.0.11 (IPv4); Railway's private resolver is IPv6. nginx
+# needs IPv6 nameservers bracketed and must NOT disable ipv6 lookups there, or
+# the AAAA-only *.railway.internal names never resolve.
+ns="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf 2>/dev/null)"
+[ -n "$ns" ] || ns="127.0.0.11"
+case "$ns" in
+  *:*)
+    export RSTMANAGER_NGINX_RESOLVER="[$ns]"
+    export RSTMANAGER_NGINX_RESOLVER_IPV6="ipv6=on"
+    ;;
+  *)
+    export RSTMANAGER_NGINX_RESOLVER="$ns"
+    export RSTMANAGER_NGINX_RESOLVER_IPV6="ipv6=off"
+    ;;
+esac

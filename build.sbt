@@ -7,6 +7,7 @@ lazy val http4sVersion = "0.23.36"
 lazy val slf4jVersion = "2.0.18"
 lazy val logbackVersion = "1.6.0"
 lazy val tapirVersion = "1.13.29"
+lazy val log4catsVersion = "2.7.1"
 lazy val projectScalacOptions = Seq(
   "-encoding",
   "utf-8",
@@ -101,6 +102,7 @@ lazy val service = project
       "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapirVersion,
       "org.http4s" %% "http4s-ember-server" % http4sVersion,
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
+      "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
       "org.slf4j" % "slf4j-api" % slf4jVersion,
       "ch.qos.logback" % "logback-classic" % logbackVersion % Runtime
     ) ++ sharedDependencies

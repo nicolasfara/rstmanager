@@ -39,6 +39,12 @@ Navigate to http://localhost:3333
 
 Open the browser's dev console – this is where logs and exceptions will go.
 
+## Deploy
+
+To deploy the full stack on [Railway](https://railway.com) (managed Postgres +
+three services behind a single public frontend domain), see
+[`docs/DEPLOY-railway.md`](docs/DEPLOY-railway.md).
+
 ## Application with Docker Compose
 
 The full stack can be started with Compose: Postgres, the Scala backend API, and the Scala.js/Vite frontend served by nginx:

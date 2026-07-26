@@ -1,0 +1,16 @@
+ARG KEYCLOAK_IMAGE=quay.io/keycloak/keycloak:26.3
+
+FROM ${KEYCLOAK_IMAGE}
+
+# The realm is baked into the image (Railway has no bind mounts). It lives in a
+# template dir; the entrypoint rewrites the public origin into the import dir at
+# start, so the same image serves any domain via RSTMANAGER_PUBLIC_APP_URL.
+COPY keycloak/rstmanager-realm.json /opt/keycloak/data/import-template/rstmanager-realm.json
+COPY docker/keycloak/entrypoint.sh /opt/keycloak/rstmanager-entrypoint.sh
+
+USER root
+RUN chmod +x /opt/keycloak/rstmanager-entrypoint.sh
+USER 1000
+
+ENTRYPOINT ["/opt/keycloak/rstmanager-entrypoint.sh"]
+CMD ["start", "--import-realm"]

@@ -20,6 +20,8 @@ object TasksPage:
     val description = Var("")
     val hours = Var("8")
     val blockedDelete = Var(Option.empty[ApiError])
+    // Task awaiting delete confirmation (double-check before the destructive action).
+    val confirmDelete = Var(Option.empty[TaskResponse])
 
     def resetForm(): Unit =
       editingId.set(None); name.set(""); description.set(""); hours.set("8"); formError.set(None)
@@ -49,6 +51,78 @@ object TasksPage:
       }
 
     val data = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
+
+    def actionButtons(task: TaskResponse): List[HtmlElement] =
+      List(
+        button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(task))),
+        button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => confirmDelete.set(Some(task)))),
+      )
+
+    def renderRow(task: TaskResponse): HtmlElement =
+      tr(
+        cls := "border-b border-slate-100 last:border-0",
+        td(cls := "px-4 py-2 font-medium text-slate-800", task.name),
+        td(cls := "px-4 py-2 text-slate-500", task.description.getOrElse("—")),
+        td(cls := "px-4 py-2 tabular-nums", task.requiredHours.toString),
+        td(
+          cls := "px-4 py-2 text-right",
+          roleGated(Role.Admin)(div(cls := "flex justify-end gap-2", actionButtons(task))),
+        ),
+      )
+
+    def renderCard(task: TaskResponse): HtmlElement =
+      div(
+        cls := "space-y-3 p-4",
+        div(
+          cls := "flex items-start justify-between gap-3",
+          div(
+            cls := "min-w-0",
+            div(cls := "break-words font-medium text-slate-800", task.name),
+            task.description.map(d => div(cls := "mt-1 break-words text-sm text-slate-500", d)).getOrElse(emptyNode),
+          ),
+          div(
+            cls := "shrink-0 text-right",
+            div(cls := "text-xs font-medium text-slate-500", "Ore"),
+            div(cls := "text-sm tabular-nums text-slate-800", task.requiredHours.toString),
+          ),
+        ),
+        roleGated(Role.Admin)(div(cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3", actionButtons(task))),
+      )
+
+    // Double-check before the destructive delete.
+    val confirmDeleteModal =
+      div(
+        cls := "fixed inset-0 z-50 items-start justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4",
+        cls <-- confirmDelete.signal.map(c => if c.isDefined then "flex" else "hidden"),
+        div(
+          cls := "mt-12 w-full max-w-md sm:mt-24",
+          card(
+            div(
+              cls := "border-b border-slate-100 px-4 py-3",
+              h2(cls := "text-sm font-semibold text-slate-800", "Elimina task"),
+            ),
+            div(
+              cls := "space-y-4 p-4",
+              p(
+                cls := "text-sm text-slate-600",
+                child.text <-- confirmDelete.signal.map(
+                  _.fold("")(t => s"Eliminare definitivamente il task “${t.name}”? L'operazione non è reversibile."),
+                ),
+              ),
+              div(
+                cls := "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+                button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => confirmDelete.set(None))),
+                button(
+                  tpe := "button",
+                  cls := s"$btnDanger justify-center",
+                  "Elimina",
+                  onClick --> (_ => confirmDelete.now().foreach { t => delete(t.id); confirmDelete.set(None) }),
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
 
     div(
       div(
@@ -82,31 +156,19 @@ object TasksPage:
           renderResult(data) { tasks =>
             if tasks.isEmpty then emptyState("Nessun task nel catalogo.")
             else
-              table(
-                cls := "w-full text-sm",
-                thead(
-                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                  tr(th(cls := "px-4 py-2", "Nome"), th(cls := "px-4 py-2", "Descrizione"), th(cls := "px-4 py-2", "Ore"), th(cls := "px-4 py-2")),
-                ),
-                tbody(
-                  tasks.map { task =>
-                    tr(
-                      cls := "border-b border-slate-100 last:border-0",
-                      td(cls := "px-4 py-2 font-medium text-slate-800", task.name),
-                      td(cls := "px-4 py-2 text-slate-500", task.description.getOrElse("—")),
-                      td(cls := "px-4 py-2 tabular-nums", task.requiredHours.toString),
-                      td(
-                        cls := "px-4 py-2 text-right",
-                        roleGated(Role.Admin)(
-                          div(
-                            cls := "flex justify-end gap-2",
-                            button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(task))),
-                            button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(task.id))),
-                          ),
-                        ),
-                      ),
-                    )
-                  },
+              div(
+                // Mobile: stacked cards. Desktop (md+): the table.
+                div(cls := "divide-y divide-slate-100 md:hidden", tasks.map(renderCard)),
+                div(
+                  cls := "hidden overflow-x-auto md:block",
+                  table(
+                    cls := "w-full text-sm",
+                    thead(
+                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                      tr(th(cls := "px-4 py-2", "Nome"), th(cls := "px-4 py-2", "Descrizione"), th(cls := "px-4 py-2", "Ore"), th(cls := "px-4 py-2")),
+                    ),
+                    tbody(tasks.map(renderRow)),
+                  ),
                 ),
               )
           },
@@ -137,6 +199,7 @@ object TasksPage:
           ),
         ),
       ),
+      confirmDeleteModal,
     )
   end apply
 end TasksPage

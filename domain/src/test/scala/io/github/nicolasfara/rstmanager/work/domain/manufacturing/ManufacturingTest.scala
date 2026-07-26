@@ -7,6 +7,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingA
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingService.Command
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent.*
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
 
 import cats.Id
 import edomata.core.{ CommandMessage, EdomatonResult, RequestContext }
@@ -33,6 +34,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
         List(cutting, assembly),
         dependencies,
         Map.empty,
+        Map.empty,
       )
       .toEither
       .toOption
@@ -52,7 +54,8 @@ class ManufacturingTest extends AnyFlatSpecLike:
 
   "Manufacturing.createManufacturing" should "accept a valid non-empty task composition with dependencies" in:
     val result =
-      Manufacturing.createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), dependencies, Map.empty)
+      Manufacturing
+        .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), dependencies, Map.empty, Map.empty)
 
     result.isValid shouldEqual true
     result.foreach { manufacturing =>
@@ -63,19 +66,28 @@ class ManufacturingTest extends AnyFlatSpecLike:
 
   it should "reject an empty task composition" in:
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies(), Map.empty)
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies(), Map.empty, Map.empty)
       .isValid shouldEqual false
 
   it should "reject duplicate task ids" in:
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, cutting), ManufacturingDependencies(), Map.empty)
+      .createManufacturing(
+        manufacturingId,
+        "MFG-TEST",
+        "Serramento standard",
+        None,
+        List(cutting, cutting),
+        ManufacturingDependencies(),
+        Map.empty,
+        Map.empty,
+      )
       .isValid shouldEqual false
 
   it should "reject dependencies that reference tasks outside the composition" in:
     val outsideDependency = ManufacturingDependencies().addTaskDependencies(assembly, Set(finishing))
 
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency, Map.empty)
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency, Map.empty, Map.empty)
       .isValid shouldEqual false
 
   it should "accept default employees referencing tasks of the composition" in:
@@ -88,6 +100,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
       List(cutting, assembly),
       dependencies,
       Map(cutting -> employee),
+      Map.empty,
     )
 
     result.isValid shouldEqual true
@@ -105,6 +118,54 @@ class ManufacturingTest extends AnyFlatSpecLike:
         List(cutting, assembly),
         dependencies,
         Map(finishing -> employee),
+        Map.empty,
+      )
+      .isValid shouldEqual false
+
+  it should "accept task hours overrides referencing tasks of the composition and refine them" in:
+    val result = Manufacturing.createManufacturing(
+      manufacturingId,
+      "MFG-TEST",
+      "Serramento standard",
+      None,
+      List(cutting, assembly),
+      dependencies,
+      Map.empty,
+      Map(cutting -> 12),
+    )
+
+    result.isValid shouldEqual true
+    result.foreach { manufacturing =>
+      manufacturing.taskHours.get(cutting).map(_.value) shouldEqual Some(12)
+      manufacturing.hoursForTask(cutting, TaskHours(4)).value shouldEqual 12
+      manufacturing.hoursForTask(assembly, TaskHours(4)).value shouldEqual 4
+    }
+
+  it should "reject task hours overrides referencing tasks outside the composition" in:
+    Manufacturing
+      .createManufacturing(
+        manufacturingId,
+        "MFG-TEST",
+        "Serramento standard",
+        None,
+        List(cutting, assembly),
+        dependencies,
+        Map.empty,
+        Map(finishing -> 8),
+      )
+      .isValid shouldEqual false
+
+  it should "reject negative task hours overrides" in:
+    Manufacturing
+      .createManufacturing(
+        manufacturingId,
+        "MFG-TEST",
+        "Serramento standard",
+        None,
+        List(cutting, assembly),
+        dependencies,
+        Map.empty,
+        Map(cutting -> -1),
       )
       .isValid shouldEqual false
 
@@ -114,7 +175,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
       .addTaskDependencies(assembly, Set(cutting))
 
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle, Map.empty)
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle, Map.empty, Map.empty)
       .isValid shouldEqual false
 
   "ManufacturingService" should "create a catalog manufacturing through the event-sourced service" in:

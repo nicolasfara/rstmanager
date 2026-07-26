@@ -85,6 +85,14 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
     dto.tasks.find(_.taskId == taskA).flatMap(_.preferredEmployeeId) shouldBe Some(empA)
     dto.tasks.find(_.taskId == taskB).flatMap(_.preferredEmployeeId) shouldBe None
 
+  test("fromCatalog applies the catalog hours override per task, falling back to the task-catalog hours"):
+    val template = catalogWith(List(taskResponse(taskA, 4), taskResponse(taskB, 6)))
+      .copy(taskHours = List(TaskHoursOverrideDto(taskA, 10)))
+    val dto = OrderDrafts.fromCatalog(template, "2026-08-01", "", Map.empty, seqIds())
+
+    dto.tasks.find(_.taskId == taskA).map(_.expectedHours) shouldBe Some(10) // overridden
+    dto.tasks.find(_.taskId == taskB).map(_.expectedHours) shouldBe Some(6) // falls back to catalog hours
+
   test("fromCatalog parses the manufacturing-level preferred employee, dropping an invalid one"):
     val template = catalogWith(List(taskResponse(taskA, 4)))
     OrderDrafts.fromCatalog(template, "2026-08-01", empB.toString, Map.empty, seqIds()).preferredEmployeeId shouldBe Some(empB)

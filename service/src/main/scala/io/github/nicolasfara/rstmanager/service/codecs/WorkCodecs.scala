@@ -21,7 +21,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskId, TaskService }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskHours, TaskId, TaskService }
 import io.github.nicolasfara.rstmanager.work.domain.task.events.TaskEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
@@ -115,7 +115,7 @@ object WorkCodecs:
   given Codec[TaskEvent] = deriveCodec
   given taskNotificationCodec: Codec[TaskService.Notification] = deriveCodec
 
-  /** Events persisted before per-task default employees existed lack the `defaultEmployees` field: decode it as the empty map. */
+  /** Events persisted before per-task default employees / hours overrides existed lack those fields: decode each as the empty map. */
   given Codec[Manufacturing] = Codec.from(
     Decoder.instance { cursor =>
       for
@@ -126,7 +126,8 @@ object WorkCodecs:
         taskIds <- cursor.get[NonEmptyList[TaskId]]("taskIds")
         dependencies <- cursor.get[ManufacturingDependencies]("dependencies")
         defaultEmployees <- cursor.get[Option[Map[TaskId, EmployeeId]]]("defaultEmployees")
-      yield Manufacturing(id, code, name, description, taskIds, dependencies, defaultEmployees.getOrElse(Map.empty))
+        taskHours <- cursor.get[Option[Map[TaskId, TaskHours]]]("taskHours")
+      yield Manufacturing(id, code, name, description, taskIds, dependencies, defaultEmployees.getOrElse(Map.empty), taskHours.getOrElse(Map.empty))
     },
     deriveEncoder,
   )

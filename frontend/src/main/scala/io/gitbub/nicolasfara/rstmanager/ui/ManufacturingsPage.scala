@@ -15,7 +15,7 @@ import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 /** Catalog of reusable manufacturings composed from live catalog task references. */
 object ManufacturingsPage:
 
-  private final case class TaskRowState(key: Int, taskId: String, dependsOn: Set[String], employeeId: String)
+  private final case class TaskRowState(key: Int, taskId: String, dependsOn: Set[String], employeeId: String, hours: String)
 
   private final case class ManufacturingFormState(
       editingId: Option[UUID],
@@ -39,7 +39,7 @@ object ManufacturingsPage:
     var keyCounter = 0
     def nextKey(): Int =
       keyCounter += 1; keyCounter
-    def newTaskRow(): TaskRowState = TaskRowState(nextKey(), "", Set.empty, "")
+    def newTaskRow(): TaskRowState = TaskRowState(nextKey(), "", Set.empty, "", "")
 
     val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
     val manufacturingsData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
@@ -78,6 +78,8 @@ object ManufacturingsPage:
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
       val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
       val defaultEmployeeMap = manufacturing.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap
+      val overrideHoursMap = manufacturing.taskHours.map(h => h.taskId.toString -> h.hours).toMap
+      val catalogHoursMap = manufacturing.tasks.map(task => task.id.toString -> task.requiredHours).toMap
       form.set(
         ManufacturingFormState(
           Some(manufacturing.id),
@@ -86,11 +88,19 @@ object ManufacturingsPage:
           manufacturing.name,
           manufacturing.description.getOrElse(""),
           manufacturing.taskIds.map { id =>
-            TaskRowState(nextKey(), id.toString, dependencyMap.getOrElse(id.toString, Set.empty), defaultEmployeeMap.getOrElse(id.toString, ""))
+            val hours = overrideHoursMap.getOrElse(id.toString, catalogHoursMap.getOrElse(id.toString, 0)).toString
+            TaskRowState(
+              nextKey(),
+              id.toString,
+              dependencyMap.getOrElse(id.toString, Set.empty),
+              defaultEmployeeMap.getOrElse(id.toString, ""),
+              hours,
+            )
           }.toList,
         ),
       )
       formError.set(None)
+    end edit
 
     def requestFromForm(): ManufacturingCatalogRequest =
       val current = form.now()
@@ -108,6 +118,15 @@ object ManufacturingsPage:
           employeeId <- parseUuid(row.employeeId)
         yield TaskDefaultEmployeeDto(taskId, employeeId)
       }
+      // Only send an override when the entered hours actually differ from the catalog task's hours, so untouched tasks keep following the catalog.
+      val catalogTasks = tasksSnapshot.now()
+      val taskHours = current.taskRows.flatMap { row =>
+        for
+          taskId <- parseUuid(row.taskId)
+          hours <- row.hours.trim.nn.toIntOption
+          if catalogTasks.get(row.taskId).forall(_.requiredHours != hours)
+        yield TaskHoursOverrideDto(taskId, hours)
+      }
       ManufacturingCatalogRequest(
         current.code.trim.nn,
         current.name.trim.nn,
@@ -115,6 +134,7 @@ object ManufacturingsPage:
         selectedIds,
         dependencies,
         Some(defaultEmployees),
+        Some(taskHours),
       )
     end requestFromForm
 
@@ -223,10 +243,12 @@ object ManufacturingsPage:
       searchableSelect(
         rowSignal(row).map(_.taskId),
         Observer[String] { next =>
-          // Propose the newly picked task's default employee; the field stays overridable.
-          val proposedEmployee = tasksSnapshot.now().get(next).flatMap(_.defaultEmployeeId).map(_.toString).getOrElse("")
+          // Propose the newly picked task's default employee and its catalog hours; both fields stay overridable.
+          val picked = tasksSnapshot.now().get(next)
+          val proposedEmployee = picked.flatMap(_.defaultEmployeeId).map(_.toString).getOrElse("")
+          val proposedHours = picked.map(_.requiredHours.toString).getOrElse("")
           updateTaskRow(row.key)(current =>
-            current.copy(taskId = next, dependsOn = current.dependsOn.filter(_ != next), employeeId = proposedEmployee),
+            current.copy(taskId = next, dependsOn = current.dependsOn.filter(_ != next), employeeId = proposedEmployee, hours = proposedHours),
           )
         },
         taskOptions,
@@ -250,6 +272,14 @@ object ManufacturingsPage:
         employeeOptions,
       )
 
+    def hoursInput(row: TaskRowState): HtmlElement =
+      textInput(
+        rowSignal(row).map(_.hours),
+        Observer[String](next => updateTaskRow(row.key)(_.copy(hours = next))),
+        "Ore",
+        "number",
+      )
+
     def renderTaskRow(row: TaskRowState): HtmlElement =
       div(
         cls := "rounded-md border border-slate-200 p-2",
@@ -266,7 +296,11 @@ object ManufacturingsPage:
             ),
           ),
         ),
-        div(cls := "mt-2", field("Dipendente predefinito", employeeSelect(row))),
+        div(
+          cls := "mt-2 grid gap-2 sm:grid-cols-2",
+          field("Dipendente predefinito", employeeSelect(row)),
+          field("Ore", hoursInput(row)),
+        ),
         child <-- dependencyChoices(row).map { choices =>
           if choices.isEmpty then emptyNode
           else

@@ -93,15 +93,18 @@ class WorkCodecsTest extends AnyFlatSpecLike:
         List(taskId),
         ManufacturingDependencies(),
         Map(taskId -> employeeId),
+        Map(taskId -> 9),
       )
       .toEither
       .fold(errors => fail(s"Invalid template: $errors"), identity)
 
     val roundTripped = template.asJson.as[Manufacturing].fold(err => fail(s"Decoding failed: $err"), identity)
     roundTripped.defaultEmployees shouldEqual Map(taskId -> employeeId)
+    roundTripped.taskHours.get(taskId).map(_.value) shouldEqual Some(9)
 
-    val legacyJson = template.asJson.mapObject(_.remove("defaultEmployees"))
+    val legacyJson = template.asJson.mapObject(_.remove("defaultEmployees").remove("taskHours"))
     val decoded = legacyJson.as[Manufacturing].fold(err => fail(s"Decoding failed: $err"), identity)
     decoded.defaultEmployees shouldBe empty
+    decoded.taskHours shouldBe empty
     decoded.taskIds.toList shouldEqual List(taskId)
 end WorkCodecsTest

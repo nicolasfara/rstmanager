@@ -61,8 +61,8 @@ object ManufacturingsPage:
     val form = Var(freshForm())
 
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
-      case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
-      case _ => List("" -> "—")
+      case Some(Right(list)) => list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
+      case _ => Nil
     }
     val tasksById: Signal[Map[String, TaskResponse]] = tasksData.map {
       case Some(Right(list)) => list.map(task => task.id.toString -> task).toMap
@@ -218,10 +218,12 @@ object ManufacturingsPage:
     val formErrors: Signal[List[String]] = form.signal.map(_.errors)
 
     def taskSelect(row: TaskRowState): HtmlElement =
-      selectInput(
+      searchableSelect(
         rowSignal(row).map(_.taskId),
         Observer[String](next => updateTaskRow(row.key)(current => current.copy(taskId = next, dependsOn = current.dependsOn.filter(_ != next)))),
         taskOptions,
+        "Cerca un task per nome…",
+        maxResults = 8,
       )
 
     def dependencyChoices(row: TaskRowState): Signal[List[(String, String)]] =

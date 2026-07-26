@@ -8,7 +8,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ManufacturingStatus,
   ScheduledManufacturing,
   ScheduledManufacturingError,
-  ScheduledManufacturingId
+  ScheduledManufacturingId,
 }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*

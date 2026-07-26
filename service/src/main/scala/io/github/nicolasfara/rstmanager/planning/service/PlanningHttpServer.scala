@@ -17,7 +17,7 @@ import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Server
 import org.http4s.server.middleware.{ CORS, Logger as HttpLogger }
-import org.slf4j.LoggerFactory
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.metrics.Meter.Implicits.noop
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import skunk.Session
@@ -87,7 +87,7 @@ object PlanningServerConfig:
 end PlanningServerConfig
 
 object PlanningHttpServer:
-  private val logger = LoggerFactory.getLogger(getClass).nn
+  private val logger = Slf4jLogger.getLogger[IO]
 
   def resource(config: PlanningServerConfig): Resource[IO, Server] =
     for
@@ -110,7 +110,7 @@ object PlanningHttpServer:
       loggedHttpApp = HttpLogger.httpApp[IO](
         logHeaders = false,
         logBody = false,
-        logAction = Some(message => IO(logger.info(message))),
+        logAction = Some(message => logger.info(message)),
       )(httpApp)
       server <- EmberServerBuilder
         .default[IO]
@@ -138,9 +138,9 @@ object PlanningHttpServer:
     yield ApiSecurity(new JwtValidator(jwks.keyFor, AuthConfig(keycloak.issuer, keycloak.clientId)))
 
   private def initialJwksFetch(jwks: JwksClient, attempts: Int): IO[Unit] =
-    jwks.refresh.flatTap(_ => IO(logger.info("Fetched Keycloak JWKS."))).handleErrorWith { error =>
-      if attempts <= 1 then IO(logger.warn(s"Could not fetch Keycloak JWKS at startup, continuing with lazy fetch: $error"))
-      else IO(logger.info(s"Keycloak JWKS not available yet, retrying: $error")) *> IO.sleep(2.seconds) *> initialJwksFetch(jwks, attempts - 1)
+    jwks.refresh.flatTap(_ => logger.info("Fetched Keycloak JWKS.")).handleErrorWith { error =>
+      if attempts <= 1 then logger.warn(s"Could not fetch Keycloak JWKS at startup, continuing with lazy fetch: $error")
+      else logger.info(s"Keycloak JWKS not available yet, retrying: $error") *> IO.sleep(2.seconds) *> initialJwksFetch(jwks, attempts - 1)
     }
 
   private def sessionPool(config: PlanningDatabaseConfig): Resource[IO, Resource[IO, Session[IO]]] =

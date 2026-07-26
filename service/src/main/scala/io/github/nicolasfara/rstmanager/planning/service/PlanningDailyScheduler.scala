@@ -7,7 +7,7 @@ import io.github.nicolasfara.rstmanager.planning.PlanningTrigger
 import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
-import org.slf4j.LoggerFactory
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 /**
  * Fires a single [[PlanningTrigger.DailyPlanning]] recalculation early each morning, before the shift starts, so operators open a plan re-anchored to
@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory
  * periodic recompute.
  */
 object PlanningDailyScheduler:
-  private val logger = LoggerFactory.getLogger(getClass).nn
+  private val logger = Slf4jLogger.getLogger[IO]
 
   /** Local-time hour (0-23) at which the morning consolidation runs, before the shift begins. */
   val defaultRecalculationHour: Int = 5
@@ -34,14 +34,14 @@ object PlanningDailyScheduler:
   private def sleepUntilNextRun(atHour: Int): IO[Unit] =
     IO(DateTime.now().nn).flatMap { now =>
       val wait = durationUntilNextRun(now, atHour)
-      IO(logger.info(s"Next daily planning consolidation scheduled in ${humanize(wait)} (at $atHour:00 local time).")) >> IO.sleep(wait)
+      logger.info(s"Next daily planning consolidation scheduled in ${humanize(wait)} (at $atHour:00 local time).") >> IO.sleep(wait)
     }
 
   private def runDailyRecalculation(recalculator: PlanningRecalculator): IO[Unit] =
-    IO(logger.info("Running daily planning consolidation (DailyPlanning trigger).")) >>
+    logger.info("Running daily planning consolidation (DailyPlanning trigger).") >>
       recalculator.recalculate(PlanningTrigger.DailyPlanning).flatMap { result =>
-        if result.errors.isEmpty then IO(logger.info(s"Daily planning consolidation completed (command ${result.commandId.getOrElse("no-op")})."))
-        else IO(logger.warn(s"Daily planning consolidation reported issues: ${result.errors.mkString("; ")}"))
+        if result.errors.isEmpty then logger.info(s"Daily planning consolidation completed (command ${result.commandId.getOrElse("no-op")}).")
+        else logger.warn(s"Daily planning consolidation reported issues: ${result.errors.mkString("; ")}")
       }
 
   /** Time until the next occurrence of `atHour:00` local time, strictly in the future (a run exactly at `atHour:00` waits for the following day). */

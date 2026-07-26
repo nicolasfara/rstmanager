@@ -102,6 +102,14 @@ backend.
 3. **Settings → Networking → Generate Domain.** Annota l'URL, es.
    `https://rstmanager-frontend-production.up.railway.app`. Chiamiamolo
    **`<APP_URL>`**. Il suo path auth è **`<APP_URL>/auth`** = **`<AUTH_URL>`**.
+
+   > ⚠️ **Includi sempre lo schema `https://`.** La variabile Railway
+   > `RAILWAY_PUBLIC_DOMAIN` restituisce il **solo dominio** (senza schema):
+   > usata nuda in `KC_HOSTNAME` fa fallire l'avvio di Keycloak con *"Provided
+   > hostname is neither a plain hostname nor a valid URL"*. Se vuoi la reference
+   > variable, scrivila come `https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}`.
+   > (L'entrypoint Keycloak aggiunge comunque `https://` in mancanza di schema,
+   > ma è meglio impostarlo esplicitamente.)
 4. Variabili (le patchi tra poco quando i nomi interni esistono):
 
    | Variabile | Valore |
@@ -133,10 +141,22 @@ backend.
    | `KC_BOOTSTRAP_ADMIN_USERNAME` | scegli (non `admin` in prod) |
    | `KC_BOOTSTRAP_ADMIN_PASSWORD` | scegli una password robusta |
    | `RSTMANAGER_PUBLIC_APP_URL` | `<APP_URL>` &nbsp;(senza `/auth`) |
+   | `RSTMANAGER_EXTRA_APP_URLS` | *(opz.)* origin aggiuntivi, separati da virgola/spazio |
 
-   `RSTMANAGER_PUBLIC_APP_URL` è ciò con cui l'entrypoint riscrive redirect URIs
-   / webOrigins del client nel realm importato. **Non** dare un dominio pubblico
-   a questo servizio: resta privato.
+   `RSTMANAGER_PUBLIC_APP_URL` è l'origin **primario** con cui l'entrypoint
+   riscrive `rootUrl` / redirect URIs / webOrigins / post-logout del client nel
+   realm importato. `RSTMANAGER_EXTRA_APP_URLS` aggiunge **altri origin** a
+   redirect URIs / webOrigins / post-logout (non a `rootUrl`): serve per tenere
+   valido il vecchio dominio Railway accanto a un custom domain, così il cambio
+   dominio non è un flag day. Ogni origin senza schema viene forzato a `https://`.
+   **Non** dare un dominio pubblico a questo servizio: resta privato.
+
+   > **Custom domain:** se il custom domain non è tra gli origin del client,
+   > l'iframe silent-SSO di keycloak-js non torna mai indietro e la SPA resta
+   > appesa sullo **spinner di caricamento** (né login né app). Metti il custom
+   > domain in `RSTMANAGER_PUBLIC_APP_URL` (e in `KC_HOSTNAME` +
+   > `RSTMANAGER_KEYCLOAK_ISSUER` del backend), tenendo l'eventuale vecchio
+   > dominio in `RSTMANAGER_EXTRA_APP_URLS`.
 
    > **Immagine optimized:** `Dockerfile.keycloak` esegue `kc.sh build` a build
    > time bakando le opzioni **build-time** `KC_DB=postgres`,
@@ -204,9 +224,10 @@ devono funzionare same-origin.
 | nginx 502 su `/api` o `/auth` | Backend/Keycloak non bindano `::` (IPv6), o upstream senza suffisso `.railway.internal` |
 | 401 su tutte le `/api/v1/*` | `RSTMANAGER_KEYCLOAK_ISSUER` ≠ issuer reale del token; controlla che `KC_HOSTNAME` = `<AUTH_URL>` |
 | Redirect di login su `localhost:3333` | `RSTMANAGER_PUBLIC_APP_URL` non impostata **al primo import** del realm; aggiornala e ri-crea il realm (o correggi il client nell'admin console — l'import salta se il realm esiste già) |
+| SPA appesa sullo **spinner** (né login né app) su custom domain | Il custom domain non è tra i redirect URIs/webOrigins del client → l'iframe silent-SSO non completa e `keycloak.init()` resta pendente. Aggiungi il dominio a `RSTMANAGER_PUBLIC_APP_URL` / `RSTMANAGER_EXTRA_APP_URLS` e allinea `KC_HOSTNAME`; se il realm esiste già, correggi il client nell'admin console (vedi sotto) |
 | Keycloak "insecure"/mixed content | Manca `KC_PROXY_HEADERS=xforwarded`; nginx già inoltra `X-Forwarded-Proto` reale |
 | nginx non risolve gli upstream | Il resolver viene letto da `/etc/resolv.conf` all'avvio; su Railway è IPv6 e lo script forza `ipv6=on` — se cambi immagine base verifica che resolv.conf sia presente |
-| Cambio dominio pubblico | Aggiorna `KC_HOSTNAME`, `RSTMANAGER_PUBLIC_APP_URL`, `RSTMANAGER_KEYCLOAK_ISSUER` e i redirect URIs del client Keycloak |
+| Cambio dominio pubblico | Aggiorna `KC_HOSTNAME`, `RSTMANAGER_PUBLIC_APP_URL` (+ `RSTMANAGER_EXTRA_APP_URLS` per tenere il vecchio dominio), `RSTMANAGER_KEYCLOAK_ISSUER` e i redirect URIs del client. ⚠️ Le variabili d'origine sono lette **solo al primo import** del realm: se il realm esiste già in Postgres, `--import-realm` lo **salta** e devi aggiornare il client `rstmanager-frontend` a mano nell'admin console (Valid redirect URIs → `https://dominio/*`, Web origins, Root URL, Post logout) oppure forzare il re-import |
 | Keycloak `Killed` in avvio (OOM sullo step `build-and-exit`) | `Dockerfile.keycloak` fa `kc.sh build` a build time e `start --optimized` a runtime, così l'augmentation non gira all'avvio. Se persiste, aumenta la RAM del servizio Keycloak su Railway |
 
 ## Costi/note

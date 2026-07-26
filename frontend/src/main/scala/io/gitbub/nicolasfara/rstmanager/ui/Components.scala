@@ -19,6 +19,8 @@ object Components:
     "inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
   val btnSmall = "inline-flex items-center rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
   val btnDanger = "inline-flex items-center rounded-md border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50"
+  val btnDangerSolid =
+    "inline-flex items-center justify-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-50"
   private val inputCls =
     "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
   private val labelCls = "mb-1 block text-xs font-medium text-slate-500"
@@ -248,6 +250,59 @@ object Components:
       .distinct
 
   // ---- Modal -------------------------------------------------------------------------------------
+
+  /** Visual tone of a [[confirmDialog]]: destructive actions get a warning look, everything else a neutral one. */
+  enum DialogTone derives CanEqual:
+    case Danger, Neutral
+
+  /**
+   * A compact, centered confirmation dialog — the house style for "are you sure?" prompts across the app. Shows a tonal icon, a title and message,
+   * and a Cancel/Confirm pair (stacked on mobile, inline on desktop). Clicking the backdrop cancels. Drive `isOpen`/`titleText`/`message` from the
+   * caller's state (typically a `Var[Option[T]]`); `onCancel`/`onConfirm` should also flip that state closed.
+   */
+  def confirmDialog(
+      isOpen: Signal[Boolean],
+      titleText: Signal[String],
+      message: Signal[String],
+      confirmLabel: String,
+      tone: DialogTone,
+      onCancel: () => Unit,
+      onConfirm: () => Unit,
+  ): HtmlElement =
+    val (iconWrapCls, iconChar, confirmCls) = tone match
+      case DialogTone.Danger => ("bg-rose-100 text-rose-600", "⚠", btnDangerSolid)
+      case DialogTone.Neutral => ("bg-sky-100 text-sky-600", "?", s"$btnPrimary justify-center")
+    div(
+      cls := "fixed inset-0 z-50 items-center justify-center overflow-y-auto bg-slate-900/50 p-4",
+      cls <-- isOpen.map(open => if open then "flex" else "hidden"),
+      // Clicking the backdrop (but not the card) cancels.
+      onClick --> (_ => onCancel()),
+      div(
+        cls := "w-full max-w-sm",
+        card(
+          cls := "p-6",
+          onClick.stopPropagation --> (_ => ()),
+          div(
+            cls := "flex flex-col items-center gap-4 text-center",
+            div(
+              cls := s"flex h-12 w-12 items-center justify-center rounded-full $iconWrapCls",
+              span(cls := "text-2xl leading-none", iconChar),
+            ),
+            div(
+              cls := "space-y-1",
+              h2(cls := "text-base font-semibold text-slate-900", child.text <-- titleText),
+              p(cls := "text-sm text-slate-500", child.text <-- message),
+            ),
+          ),
+          div(
+            cls := "mt-6 flex flex-col-reverse gap-2 sm:flex-row",
+            button(tpe := "button", cls := s"$btnGhost flex-1 justify-center", "Annulla", onClick --> (_ => onCancel())),
+            button(tpe := "button", cls := s"$confirmCls flex-1", confirmLabel, onClick --> (_ => onConfirm())),
+          ),
+        ),
+      ),
+    )
+  end confirmDialog
 
   def modal(isOpen: Var[Boolean], titleText: String)(content: HtmlElement): HtmlElement =
     modal(isOpen, Signal.fromValue(titleText))(content)

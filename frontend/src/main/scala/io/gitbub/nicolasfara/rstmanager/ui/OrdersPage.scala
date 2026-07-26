@@ -1278,32 +1278,14 @@ object OrdersPage:
 
     // ---- Confirmation (ACK) modal ----------------------------------------------------------------
     val confirmModal =
-      div(
-        cls := "fixed inset-0 z-50 items-start justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4",
-        cls <-- confirm.signal.map(c => if c.isDefined then "flex" else "hidden"),
-        div(
-          cls := "mt-12 w-full max-w-md sm:mt-24",
-          card(
-            div(
-              cls := "border-b border-slate-100 px-4 py-3",
-              h2(cls := "text-sm font-semibold text-slate-800", child.text <-- confirm.signal.map(_.map(_.title).getOrElse(""))),
-            ),
-            div(
-              cls := "space-y-4 p-4",
-              p(cls := "text-sm text-slate-600", child.text <-- confirm.signal.map(_.map(_.message).getOrElse(""))),
-              div(
-                cls := "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-                button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => confirm.set(None))),
-                button(
-                  tpe := "button",
-                  cls := s"$btnPrimary justify-center",
-                  "Conferma",
-                  onClick --> (_ => confirm.now().foreach { c => runConfirmed(c); confirm.set(None) }),
-                ),
-              ),
-            ),
-          ),
-        ),
+      confirmDialog(
+        isOpen = confirm.signal.map(_.isDefined),
+        titleText = confirm.signal.map(_.fold("")(_.title)),
+        message = confirm.signal.map(_.fold("")(_.message)),
+        confirmLabel = "Conferma",
+        tone = DialogTone.Neutral,
+        onCancel = () => confirm.set(None),
+        onConfirm = () => confirm.now().foreach { c => runConfirmed(c); confirm.set(None) },
       )
 
     // ---- Row / table rendering -------------------------------------------------------------------

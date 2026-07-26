@@ -18,15 +18,21 @@ export RSTMANAGER_KC_UPSTREAM="${RSTMANAGER_KC_UPSTREAM:-keycloak:8080}"
 # embedded DNS is 127.0.0.11 (IPv4); Railway's private resolver is IPv6. nginx
 # needs IPv6 nameservers bracketed and must NOT disable ipv6 lookups there, or
 # the AAAA-only *.railway.internal names never resolve.
-ns="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf 2>/dev/null)"
-[ -n "$ns" ] || ns="127.0.0.11"
-case "$ns" in
-  *:*)
-    export RSTMANAGER_NGINX_RESOLVER="[$ns]"
-    export RSTMANAGER_NGINX_RESOLVER_IPV6="ipv6=on"
-    ;;
-  *)
-    export RSTMANAGER_NGINX_RESOLVER="$ns"
-    export RSTMANAGER_NGINX_RESOLVER_IPV6="ipv6=off"
-    ;;
-esac
+#
+# PREFER an IPv6 nameserver whenever the container has one: resolv.conf may list
+# an IPv4 ns first (or alongside), and picking that would set ipv6=off, making
+# every AAAA-only *.railway.internal name fail with "Host not found". So scan ALL
+# nameserver lines, take an IPv6 one if present, else fall back to the first IPv4
+# ns, else Docker's embedded resolver.
+ns6="$(awk '/^nameserver/ && $2 ~ /:/ { print $2; exit }' /etc/resolv.conf 2>/dev/null)"
+ns4="$(awk '/^nameserver/ && $2 !~ /:/ { print $2; exit }' /etc/resolv.conf 2>/dev/null)"
+if [ -n "$ns6" ]; then
+  export RSTMANAGER_NGINX_RESOLVER="[$ns6]"
+  export RSTMANAGER_NGINX_RESOLVER_IPV6="ipv6=on"
+elif [ -n "$ns4" ]; then
+  export RSTMANAGER_NGINX_RESOLVER="$ns4"
+  export RSTMANAGER_NGINX_RESOLVER_IPV6="ipv6=off"
+else
+  export RSTMANAGER_NGINX_RESOLVER="127.0.0.11"
+  export RSTMANAGER_NGINX_RESOLVER_IPV6="ipv6=off"
+fi

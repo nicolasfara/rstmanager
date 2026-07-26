@@ -13,9 +13,10 @@ import org.slf4j.LoggerFactory
  * Fires a single [[PlanningTrigger.DailyPlanning]] recalculation early each morning, before the shift starts, so operators open a plan re-anchored to
  * the current day with the full day's capacity available.
  *
- * This is the only *time-based* recalculation in the system. During the day the plan stays consolidated: it is recomputed only when a real operational
- * change (a task completed early, task hours added or removed, order or workforce edits) emits a recalculation notification, which the planner uses to
- * fill or push work so production never stalls. See [[PlanningDependencyConsumer]]. There is deliberately no hourly or otherwise periodic recompute.
+ * This is the only *time-based* recalculation in the system. During the day the plan stays consolidated: it is recomputed only when a real
+ * operational change (a task completed early, task hours added or removed, order or workforce edits) emits a recalculation notification, which the
+ * planner uses to fill or push work so production never stalls. See [[PlanningDependencyConsumer]]. There is deliberately no hourly or otherwise
+ * periodic recompute.
  */
 object PlanningDailyScheduler:
   private val logger = LoggerFactory.getLogger(getClass).nn
@@ -39,8 +40,7 @@ object PlanningDailyScheduler:
   private def runDailyRecalculation(recalculator: PlanningRecalculator): IO[Unit] =
     IO(logger.info("Running daily planning consolidation (DailyPlanning trigger).")) >>
       recalculator.recalculate(PlanningTrigger.DailyPlanning).flatMap { result =>
-        if result.errors.isEmpty then
-          IO(logger.info(s"Daily planning consolidation completed (command ${result.commandId.getOrElse("no-op")})."))
+        if result.errors.isEmpty then IO(logger.info(s"Daily planning consolidation completed (command ${result.commandId.getOrElse("no-op")})."))
         else IO(logger.warn(s"Daily planning consolidation reported issues: ${result.errors.mkString("; ")}"))
       }
 

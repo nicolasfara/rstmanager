@@ -103,6 +103,9 @@ object Dtos:
   /** Default employee proposed for one task of the template when the manufacturing is scheduled inside an order. */
   final case class TaskDefaultEmployeeDto(taskId: UUID, employeeId: UUID)
 
+  /** Per-task hours override of the template; a task without an entry falls back to the task-catalog hours. */
+  final case class TaskHoursOverrideDto(taskId: UUID, hours: Int)
+
   final case class ManufacturingCatalogRequest(
       code: String,
       name: String,
@@ -110,6 +113,7 @@ object Dtos:
       taskIds: List[UUID],
       dependencies: List[ManufacturingCatalogDependencyDto],
       defaultEmployees: Option[List[TaskDefaultEmployeeDto]] = None,
+      taskHours: Option[List[TaskHoursOverrideDto]] = None,
   )
 
   final case class ManufacturingCatalogResponse(
@@ -122,6 +126,7 @@ object Dtos:
       dependencies: List[ManufacturingCatalogDependencyDto],
       totalRequiredHours: Int,
       defaultEmployees: List[TaskDefaultEmployeeDto] = Nil,
+      taskHours: List[TaskHoursOverrideDto] = Nil,
   )
 
   // ---- Orders ------------------------------------------------------------------------------------
@@ -334,6 +339,7 @@ object Dtos:
   given Codec[TaskResponse] = deriveCodec
   given Codec[ManufacturingCatalogDependencyDto] = deriveCodec
   given Codec[TaskDefaultEmployeeDto] = deriveCodec
+  given Codec[TaskHoursOverrideDto] = deriveCodec
   given Codec[ManufacturingCatalogRequest] = deriveCodec
   given Codec[ManufacturingCatalogResponse] = deriveCodec
 

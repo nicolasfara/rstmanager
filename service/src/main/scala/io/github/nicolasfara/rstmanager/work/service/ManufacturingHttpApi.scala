@@ -43,6 +43,13 @@ object ManufacturingHttpApi:
         UUID.fromString("00000000-0000-0000-0000-000000000101").nn,
       )
 
+  /** Per-task override of the effort proposed when the template is scheduled inside an order; absent tasks fall back to the task-catalog hours. */
+  final case class TaskHoursOverrideDto(taskId: UUID, hours: Int)
+
+  object TaskHoursOverrideDto:
+    val example: TaskHoursOverrideDto =
+      TaskHoursOverrideDto(UUID.fromString("00000000-0000-0000-0000-000000000301").nn, 6)
+
   final case class ManufacturingRequest(
       code: String,
       name: String,
@@ -50,6 +57,7 @@ object ManufacturingHttpApi:
       taskIds: List[UUID],
       dependencies: List[ManufacturingDependencyDto],
       defaultEmployees: Option[List[TaskDefaultEmployeeDto]] = None,
+      taskHours: Option[List[TaskHoursOverrideDto]] = None,
   ):
     def toDomain(id: UUID): ValidatedNec[String, Manufacturing] =
       val dependencyGraph = dependencies.foldLeft(ManufacturingDependencies()) { (current, dependency) =>
@@ -63,6 +71,7 @@ object ManufacturingHttpApi:
         taskIds,
         dependencyGraph,
         defaultEmployees.getOrElse(Nil).map(entry => entry.taskId -> entry.employeeId).toMap,
+        taskHours.getOrElse(Nil).map(entry => entry.taskId -> entry.hours).toMap,
       )
   end ManufacturingRequest
 
@@ -78,6 +87,7 @@ object ManufacturingHttpApi:
         ),
         List(ManufacturingDependencyDto.example),
         Some(List(TaskDefaultEmployeeDto.example)),
+        Some(List(TaskHoursOverrideDto.example)),
       )
 
   final case class ManufacturingResponse(
@@ -90,11 +100,13 @@ object ManufacturingHttpApi:
       dependencies: List[ManufacturingDependencyDto],
       totalRequiredHours: Int,
       defaultEmployees: List[TaskDefaultEmployeeDto] = Nil,
+      taskHours: List[TaskHoursOverrideDto] = Nil,
   )
 
   object ManufacturingResponse:
     def fromDomain(manufacturing: Manufacturing, tasks: List[Task]): ManufacturingResponse =
       val taskResponses = tasks.map(TaskResponse.fromDomain)
+      val hoursByTask = tasks.map(task => task.id -> manufacturing.hoursForTask(task.id, task.requiredHours).value).toMap
       ManufacturingResponse(
         manufacturing.id,
         manufacturing.code,
@@ -103,8 +115,9 @@ object ManufacturingHttpApi:
         manufacturing.taskIds.toList,
         taskResponses,
         manufacturing.dependencies.toEdgePairs.groupMap(_._1)(_._2).toList.map((taskId, dependsOn) => ManufacturingDependencyDto(taskId, dependsOn)),
-        taskResponses.map(_.requiredHours).sum,
+        manufacturing.taskIds.toList.flatMap(hoursByTask.get).sum,
         manufacturing.taskIds.toList.flatMap(taskId => manufacturing.defaultEmployees.get(taskId).map(TaskDefaultEmployeeDto(taskId, _))),
+        manufacturing.taskIds.toList.flatMap(taskId => manufacturing.taskHours.get(taskId).map(hours => TaskHoursOverrideDto(taskId, hours.value))),
       )
 
   private def conflict(error: ManufacturingError): ApiFailure = error match
@@ -114,10 +127,12 @@ object ManufacturingHttpApi:
 
   given Codec[ManufacturingDependencyDto] = deriveCodec
   given Codec[TaskDefaultEmployeeDto] = deriveCodec
+  given Codec[TaskHoursOverrideDto] = deriveCodec
   given Codec[ManufacturingRequest] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
   given Schema[ManufacturingDependencyDto] = Schema.derived
   given Schema[TaskDefaultEmployeeDto] = Schema.derived
+  given Schema[TaskHoursOverrideDto] = Schema.derived
   given Schema[ManufacturingRequest] = Schema.derived
   given Schema[ManufacturingResponse] = Schema.derived
 

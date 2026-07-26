@@ -48,6 +48,8 @@ object OrderDrafts:
       taskEmployees: Map[String, String],
       newId: () => UUID,
   ): ManufacturingDto =
+    // Per-task hours override configured on the catalog template; a task without an entry keeps its task-catalog hours.
+    val hoursOverride = template.taskHours.map(entry => entry.taskId -> entry.hours).toMap
     ManufacturingDto(
       template.code,
       Formats.toIso(completionDate),
@@ -57,7 +59,7 @@ object OrderDrafts:
           newId(),
           task.id,
           "pending",
-          task.requiredHours,
+          hoursOverride.getOrElse(task.id, task.requiredHours),
           Some(0),
           None,
           taskEmployees.get(task.id.toString).flatMap(parseUuid),
@@ -71,6 +73,7 @@ object OrderDrafts:
       template.description,
       parseUuid(employeeId),
     )
+  end fromCatalog
 
   /**
    * Builds a manufacturing from a custom draft: only tasks with a valid id survive, and dependencies are kept only between tasks that made it into

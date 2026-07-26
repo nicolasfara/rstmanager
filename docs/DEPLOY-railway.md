@@ -138,6 +138,15 @@ backend.
    / webOrigins del client nel realm importato. **Non** dare un dominio pubblico
    a questo servizio: resta privato.
 
+   > **Immagine optimized:** `Dockerfile.keycloak` esegue `kc.sh build` a build
+   > time bakando le opzioni **build-time** `KC_DB=postgres`,
+   > `KC_HEALTH_ENABLED=true`, `KC_HTTP_RELATIVE_PATH=/auth`, e a runtime lancia
+   > `start --optimized`. Così l'augmentation Quarkus non gira all'avvio (era la
+   > causa dell'OOM `Killed` sul default da 512MB, e resta vicina al tetto anche
+   > a 1GB). Le tre variabili qui sopra restano impostate con gli **stessi
+   > valori** — combaciano col build, nessun warning; se un domani ne cambi una,
+   > serve rifare il build dell'immagine.
+
 ### 5. Servizio `planning-service`
 
 1. **New → GitHub Repo** → nome `planning-service`.
@@ -198,6 +207,7 @@ devono funzionare same-origin.
 | Keycloak "insecure"/mixed content | Manca `KC_PROXY_HEADERS=xforwarded`; nginx già inoltra `X-Forwarded-Proto` reale |
 | nginx non risolve gli upstream | Il resolver viene letto da `/etc/resolv.conf` all'avvio; su Railway è IPv6 e lo script forza `ipv6=on` — se cambi immagine base verifica che resolv.conf sia presente |
 | Cambio dominio pubblico | Aggiorna `KC_HOSTNAME`, `RSTMANAGER_PUBLIC_APP_URL`, `RSTMANAGER_KEYCLOAK_ISSUER` e i redirect URIs del client Keycloak |
+| Keycloak `Killed` in avvio (OOM sullo step `build-and-exit`) | `Dockerfile.keycloak` fa `kc.sh build` a build time e `start --optimized` a runtime, così l'augmentation non gira all'avvio. Se persiste, aumenta la RAM del servizio Keycloak su Railway |
 
 ## Costi/note
 

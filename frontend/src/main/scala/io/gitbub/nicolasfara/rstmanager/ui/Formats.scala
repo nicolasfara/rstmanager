@@ -9,6 +9,9 @@ object Formats:
 
   private def pad2(value: Int): String = if value < 10 then s"0$value" else value.toString
 
+  /** HTML date inputs yield `yyyy-MM-dd`; the API expects a full ISO-8601 instant. */
+  def toIso(day: String): String = if day.isEmpty then "" else s"${day}T00:00:00.000Z"
+
   /** Formats an ISO-8601 string as `dd/MM/yyyy`; falls back to the raw value if unparseable. */
   def date(iso: String): String =
     val parsed = new js.Date(iso)

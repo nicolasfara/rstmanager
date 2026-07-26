@@ -13,6 +13,7 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.OrderDrafts.{ MfgCoreState, MfgSnapshot, TaskState }
 
 /**
  * Orders: filterable list with lifecycle transitions, a nested create form, and a full edit modal covering order data (priority, work deadline,
@@ -38,9 +39,6 @@ object OrdersPage:
     "delivered" -> "Consegnati",
     "cancelled" -> "Annullati",
   )
-
-  /** HTML date inputs yield `yyyy-MM-dd`; the API expects a full ISO-8601 instant. */
-  private def toIso(day: String): String = if day.isEmpty then "" else s"${day}T00:00:00.000Z"
 
   /** Extracts the `yyyy-MM-dd` day part of an ISO-8601 instant for a date input's initial value. */
   private def dayOf(iso: String): String = iso.take(10)
@@ -76,22 +74,8 @@ object OrdersPage:
   /** `java.util.UUID.randomUUID` is unavailable on Scala.js (needs SecureRandom); use the Web Crypto API. */
   private def randomUuid(): UUID = UUID.fromString(js.Dynamic.global.crypto.randomUUID().toString).nn
 
-  /** Only in-progress and suspended orders accept data/task edits (see the domain `Order` aggregate). */
-  private def isEditable(status: String): Boolean = status == "in_progress" || status == "suspended"
-
   /** Trims free text and collapses blank strings to `None` (an empty value clears the field). */
   private def normalizeStr(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
-
-  private def statusLabel(status: String): String = status match
-    case "pending" => "In attesa"
-    case "in_progress" => "In corso"
-    case "completed" => "Completato"
-    case "not_started" => "Non iniziata"
-    case "paused" => "In pausa"
-    case "suspended" => "Sospeso"
-    case "delivered" => "Consegnato"
-    case "cancelled" => "Annullato"
-    case other => other
 
   private val chipBase = "rounded-full px-3 py-1 text-xs font-medium border transition-colors"
   private def chipCls(active: Boolean): String =
@@ -110,29 +94,13 @@ object OrdersPage:
     )
 
   // ---- State case classes ----------------------------------------------------------------------
+  // The immutable draft records `TaskState`/`MfgCoreState` and the pure draft->DTO transforms live in [[OrderDrafts]];
+  // the `Var`-holding draft wrappers below stay here since they carry live Laminar state.
 
-  /** Immutable state for a task draft in the create form; held in a single `Var`. */
-  private case class TaskState(taskId: String, hours: String, dependsOn: Set[String], employeeId: String)
-
-  /** Mutable draft holder: stable key for `split`, all mutable fields consolidated in one `Var`. `dependsOn` holds template-task id strings. */
+  /** Mutable draft holder: stable key for `split`, all mutable fields consolidated in one `Var`. */
   private final case class TaskDraft(key: Int, state: Var[TaskState])
 
-  /**
-   * Immutable state for the non-list fields of a manufacturing draft. `taskEmployees` holds, for catalog mode, the per-task preferred employee
-   * (template-task id -> employee id), prefilled from the catalog defaults and overridable before submit.
-   */
-  private case class MfgCoreState(
-      mode: String,
-      catalogId: String,
-      code: String,
-      completionDate: String,
-      description: String,
-      employeeId: String,
-      dependsOn: Set[String],
-      taskEmployees: Map[String, String],
-  )
-
-  /** `tasks` is kept as a separate `Var` because it undergoes its own add/remove mutations. `dependsOn` holds sibling draft key strings. */
+  /** `tasks` is kept as a separate `Var` because it undergoes its own add/remove mutations. */
   private final case class MfgDraft(key: Int, state: Var[MfgCoreState], tasks: Var[List[TaskDraft]])
 
   /** Consolidated create-form state; reset is atomic via a single `Var.set`. */
@@ -314,91 +282,15 @@ object OrdersPage:
     def defaultTaskEmployees(rawCatalogId: String): Map[String, String] =
       catalogById(rawCatalogId).map(_.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap).getOrElse(Map.empty)
 
-    def fromCatalog(
-        template: ManufacturingCatalogResponse,
-        completionDate: String,
-        employeeId: String,
-        taskEmployees: Map[String, String],
-    ): ManufacturingDto =
-      ManufacturingDto(
-        template.code,
-        toIso(completionDate),
-        "not_started",
-        template.tasks.map { task =>
-          ScheduledTaskDto(
-            randomUuid(),
-            task.id,
-            "pending",
-            task.requiredHours,
-            Some(0),
-            None,
-            taskEmployees.get(task.id.toString).flatMap(parseUuid),
-          )
-        },
-        template.dependencies.map(dependency => TaskDependencyDto(dependency.taskId, dependency.dependsOn)),
-        None,
-        None,
-        None,
-        None,
-        template.description,
-        parseUuid(employeeId),
-      )
-
-    def fromCustom(m: MfgDraft, completionDate: String): ManufacturingDto =
-      val ms = m.state.now()
-      val tasks = m.tasks.now().flatMap { t =>
-        val ts = t.state.now()
-        parseUuid(ts.taskId).map { taskId =>
-          ScheduledTaskDto(randomUuid(), taskId, "pending", ts.hours.toIntOption.getOrElse(0), Some(0), None, parseUuid(ts.employeeId))
-        }
-      }
-      val selectedIds = tasks.map(_.taskId.toString).toSet
-      val dependencies = m.tasks.now().flatMap { t =>
-        val ts = t.state.now()
-        parseUuid(ts.taskId).flatMap { taskId =>
-          val dependsOn = ts.dependsOn.toList.filter(dep => selectedIds.contains(dep) && dep != taskId.toString).flatMap(parseUuid)
-          if dependsOn.isEmpty then None else Some(TaskDependencyDto(taskId, dependsOn))
-        }
-      }
-      ManufacturingDto(
-        ms.code.trim.nn,
-        toIso(completionDate),
-        "not_started",
-        tasks,
-        dependencies,
-        None,
-        None,
-        None,
-        None,
-        normalizeStr(ms.description),
-        parseUuid(ms.employeeId),
-      )
-    end fromCustom
-
-    def manufacturingFromDraft(m: MfgDraft): Either[ApiError, ManufacturingDto] =
-      val ms = m.state.now()
-      // Empty completion date falls back to the order-level work deadline (validated non-empty before this runs).
-      val completionDate = Some(ms.completionDate.trim.nn).filter(_.nonEmpty).getOrElse(createState.now().workDeadline)
-      if ms.mode == "catalog" then
-        catalogById(ms.catalogId).toRight(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil)).map { template =>
-          fromCatalog(template, completionDate, ms.employeeId, ms.taskEmployees)
-        }
-      else Right(fromCustom(m, completionDate))
+    /** Resolves a live manufacturing draft (with its `Var`s) into the immutable snapshot [[OrderDrafts]] operates on. */
+    def snapshotOf(m: MfgDraft): MfgSnapshot =
+      MfgSnapshot(m.key, m.state.now(), m.tasks.now().map(_.state.now()))
 
     def collectManufacturings(): Either[ApiError, List[ManufacturingDto]] =
-      mfgs.now().foldLeft(Right(List.empty): Either[ApiError, List[ManufacturingDto]]) { (acc, draft) =>
-        acc.flatMap(list => manufacturingFromDraft(draft).map(list :+ _))
-      }
+      OrderDrafts.collectManufacturings(mfgs.now().map(snapshotOf), createState.now().workDeadline, catalogById, () => randomUuid())
 
-    /** Maps the draft-key based "depends on" selections to positional indexes for the creation request. */
     def collectDependencies(): Option[List[ManufacturingDependencyByIndexDto]] =
-      val drafts = mfgs.now()
-      val indexByKey = drafts.zipWithIndex.map((draft, index) => draft.key.toString -> index).toMap
-      val entries = drafts.zipWithIndex.flatMap { (draft, index) =>
-        val dependsOnIndexes = draft.state.now().dependsOn.toList.flatMap(indexByKey.get).filter(_ != index).sorted
-        if dependsOnIndexes.isEmpty then None else Some(ManufacturingDependencyByIndexDto(index, dependsOnIndexes))
-      }
-      if entries.isEmpty then None else Some(entries)
+      OrderDrafts.collectDependencies(mfgs.now().map(snapshotOf))
 
     val createFormErrors: Signal[List[String]] = createState.signal.map { cs =>
       List(
@@ -425,9 +317,9 @@ object OrdersPage:
                 val request = OrderRequest(
                   cs.number.trim.nn,
                   cId,
-                  toIso(cs.creationDate),
-                  toIso(cs.deliveryDate),
-                  toIso(cs.workDeadline),
+                  Formats.toIso(cs.creationDate),
+                  Formats.toIso(cs.deliveryDate),
+                  Formats.toIso(cs.workDeadline),
                   cs.priority,
                   manufacturings,
                   normalizeStr(cs.description),
@@ -523,7 +415,7 @@ object OrdersPage:
         if priorityChanged || promisedChanged || descriptionChanged then
           val request = OrderUpdateRequest(
             if priorityChanged then Some(h.priority) else None,
-            if promisedChanged then Some(toIso(h.promised)) else None,
+            if promisedChanged then Some(Formats.toIso(h.promised)) else None,
             if descriptionChanged then Some(h.description) else None,
           )
           List(() => ApiClient.updateOrder(order.id, request).map(_.map(_ => ())))
@@ -537,7 +429,7 @@ object OrdersPage:
         if descChanged || completionDateChanged || statusChanged then
           val request = ManufacturingUpdateRequest(
             if descChanged then Some(es.description) else None,
-            if completionDateChanged then Some(toIso(es.completionDate)) else None,
+            if completionDateChanged then Some(Formats.toIso(es.completionDate)) else None,
             if statusChanged then Some(es.status) else None,
             None,
           )
@@ -612,7 +504,8 @@ object OrdersPage:
       if s.mode == "catalog" then
         catalogById(s.catalogId) match
           case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil))
-          case Some(template) => applyStructural(ApiClient.addManufacturing(order.id, fromCatalog(template, s.date, s.employee, s.taskEmployees)))
+          case Some(template) =>
+            applyStructural(ApiClient.addManufacturing(order.id, OrderDrafts.fromCatalog(template, s.date, s.employee, s.taskEmployees, () => randomUuid())))
       else
         parseUuid(s.taskId) match
           case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona un task valido per la nuova lavorazione.", Nil))
@@ -620,7 +513,7 @@ object OrdersPage:
             val task = ScheduledTaskDto(randomUuid(), taskId, "pending", s.hours.toIntOption.getOrElse(0), Some(0), None)
             val dto = ManufacturingDto(
               s.code.trim.nn,
-              toIso(s.date),
+              Formats.toIso(s.date),
               "not_started",
               List(task),
               Nil,
@@ -987,7 +880,7 @@ object OrdersPage:
     // ---- Edit modal rendering --------------------------------------------------------------------
     def editContent(order: OrderResponse): HtmlElement =
       // Viewers open the same modal in read-only mode ("Dettaglio"); mutations require the operator role.
-      val editable = isEditable(order.status) && AuthService.currentHasRole(Role.Operator)
+      val editable = OrderStatus.isEditable(order.status) && AuthService.currentHasRole(Role.Operator)
       val rowsByTask: Map[UUID, TaskEditRow] = editTasks.now().map(row => row.taskId -> row).toMap
       val mfgById: Map[UUID, MfgEditRow] = editMfgs.now().map(row => row.id -> row).toMap
 
@@ -1013,7 +906,7 @@ object OrdersPage:
                 div(
                   cls := "flex-1",
                   div(cls := "text-sm text-slate-700", nameNode),
-                  div(cls := "text-xs text-slate-400", statusLabel(t.status)),
+                  div(cls := "text-xs text-slate-400", OrderStatus.label(t.status)),
                 ),
                 field(
                   "Dipendente",
@@ -1062,7 +955,7 @@ object OrdersPage:
               div(
                 cls := "text-xs text-slate-500",
                 child.text <-- employeeSuffix.map(suffix =>
-                  s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${statusLabel(t.status)}$suffix",
+                  s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${OrderStatus.label(t.status)}$suffix",
                 ),
               ),
             )
@@ -1371,7 +1264,7 @@ object OrdersPage:
               h2(
                 cls := "text-sm font-semibold text-slate-800",
                 child.text <-- editing.signal.map(
-                  _.map(o => s"${if isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse(""),
+                  _.map(o => s"${if OrderStatus.isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse(""),
                 ),
               ),
               button(cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => editing.set(None))),
@@ -1417,7 +1310,7 @@ object OrdersPage:
       val detailsButton = button(
         tpe := "button",
         cls := btnSmall,
-        if isEditable(order.status) && canOperate then "Modifica" else "Dettagli",
+        if OrderStatus.isEditable(order.status) && canOperate then "Modifica" else "Dettagli",
         onClick --> (_ => openEdit(order)),
       )
       // Cancelling removes the order (DELETE), which the server restricts to admins.

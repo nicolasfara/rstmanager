@@ -79,20 +79,7 @@ object PlanningPage:
       yield CompletedRow(order, manufacturing, task)
     rows.sortBy(_.task.completionDate.getOrElse(""))(using Ordering[String].reverse)
 
-  /** Only in-progress and suspended orders accept task edits (see the domain `Order` aggregate). */
-  private def isOrderEditable(status: String): Boolean = status == "in_progress" || status == "suspended"
-
-  private def statusLabel(status: String): String = status match
-    case "pending" => "In attesa"
-    case "in_progress" => "In corso"
-    case "suspended" => "Sospeso"
-    case "completed" => "Completato"
-    case "delivered" => "Consegnato"
-    case "cancelled" => "Annullato"
-    case "not_started" => "Non iniziata"
-    case "paused" => "In pausa"
-    case other => other
-
+  /** Human phrasing for how much a manufacturing's completion date slips between two ISO instants. */
   private def delayAmount(fromIso: String, toIso: String): String =
     Formats.daysUntil(fromIso, toIso) match
       case Some(1) => "Slitta di 1 giorno"
@@ -509,7 +496,7 @@ object PlanningPage:
         td(
           cls := "px-4 py-2 text-right",
           if !AuthService.currentHasRole(Role.Operator) then emptyNode
-          else if isOrderEditable(row.order.status) then
+          else if OrderStatus.isEditable(row.order.status) then
             button(
               tpe := "button",
               cls := btnSmall,
@@ -546,7 +533,7 @@ object PlanningPage:
           ),
         ),
         if !AuthService.currentHasRole(Role.Operator) then emptyNode
-        else if isOrderEditable(row.order.status) then
+        else if OrderStatus.isEditable(row.order.status) then
           button(
             tpe := "button",
             cls := btnSmall,
@@ -642,7 +629,7 @@ object PlanningPage:
         ),
         div(
           cls := "mt-2 flex flex-wrap gap-1.5",
-          delayMetric("Stato", order.map(o => statusLabel(o.status)).getOrElse("Non trovato")),
+          delayMetric("Stato", order.map(o => OrderStatus.label(o.status)).getOrElse("Non trovato")),
           delayMetric("Priorità", order.map(_.priority).getOrElse("—")),
           delayMetric("Lavorazioni", order.map(_.manufacturings.size.toString).getOrElse("—")),
         ),
@@ -686,7 +673,7 @@ object PlanningPage:
         ),
         div(
           cls := "mt-2 flex flex-wrap gap-1.5",
-          delayMetric("Stato", manufacturing.map(m => statusLabel(m.status)).getOrElse("Non trovata")),
+          delayMetric("Stato", manufacturing.map(m => OrderStatus.label(m.status)).getOrElse("Non trovata")),
           delayMetric("Task", taskCount.map(_.toString).getOrElse("—")),
           delayMetric("Ore", expectedHours.map(hours => s"${hours}h").getOrElse("—")),
         ),

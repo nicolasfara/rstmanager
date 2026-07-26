@@ -128,7 +128,8 @@ lazy val frontend = project
       "com.raquo" %%% "laminar" % "17.2.0",
       "io.circe" %%% "circe-core" % circeVersion,
       "io.circe" %%% "circe-generic" % circeVersion,
-      "io.circe" %%% "circe-parser" % circeVersion
+      "io.circe" %%% "circe-parser" % circeVersion,
+      "org.scalatest" %%% "scalatest" % "3.2.20" % Test
     )
   )
 

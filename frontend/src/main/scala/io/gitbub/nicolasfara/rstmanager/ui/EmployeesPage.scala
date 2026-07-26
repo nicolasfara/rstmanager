@@ -18,7 +18,6 @@ object EmployeesPage:
   private val overrideKinds = List("working_day" -> "Giorno lavorativo", "vacation" -> "Ferie")
 
   /** HTML date inputs yield `yyyy-MM-dd`; the API expects a full ISO-8601 instant. */
-  private def toIso(day: String): String = if day.isEmpty then "" else s"${day}T00:00:00.000Z"
 
   private def describeContract(c: EmployeeContractDto): String = c.kind match
     case "full_time" => s"Tempo pieno · dal ${Formats.date(c.startDate)}"
@@ -41,9 +40,9 @@ object EmployeesPage:
       budget: String,
   ):
     def contract: EmployeeContractDto = contractKind match
-      case "fixed_term" => EmployeeContractDto("fixed_term", toIso(startDate), Some(toIso(endDate)), None)
-      case "part_time" => EmployeeContractDto("part_time", toIso(startDate), None, weeklyHours.toIntOption)
-      case _ => EmployeeContractDto("full_time", toIso(startDate), None, None)
+      case "fixed_term" => EmployeeContractDto("fixed_term", Formats.toIso(startDate), Some(Formats.toIso(endDate)), None)
+      case "part_time" => EmployeeContractDto("part_time", Formats.toIso(startDate), None, weeklyHours.toIntOption)
+      case _ => EmployeeContractDto("full_time", Formats.toIso(startDate), None, None)
 
     def request: EmployeeRequest =
       EmployeeRequest(name.trim.nn, surname.trim.nn, contract, budget.toIntOption.getOrElse(0), Nil)
@@ -72,13 +71,13 @@ object EmployeesPage:
       end: String,
   ):
     def toOverride: HoursOverrideDto = kind match
-      case "vacation" => HoursOverrideDto("vacation", None, None, None, Some(toIso(start)), Some(toIso(end)))
+      case "vacation" => HoursOverrideDto("vacation", None, None, None, Some(Formats.toIso(start)), Some(Formats.toIso(end)))
       case _ =>
         HoursOverrideDto(
           "working_day",
           hours.toIntOption,
           Some(reason.trim.nn).filter(_.nonEmpty),
-          Some(toIso(day)),
+          Some(Formats.toIso(day)),
           None,
           None,
         )

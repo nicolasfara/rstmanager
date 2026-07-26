@@ -33,7 +33,7 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
     () => newId(counter.next())
 
   private def taskResponse(id: UUID, hours: Int): TaskResponse =
-    TaskResponse(id, s"task-$id", None, hours)
+    TaskResponse(id, s"task-$id", None, hours, None)
 
   // Base fixtures; individual tests derive the variant they need via `.copy` (project style forbids method default args).
   private val baseCatalog: ManufacturingCatalogResponse =

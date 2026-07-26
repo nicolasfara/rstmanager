@@ -207,6 +207,9 @@ object OrdersPage:
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
     val ordersSnapshot = Var(List.empty[OrderResponse])
     val manufacturingCatalogs = Var(List.empty[ManufacturingCatalogResponse])
+    // Synchronous view of each catalog task's default employee, used to propose it when a task is picked in custom mode.
+    val taskDefaultEmployees = Var(Map.empty[String, UUID])
+    def proposedEmployee(taskId: String): String = taskDefaultEmployees.now().get(taskId).map(_.toString).getOrElse("")
 
     val customersMap: Signal[Map[UUID, String]] = customersData.map {
       case Some(Right(list)) => list.map(c => c.id -> c.businessName.getOrElse(s"${c.name} ${c.surname}")).toMap
@@ -634,7 +637,8 @@ object OrdersPage:
               selectInput(
                 t.state.signal.map(_.taskId),
                 Observer[String] { next =>
-                  t.state.update(ts => ts.copy(taskId = next, dependsOn = ts.dependsOn - next))
+                  // Propose the picked task's default employee; still overridable in the row.
+                  t.state.update(ts => ts.copy(taskId = next, dependsOn = ts.dependsOn - next, employeeId = proposedEmployee(next)))
                   m.tasks.update(_.map(identity))
                 },
                 taskOptions,
@@ -975,7 +979,11 @@ object OrdersPage:
                   cls := "flex-1",
                   field(
                     "Task",
-                    selectInput(addTaskState.signal.map(_.taskId), Observer[String](v => addTaskState.update(_.copy(taskId = v))), taskOptions),
+                    selectInput(
+                      addTaskState.signal.map(_.taskId),
+                      Observer[String](v => addTaskState.update(_.copy(taskId = v, employee = proposedEmployee(v)))),
+                      taskOptions,
+                    ),
                   ),
                 ),
                 field(
@@ -1168,7 +1176,11 @@ object OrdersPage:
                         cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem]",
                         field(
                           "Primo task",
-                          selectInput(addMfgState.signal.map(_.taskId), Observer[String](v => addMfgState.update(_.copy(taskId = v))), taskOptions),
+                          selectInput(
+                            addMfgState.signal.map(_.taskId),
+                            Observer[String](v => addMfgState.update(_.copy(taskId = v, employee = proposedEmployee(v)))),
+                            taskOptions,
+                          ),
                         ),
                         field(
                           "Ore",
@@ -1407,6 +1419,10 @@ object OrdersPage:
     div(
       manufacturingCatalogData --> {
         case Some(Right(list)) => manufacturingCatalogs.set(list)
+        case _ => ()
+      },
+      tasksData --> {
+        case Some(Right(list)) => taskDefaultEmployees.set(list.flatMap(t => t.defaultEmployeeId.map(t.id.toString -> _)).toMap)
         case _ => ()
       },
       ordersData --> {

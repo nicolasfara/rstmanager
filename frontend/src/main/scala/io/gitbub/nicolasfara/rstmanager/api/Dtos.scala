@@ -93,8 +93,8 @@ object Dtos:
 
   // ---- Tasks (catalog) ---------------------------------------------------------------------------
 
-  final case class TaskRequest(name: String, description: Option[String], requiredHours: Int)
-  final case class TaskResponse(id: UUID, name: String, description: Option[String], requiredHours: Int)
+  final case class TaskRequest(name: String, description: Option[String], requiredHours: Int, defaultEmployeeId: Option[UUID] = None)
+  final case class TaskResponse(id: UUID, name: String, description: Option[String], requiredHours: Int, defaultEmployeeId: Option[UUID])
 
   // ---- Manufacturings (catalog) ------------------------------------------------------------------
 

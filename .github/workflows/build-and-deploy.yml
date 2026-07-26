@@ -28,6 +28,8 @@ jobs:
           signing-key: ${{ secrets.SIGNING_KEY }}
           signing-password: ${{ secrets.SIGNING_PASSWORD }}
           codecov-token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Check docker image build
+        run: docker compose -f docker-compose.yml build --pull --no-cache
   # release:
   #   permissions:
   #     contents: write

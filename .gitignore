@@ -11,3 +11,6 @@ node_modules/
 metals.sbt
 
 .DS_Store
+
+# Claude Code: track shared agents/config, ignore per-user local settings
+.claude/settings.local.json

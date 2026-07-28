@@ -21,7 +21,7 @@ object Role:
     case "admin" => Some(Admin)
     case _ => None
 
-final case class AuthUser(username: String, roles: Set[Role]):
+final case class AuthUser(username: String, displayName: String, roles: Set[Role]):
   def hasRole(required: Role): Boolean = roles.exists(_.satisfies(required))
 
 enum AuthState derives CanEqual:
@@ -114,10 +114,18 @@ object AuthService:
       .flatMap(stringClaim(_, "preferred_username"))
       .orElse(parsed.flatMap(stringClaim(_, "sub")))
       .getOrElse("utente")
+    val fullName = parsed.flatMap(stringClaim(_, "name")).map(_.trim.nn).filter(_.nonEmpty)
+    val givenFamily =
+      val givenName = parsed.flatMap(stringClaim(_, "given_name")).map(_.trim.nn).filter(_.nonEmpty)
+      val familyName = parsed.flatMap(stringClaim(_, "family_name")).map(_.trim.nn).filter(_.nonEmpty)
+      List(givenName, familyName).flatten match
+        case Nil => None
+        case parts => Some(parts.mkString(" "))
+    val displayName = fullName.orElse(givenFamily).getOrElse(username)
     val roles = parsed
       .flatMap(rolesClaim)
       .fold(Set.empty[Role])(_.flatMap(Role.fromString).toSet)
-    AuthUser(username, roles)
+    AuthUser(username, displayName, roles)
 
   /** Reads a top-level string claim from the parsed token, tolerating missing or non-string values. */
   private def stringClaim(claims: js.Dynamic, field: String): Option[String] =

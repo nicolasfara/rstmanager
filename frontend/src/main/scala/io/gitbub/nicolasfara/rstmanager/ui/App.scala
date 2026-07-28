@@ -116,10 +116,11 @@ object App:
     )
   end apply
 
+  // Desktop-only: user name + logout button live inline in the navbar. On mobile they move into the dropdown.
   private def logoutButton(user: AuthUser): HtmlElement =
     div(
-      cls := "flex items-center gap-2",
-      span(cls := "hidden sm:inline text-xs font-medium text-slate-500", user.username),
+      cls := "hidden sm:flex items-center gap-2",
+      span(cls := "text-xs font-medium text-slate-500", user.displayName),
       button(
         tpe := "button",
         cls := "rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors",
@@ -189,7 +190,16 @@ object App:
                     ),
                   )
                 },
-                div(cls := "mt-1 border-t border-slate-200 pt-2 px-3 text-xs font-medium text-slate-500", user.username),
+                div(
+                  cls := "mt-1 flex items-center justify-between gap-2 border-t border-slate-200 pt-2 px-3",
+                  span(cls := "text-xs font-medium text-slate-500", user.displayName),
+                  button(
+                    tpe := "button",
+                    cls := "rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors",
+                    "Esci",
+                    onClick --> (_ => AuthService.logout()),
+                  ),
+                ),
               ),
             ),
           )

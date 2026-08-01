@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 
 import cats.data.*
 import cats.syntax.all.*
@@ -41,9 +41,9 @@ type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing descr
  *   Dependency graph between tasks.
  * @param defaultEmployees
  *   Default employee proposed for each task when the manufacturing is scheduled inside an order; keys must reference `taskIds`.
- * @param taskHours
- *   Per-task override of the effort proposed when the manufacturing is scheduled inside an order; a task without an entry falls back to the hours
- *   declared in the task catalog. Keys must reference `taskIds`.
+ * @param taskDurations
+ *   Per-task override of the effort (in minutes) proposed when the manufacturing is scheduled inside an order; a task without an entry falls back to
+ *   the duration declared in the task catalog. Keys must reference `taskIds`.
  */
 final case class Manufacturing(
     id: ManufacturingId,
@@ -53,10 +53,10 @@ final case class Manufacturing(
     taskIds: NonEmptyList[TaskId],
     dependencies: ManufacturingDependencies,
     defaultEmployees: Map[TaskId, EmployeeId] = Map.empty,
-    taskHours: Map[TaskId, TaskHours] = Map.empty,
+    taskDurations: Map[TaskId, TaskDuration] = Map.empty,
 ):
-  /** Expected effort for one task: the catalog override if present, otherwise the task's own required hours from the task catalog. */
-  def hoursForTask(taskId: TaskId, catalogHours: TaskHours): TaskHours = taskHours.getOrElse(taskId, catalogHours)
+  /** Expected effort (minutes) for one task: the catalog override if present, otherwise the task's own required duration from the task catalog. */
+  def durationForTask(taskId: TaskId, catalogDuration: TaskDuration): TaskDuration = taskDurations.getOrElse(taskId, catalogDuration)
 
 object Manufacturing:
   /** Creates a catalog manufacturing from raw values and validated task dependency edges. */
@@ -68,7 +68,7 @@ object Manufacturing:
       taskIds: List[TaskId],
       dependencies: ManufacturingDependencies,
       defaultEmployees: Map[TaskId, EmployeeId],
-      taskHours: Map[TaskId, Int],
+      taskDurations: Map[TaskId, Int],
   ): ValidatedNec[String, Manufacturing] =
     (
       Validated.validNec(id),
@@ -78,7 +78,7 @@ object Manufacturing:
       validateTaskIds(taskIds),
       validateDependencies(taskIds, dependencies),
       validateDefaultEmployees(taskIds, defaultEmployees),
-      validateTaskHours(taskIds, taskHours),
+      validateTaskDurations(taskIds, taskDurations),
     ).mapN(Manufacturing(_, _, _, _, _, _, _, _))
 
   private def validateTaskIds(taskIds: List[TaskId]): ValidatedNec[String, NonEmptyList[TaskId]] =
@@ -106,15 +106,15 @@ object Manufacturing:
     if outside.isEmpty then defaultEmployees.validNec
     else s"Default employees reference task ids that are not part of this manufacturing: ${outside.mkString(", ")}".invalidNec
 
-  private def validateTaskHours(
+  private def validateTaskDurations(
       taskIds: List[TaskId],
-      taskHours: Map[TaskId, Int],
-  ): ValidatedNec[String, Map[TaskId, TaskHours]] =
+      taskDurations: Map[TaskId, Int],
+  ): ValidatedNec[String, Map[TaskId, TaskDuration]] =
     val allowed = taskIds.toSet
-    val outside = taskHours.keys.filterNot(allowed.contains).toList
+    val outside = taskDurations.keys.filterNot(allowed.contains).toList
     val membership =
       if outside.isEmpty then ().validNec
-      else s"Task hours overrides reference task ids that are not part of this manufacturing: ${outside.mkString(", ")}".invalidNec
-    val refined = taskHours.toList.traverse { case (taskId, hours) => TaskHours.validatedNec(hours).map(taskId -> _) }.map(_.toMap)
-    (membership, refined).mapN((_, hoursMap) => hoursMap)
+      else s"Task duration overrides reference task ids that are not part of this manufacturing: ${outside.mkString(", ")}".invalidNec
+    val refined = taskDurations.toList.traverse { case (taskId, minutes) => TaskDuration.validatedNec(minutes).map(taskId -> _) }.map(_.toMap)
+    (membership, refined).mapN((_, durationMap) => durationMap)
 end Manufacturing

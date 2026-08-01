@@ -9,7 +9,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturin
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ OrderData, OrderId, OrderNumber, OrderPriority }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskHours, TaskId, TaskName }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskDuration, TaskId, TaskName }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 
 import cats.data.NonEmptyList
@@ -33,13 +33,14 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
       BudgetHours(WeeklyHours.applyUnsafe(40), Nil),
     )
 
+  // Scenarios are expressed in whole hours; the domain stores minutes, so hour figures are scaled by 60.
   private def existingOrder(id: OrderId, hours: Int): InProgressOrder =
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
         UUID.randomUUID().nn,
         "MFG-EXISTING".refineUnsafe[ManufacturingCode],
         monday.plusDays(5).nn,
-        NonEmptyList.one(PendingTask(UUID.randomUUID().nn, UUID.randomUUID().nn, TaskHours.applyUnsafe(hours))),
+        NonEmptyList.one(PendingTask(UUID.randomUUID().nn, UUID.randomUUID().nn, TaskDuration.applyUnsafe(hours * 60))),
         ManufacturingDependencies(),
       ),
     )
@@ -58,7 +59,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
   end existingOrder
 
   private def catalogTask(id: TaskId, name: String, hours: Int): Task =
-    Task(id, name.refineUnsafe[TaskName], None, TaskHours.applyUnsafe(hours))
+    Task(id, name.refineUnsafe[TaskName], None, TaskDuration.applyUnsafe(hours * 60))
 
   private def template(taskIds: NonEmptyList[TaskId], dependencies: ManufacturingDependencies): Manufacturing =
     Manufacturing(
@@ -80,9 +81,9 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
       case Left(errors) => fail(s"Expected a simulation result, got: ${errors.toList.mkString(", ")}")
 
   "OrderSimulationService" should "estimate the completion date of a total-hours demand on an empty plan" in:
-    val result = simulateOrFail(Nil, List(employee(employeeA)), SimulationDemand.TotalHours(TaskHours(20)))
+    val result = simulateOrFail(Nil, List(employee(employeeA)), SimulationDemand.TotalDuration(TaskDuration(20 * 60)))
 
-    result.totalHours shouldEqual 20
+    result.totalMinutes shouldEqual 20 * 60
     result.startDate shouldEqual Some(monday)
     result.estimatedCompletionDate shouldEqual Some(wednesday)
     result.unplannedReasons shouldBe empty
@@ -90,7 +91,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
   it should "plan the simulated order after the existing commitments" in:
     // The existing order fills Monday entirely (8h), so the simulated 8 hours only start on Tuesday.
     val result =
-      simulateOrFail(List(existingOrder(UUID.randomUUID().nn, 8)), List(employee(employeeA)), SimulationDemand.TotalHours(TaskHours(8)))
+      simulateOrFail(List(existingOrder(UUID.randomUUID().nn, 8)), List(employee(employeeA)), SimulationDemand.TotalDuration(TaskDuration(8 * 60)))
 
     result.startDate shouldEqual Some(tuesday)
     result.estimatedCompletionDate shouldEqual Some(tuesday)
@@ -105,13 +106,13 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
     )
     val result = simulateOrFail(Nil, List(employee(employeeA)), SimulationDemand.FromManufacturings(selection))
 
-    result.totalHours shouldEqual 12
+    result.totalMinutes shouldEqual 12 * 60
     result.startDate shouldEqual Some(monday)
     // The dependent 4h task can only run the day after the 8h prerequisite completes.
     result.estimatedCompletionDate shouldEqual Some(tuesday)
 
   it should "report the simulated order as unfeasible when there is no workforce" in:
-    val result = simulateOrFail(Nil, Nil, SimulationDemand.TotalHours(TaskHours(8)))
+    val result = simulateOrFail(Nil, Nil, SimulationDemand.TotalDuration(TaskDuration(8 * 60)))
 
     result.estimatedCompletionDate shouldEqual None
     result.startDate shouldEqual None

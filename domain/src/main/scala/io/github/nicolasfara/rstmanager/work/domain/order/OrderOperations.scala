@@ -13,7 +13,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.syntax.all.*
@@ -39,7 +39,7 @@ object OrderOperations:
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      advancedBy: TaskHours,
+      advancedBy: TaskDuration,
   ): Either[OrderError, InProgressOrder] =
     def advance(data: OrderData, promisedDeliveryDate: DateTime): Either[OrderError, InProgressOrder] =
       for
@@ -56,7 +56,7 @@ object OrderOperations:
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      rollbackBy: TaskHours,
+      rollbackBy: TaskDuration,
   ): Either[OrderError, InProgressOrder] =
     def rollback(data: OrderData, promisedDeliveryDate: DateTime): Either[OrderError, InProgressOrder] =
       for
@@ -68,23 +68,23 @@ object OrderOperations:
       case InProgressOrder(data, promisedDeliveryDate) => rollback(data, promisedDeliveryDate)
       case SuspendedOrder(data, promisedDeliveryDate, _, _) => rollback(data, promisedDeliveryDate)
 
-  /** Sets the absolute progress (completed hours) of a task inside one of the order manufacturings. */
+  /** Sets the absolute progress (completed minutes) of a task inside one of the order manufacturings. */
   def setTaskProgress(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      completedHours: TaskHours,
+      completedDuration: TaskDuration,
   ): Either[OrderError, InProgressOrder] =
-    updateManufacturing(order, manufacturingId)(_.setTaskProgress(taskId, completedHours))
+    updateManufacturing(order, manufacturingId)(_.setTaskProgress(taskId, completedDuration))
 
-  /** Changes the total expected hours of a task inside one of the order manufacturings. */
-  def changeTaskExpectedHours(
+  /** Changes the total expected duration of a task inside one of the order manufacturings. */
+  def changeTaskExpectedDuration(
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      expectedHours: TaskHours,
+      expectedDuration: TaskDuration,
   ): Either[OrderError, InProgressOrder] =
-    updateManufacturing(order, manufacturingId)(_.changeTaskExpectedHours(taskId, expectedHours))
+    updateManufacturing(order, manufacturingId)(_.changeTaskExpectedDuration(taskId, expectedDuration))
 
   /** Sets (or clears) the preferred employee for one of the order manufacturings. */
   def changeManufacturingPreferredEmployee(
@@ -224,12 +224,12 @@ object OrderOperations:
       order: InProgressOrder | SuspendedOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      withHours: TaskHours,
+      withDuration: TaskDuration,
   ): Either[OrderError, Order] =
     def complete(data: OrderData, promisedDeliveryDate: DateTime): Either[OrderError, Order] =
       for
         manufacturing <- data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
-        updatedManufacturing <- manufacturing.completeTask(taskId, withHours).leftMap(OrderError.ManufacturingError.apply)
+        updatedManufacturing <- manufacturing.completeTask(taskId, withDuration).leftMap(OrderError.ManufacturingError.apply)
         updatedData = data.replaceManufacturing(updatedManufacturing)
       yield
         if areAllManufacturingsCompleted(updatedData) then CompletedOrder(updatedData, DateTime.now())

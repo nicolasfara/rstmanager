@@ -11,7 +11,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturin
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
@@ -35,13 +35,14 @@ class PlanningModelTest extends AnyFlatSpecLike:
 
   private def candidate: CandidateEmployee = candidateWithHours(8, 4)
 
+  // `assignedHours` is expressed in whole hours; the domain stores minutes, so it is scaled by 60 before creating the candidate.
   private def candidateWithHours(availableHours: Int, assignedHours: Int): CandidateEmployee =
-    validOrFail(CandidateEmployee.create(employeeId, DailyHours.applyUnsafe(availableHours), TaskHours.applyUnsafe(assignedHours)))
+    validOrFail(CandidateEmployee.create(employeeId, DailyHours.applyUnsafe(availableHours), TaskDuration.applyUnsafe(assignedHours * 60)))
 
   private def slice: ScheduledTaskSlice = sliceForDay(day)
 
   private def sliceForDay(sliceDay: DateTime): ScheduledTaskSlice =
-    ScheduledTaskSlice(orderId, manufacturingId, taskId, sliceDay, candidate, TaskHours(12))
+    ScheduledTaskSlice(orderId, manufacturingId, taskId, sliceDay, candidate, TaskDuration(12))
 
   private def dailySchedule: DailySchedule = dailyScheduleForDay(day)
 
@@ -59,7 +60,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
   private def unplannedOrder: UnplannedOrder =
     UnplannedOrder(
       orderId,
-      NonEmptyList.one(UnplannedTask(manufacturingId, taskId, UnplannedReason.NoFutureCapacity(TaskHours(8)))),
+      NonEmptyList.one(UnplannedTask(manufacturingId, taskId, UnplannedReason.NoFutureCapacity(TaskDuration(8)))),
     )
 
   private def orderData(
@@ -84,21 +85,21 @@ class PlanningModelTest extends AnyFlatSpecLike:
         manufacturingId,
         "MFG-TEST".refineUnsafe[ManufacturingCode],
         nextDay,
-        NonEmptyList.one(PendingTask(UUID.randomUUID().nn, UUID.randomUUID().nn: TaskId, TaskHours(8))),
+        NonEmptyList.one(PendingTask(UUID.randomUUID().nn, UUID.randomUUID().nn: TaskId, TaskDuration(8))),
         ManufacturingDependencies(),
       ),
     )
 
   "CandidateEmployee" should "accept a positive assignment within available hours" in:
-    candidateWithHours(8, 8).assignedHours shouldEqual TaskHours(8)
+    candidateWithHours(8, 8).assignedDuration shouldEqual TaskDuration(8 * 60)
 
   it should "reject a zero assignment" in:
-    CandidateEmployee.create(employeeId, DailyHours(8), TaskHours(0)).toEither.left.map(_.head) shouldEqual
-      Left(InvalidEmployeeAssignment(DailyHours(8), TaskHours(0)))
+    CandidateEmployee.create(employeeId, DailyHours(8), TaskDuration(0)).toEither.left.map(_.head) shouldEqual
+      Left(InvalidEmployeeAssignment(DailyHours(8), TaskDuration(0)))
 
   it should "reject an assignment above available hours" in:
-    CandidateEmployee.create(employeeId, DailyHours(4), TaskHours(5)).toEither.left.map(_.head) shouldEqual
-      Left(InvalidEmployeeAssignment(DailyHours(4), TaskHours(5)))
+    CandidateEmployee.create(employeeId, DailyHours(4), TaskDuration(5 * 60)).toEither.left.map(_.head) shouldEqual
+      Left(InvalidEmployeeAssignment(DailyHours(4), TaskDuration(5 * 60)))
 
   "DailySchedule" should "reject empty slices" in:
     DailySchedule.create(day, Nil).toEither.left.map(_.head) shouldEqual Left(EmptyDailySchedule(day))
@@ -140,11 +141,11 @@ class PlanningModelTest extends AnyFlatSpecLike:
     val unplanned = unplannedOrder
 
     unplanned.blockedTasks.head match
-      case UnplannedTask(blockedManufacturingId, blockedTaskId, UnplannedReason.NoFutureCapacity(requiredHours)) =>
+      case UnplannedTask(blockedManufacturingId, blockedTaskId, UnplannedReason.NoFutureCapacity(requiredDuration)) =>
         unplanned.orderId shouldEqual orderId
         blockedManufacturingId shouldEqual manufacturingId
         blockedTaskId shouldEqual taskId
-        requiredHours shouldEqual TaskHours(8)
+        requiredDuration shouldEqual TaskDuration(8)
       case other => fail(s"Unexpected error: $other")
 
   "Planning aggregate" should "transition from requested to completed through events" in:

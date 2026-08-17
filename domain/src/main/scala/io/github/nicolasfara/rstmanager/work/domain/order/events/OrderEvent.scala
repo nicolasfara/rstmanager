@@ -5,7 +5,7 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderDependencies, OrderPriority, SuspensionReason }
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import com.github.nscala_time.time.Imports.DateTime
@@ -88,19 +88,19 @@ enum OrderEvent:
   case ManufacturingTaskRemoved(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, removedOn: DateTime)
 
   /** Progress on a task within a manufacturing has been advanced. */
-  case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: TaskHours)
+  case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: TaskDuration)
 
   /** Progress on a task within a manufacturing has been rolled back. */
-  case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: TaskHours)
+  case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: TaskDuration)
 
-  /** The absolute progress (completed hours) of a task within a manufacturing has been set. */
-  case ManufacturingTaskProgressSet(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedHours: TaskHours)
+  /** The absolute progress (completed minutes) of a task within a manufacturing has been set. */
+  case ManufacturingTaskProgressSet(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedDuration: TaskDuration)
 
-  /** The total expected hours of a task within a manufacturing has been changed. */
-  case ManufacturingTaskExpectedHoursChanged(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedHours: TaskHours)
+  /** The total expected duration of a task within a manufacturing has been changed. */
+  case ManufacturingTaskExpectedHoursChanged(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedDuration: TaskDuration)
 
   /** A task within a manufacturing has been completed. */
-  case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
+  case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withDuration: TaskDuration)
 
   /** A completed task within a manufacturing has been reopened. */
   case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)

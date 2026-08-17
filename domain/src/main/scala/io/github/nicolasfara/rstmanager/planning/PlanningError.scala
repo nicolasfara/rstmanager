@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.planning
 import io.github.nicolasfara.rstmanager.hr.domain.DailyHours
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import com.github.nscala_time.time.Imports.DateTime
@@ -16,7 +16,7 @@ import com.github.nscala_time.time.Imports.DateTime
  */
 enum PlanningError derives CanEqual:
   /** Returned when an employee assignment is empty or exceeds the employee's available hours. */
-  case InvalidEmployeeAssignment(availableHours: DailyHours, assignedHours: TaskHours)
+  case InvalidEmployeeAssignment(availableHours: DailyHours, assignedDuration: TaskDuration)
 
   /** Returned when a planned order delay does not actually move completion after the expected work deadline. */
   case InvalidOrderDelay(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)

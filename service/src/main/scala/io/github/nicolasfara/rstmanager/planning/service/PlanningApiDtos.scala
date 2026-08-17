@@ -215,7 +215,7 @@ object PlanningApiDtos:
       taskId: UUID,
       day: String,
       candidateEmployee: CandidateEmployeeDto,
-      remainingHoursAfterSlice: Int,
+      remainingMinutesAfterSlice: Int,
   )
 
   object ScheduledTaskSliceDto:
@@ -226,14 +226,14 @@ object PlanningApiDtos:
         slice.taskId,
         formatDate(slice.day),
         CandidateEmployeeDto.fromDomain(slice.candidateEmployee),
-        slice.remainingHoursAfterSlice.value,
+        slice.remainingDurationAfterSlice.value,
       )
 
-  final case class CandidateEmployeeDto(employeeId: UUID, availableHours: Int, assignedHours: Int)
+  final case class CandidateEmployeeDto(employeeId: UUID, availableHours: Int, assignedMinutes: Int)
 
   object CandidateEmployeeDto:
     def fromDomain(candidate: CandidateEmployee): CandidateEmployeeDto =
-      CandidateEmployeeDto(candidate.employeeId, candidate.availableHours.value, candidate.assignedHours.value)
+      CandidateEmployeeDto(candidate.employeeId, candidate.availableHours.value, candidate.assignedDuration.value)
 
   final case class DelayedOrderDto(orderId: UUID, expectedDeliveryDate: String, promisedDeliveryDate: String)
 
@@ -272,7 +272,7 @@ object PlanningApiDtos:
   final case class UnplannedReasonDto(
       code: String,
       message: String,
-      requiredHours: Option[Int],
+      requiredMinutes: Option[Int],
       cycle: List[UUID],
       dependency: Option[UUID],
   )
@@ -280,11 +280,11 @@ object PlanningApiDtos:
   object UnplannedReasonDto:
     def fromDomain(reason: UnplannedReason): UnplannedReasonDto =
       reason match
-        case UnplannedReason.NoFutureCapacity(requiredHours) =>
+        case UnplannedReason.NoFutureCapacity(requiredDuration) =>
           UnplannedReasonDto(
             "no_future_capacity",
-            s"No future production day can provide ${requiredHours.value} hours.",
-            Some(requiredHours.value),
+            s"No future production day can provide ${formatDuration(requiredDuration.value)} of work.",
+            Some(requiredDuration.value),
             Nil,
             None,
           )
@@ -301,17 +301,17 @@ object PlanningApiDtos:
     def fromDomain(warning: PlanningWarning): PlanningWarningDto = PlanningWarningDto(warning.message)
 
   /**
-   * Order-simulation request: exactly one of `totalHours` (estimated total effort of the hypothetical order) or `manufacturingIds` (catalog
-   * manufacturing templates the order would need) must be provided.
+   * Order-simulation request: exactly one of `totalMinutes` (estimated total effort of the hypothetical order, in minutes) or `manufacturingIds`
+   * (catalog manufacturing templates the order would need) must be provided.
    */
-  final case class OrderSimulationRequest(totalHours: Option[Int], manufacturingIds: Option[List[UUID]])
+  final case class OrderSimulationRequest(totalMinutes: Option[Int], manufacturingIds: Option[List[UUID]])
 
   object OrderSimulationRequest:
-    val example: OrderSimulationRequest = OrderSimulationRequest(Some(40), None)
+    val example: OrderSimulationRequest = OrderSimulationRequest(Some(2400), None)
 
   final case class OrderSimulationResponse(
       feasible: Boolean,
-      totalHours: Int,
+      totalMinutes: Int,
       startDate: Option[String],
       estimatedCompletionDate: Option[String],
       reasons: List[UnplannedReasonDto],
@@ -321,7 +321,7 @@ object PlanningApiDtos:
     def fromDomain(result: OrderSimulationService.SimulationResult): OrderSimulationResponse =
       OrderSimulationResponse(
         result.estimatedCompletionDate.isDefined,
-        result.totalHours,
+        result.totalMinutes,
         result.startDate.map(formatDate),
         result.estimatedCompletionDate.map(formatDate),
         result.unplannedReasons.map(UnplannedReasonDto.fromDomain),
@@ -332,10 +332,10 @@ object PlanningApiDtos:
   object PlanningDomainErrorDto:
     def fromDomain(error: PlanningError): PlanningDomainErrorDto =
       error match
-        case PlanningError.InvalidEmployeeAssignment(availableHours, assignedHours) =>
+        case PlanningError.InvalidEmployeeAssignment(availableHours, assignedDuration) =>
           PlanningDomainErrorDto(
             "invalid_employee_assignment",
-            s"Assigned hours ${assignedHours.value} exceed available hours ${availableHours.value}.",
+            s"Assigned work ${formatDuration(assignedDuration.value)} exceeds available ${availableHours.value} hours.",
           )
         case PlanningError.InvalidOrderDelay(orderId, expectedDeliveryDate, promisedDeliveryDate) =>
           PlanningDomainErrorDto(
@@ -383,6 +383,11 @@ object PlanningApiDtos:
     value.trim.nn.toLowerCase(Locale.ROOT).nn.replace('-', '_').nn
 
   private def formatDate(value: DateTime): String = value.toString
+
+  /** Formats a duration given in total minutes as `H:MM` (e.g. 95 -> "1:35"). */
+  private def formatDuration(minutes: Int): String =
+    val mm = minutes % 60
+    s"${minutes / 60}:${if mm < 10 then s"0$mm" else mm.toString}"
 
   given CirceCodec[HealthResponse] = deriveCodec
   given CirceCodec[PlanningAttemptRequest] = deriveCodec

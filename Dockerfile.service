@@ -1,5 +1,5 @@
 ARG BUILD_IMAGE=sbtscala/scala-sbt:eclipse-temurin-25.0.3_9_1.12.13_3.3.8
-ARG RUNTIME_IMAGE=eclipse-temurin:25.0.3_9-jre-jammy
+ARG RUNTIME_IMAGE=eclipse-temurin:25.0.4_7-jre-jammy
 
 FROM ${BUILD_IMAGE} AS build
 

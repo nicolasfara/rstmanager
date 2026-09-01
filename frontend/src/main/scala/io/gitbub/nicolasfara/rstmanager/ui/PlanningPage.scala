@@ -165,9 +165,9 @@ object PlanningPage:
     // ---- Task modal ------------------------------------------------------------------------------
     def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String, preferred: Option[UUID]): Unit =
       if AuthService.currentHasRole(Role.Operator) then
-        val completed = task.completedHours.getOrElse(0)
+        val completed = task.completedMinutes.getOrElse(0)
         val prefStr = preferred.map(_.toString).getOrElse("")
-        val state = TaskModalState(completed.toString, task.expectedHours.toString, prefStr)
+        val state = TaskModalState(Formats.duration(completed), Formats.duration(task.expectedMinutes), prefStr)
         editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
         editKind.set(EditKind.Progress)
         editName.set(name)
@@ -177,7 +177,7 @@ object PlanningPage:
         modalOpen.set(true)
 
     def openReactivate(row: CompletedRow, name: String): Unit =
-      val initial = TaskModalState(row.task.completedHours.getOrElse(0).toString, row.task.expectedHours.toString, "")
+      val initial = TaskModalState(Formats.duration(row.task.completedMinutes.getOrElse(0)), Formats.duration(row.task.expectedMinutes), "")
       editing.set(Some((row.order.id, row.manufacturing.id, row.task.id)))
       editKind.set(EditKind.Reactivate)
       editName.set(name)
@@ -194,24 +194,28 @@ object PlanningPage:
       editing.now().foreach { case (orderId, manufacturingId, taskId) =>
         val state = editState.now()
         val tracker = editTracker.now()
-        val completed = state.completed.trim.nn.toIntOption
-        val expected = state.expected.trim.nn.toIntOption
+        val completedRaw = state.completed.trim.nn
+        val expectedRaw = state.expected.trim.nn
+        val completed = Formats.parseDuration(state.completed)
+        val expected = Formats.parseDuration(state.expected)
         val reactivating = editKind.now() == EditKind.Reactivate
-        if completed.exists(_ < 0) then
-          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore svolte non possono essere negative.", Nil))
+        if completedRaw.nonEmpty && completed.isEmpty then
+          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore svolte non sono valide. Usa il formato h:mm (es. 1:35).", Nil))
+        else if expectedRaw.nonEmpty && expected.isEmpty then
+          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali non sono valide. Usa il formato h:mm (es. 1:35).", Nil))
         else if expected.exists(_ < 1) then
-          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali devono essere almeno 1.", Nil))
+          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali devono essere almeno 1 minuto.", Nil))
         else if reactivating && !completed.zip(expected).exists((done, total) => done < total) then
           showError(modalError, "Aggiornamento task")(
             ApiError("invalid", "Per riportare il task in lavorazione le ore svolte devono essere inferiori alle ore totali.", Nil),
           )
         else
           val taskRequest = TaskProgressUpdateRequest(
-            completed.filter(_ => tracker.changed(_.completed.trim.nn.toIntOption)),
-            expected.filter(_ => tracker.changed(_.expected.trim.nn.toIntOption)),
+            completed.filter(_ => tracker.changed(s => Formats.parseDuration(s.completed))),
+            expected.filter(_ => tracker.changed(s => Formats.parseDuration(s.expected))),
           )
           val employeeChanged = !reactivating && tracker.changed(_.employeeId)
-          val hasTaskChanges = taskRequest.completedHours.isDefined || taskRequest.expectedHours.isDefined
+          val hasTaskChanges = taskRequest.completedMinutes.isDefined || taskRequest.expectedMinutes.isDefined
 
           if !hasTaskChanges && !employeeChanged then closeEdit()
           else
@@ -252,12 +256,12 @@ object PlanningPage:
           div(
             cls := "grid grid-cols-2 gap-3",
             field(
-              "Ore svolte",
-              textInput(editState.signal.map(_.completed), Observer[String](v => editState.update(_.copy(completed = v))), "", "number"),
+              "Ore svolte (h:mm)",
+              textInput(editState.signal.map(_.completed), Observer[String](v => editState.update(_.copy(completed = v))), "1:35"),
             ),
             field(
-              "Ore totali",
-              textInput(editState.signal.map(_.expected), Observer[String](v => editState.update(_.copy(expected = v))), "", "number"),
+              "Ore totali (h:mm)",
+              textInput(editState.signal.map(_.expected), Observer[String](v => editState.update(_.copy(expected = v))), "1:35"),
             ),
           ),
           child <-- editKind.signal.map {
@@ -319,7 +323,7 @@ object PlanningPage:
         )
       // The task's overall progress: (completed, expected) hours.
       val progress: Signal[Option[(Int, Int)]] =
-        scheduledTaskById.map(_.get(slice.taskId).map(task => (task.completedHours.getOrElse(0), task.expectedHours)))
+        scheduledTaskById.map(_.get(slice.taskId).map(task => (task.completedMinutes.getOrElse(0), task.expectedMinutes)))
       div(
         cls := "rounded-lg border p-2.5 cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
         cls <-- urgency.map(_.cardCls),
@@ -339,7 +343,7 @@ object PlanningPage:
           ),
           span(
             cls := "shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600",
-            s"${slice.candidateEmployee.assignedHours}h",
+            s"${Formats.duration(slice.candidateEmployee.assignedMinutes)}h",
           ),
         ),
         // Task name (prominent) + urgency badge
@@ -372,7 +376,7 @@ object PlanningPage:
             span(
               cls := "font-semibold tabular-nums text-slate-700",
               child.text <-- progress.map {
-                case Some((completed, expected)) => s"$completed/${expected}h"
+                case Some((completed, expected)) => s"${Formats.duration(completed)}/${Formats.duration(expected)}h"
                 case None => "—"
               },
             ),
@@ -399,7 +403,7 @@ object PlanningPage:
               child.text <-- employeeNames.map(_.getOrElse(slice.candidateEmployee.employeeId, Formats.shortId(slice.candidateEmployee.employeeId))),
             ),
           ),
-          span(cls := "shrink-0 tabular-nums text-slate-400", s"resta ${slice.remainingHoursAfterSlice}h"),
+          span(cls := "shrink-0 tabular-nums text-slate-400", s"resta ${Formats.duration(slice.remainingMinutesAfterSlice)}h"),
         ),
       )
     end sliceCard
@@ -491,7 +495,10 @@ object PlanningPage:
         ),
         td(cls := "px-4 py-2 text-slate-600", row.order.number),
         td(cls := "px-4 py-2 text-slate-500", row.manufacturing.code),
-        td(cls := "px-4 py-2 tabular-nums text-slate-600", s"${row.task.completedHours.getOrElse(0)}/${row.task.expectedHours}h"),
+        td(
+          cls := "px-4 py-2 tabular-nums text-slate-600",
+          s"${Formats.duration(row.task.completedMinutes.getOrElse(0))}/${Formats.duration(row.task.expectedMinutes)}h",
+        ),
         td(cls := "px-4 py-2 text-slate-500", row.task.completionDate.map(Formats.date).getOrElse("—")),
         td(
           cls := "px-4 py-2 text-right",
@@ -525,7 +532,10 @@ object PlanningPage:
           cls := "flex flex-wrap gap-x-4 gap-y-0.5 text-xs",
           span(
             span(cls := "text-slate-400", "Ore "),
-            span(cls := "tabular-nums text-slate-600", s"${row.task.completedHours.getOrElse(0)}/${row.task.expectedHours}h"),
+            span(
+              cls := "tabular-nums text-slate-600",
+              s"${Formats.duration(row.task.completedMinutes.getOrElse(0))}/${Formats.duration(row.task.expectedMinutes)}h",
+            ),
           ),
           span(
             span(cls := "text-slate-400", "Completato "),
@@ -642,7 +652,7 @@ object PlanningPage:
       val manufacturing = context.map(_.manufacturing)
       val order = context.map(_.order)
       val taskCount = manufacturing.map(_.tasks.size)
-      val expectedHours = manufacturing.map(_.tasks.map(_.expectedHours).sum)
+      val expectedMinutes = manufacturing.map(_.tasks.map(_.expectedMinutes).sum)
       div(
         cls := "rounded-md border border-orange-200 bg-white/80 p-2 shadow-sm",
         div(
@@ -675,7 +685,7 @@ object PlanningPage:
           cls := "mt-2 flex flex-wrap gap-1.5",
           delayMetric("Stato", manufacturing.map(m => OrderStatus.label(m.status)).getOrElse("Non trovata")),
           delayMetric("Task", taskCount.map(_.toString).getOrElse("—")),
-          delayMetric("Ore", expectedHours.map(hours => s"${hours}h").getOrElse("—")),
+          delayMetric("Ore", expectedMinutes.map(minutes => s"${Formats.duration(minutes)}h").getOrElse("—")),
         ),
         div(cls := "mt-2", datePair("Deadline", delay.expectedCompletionDate, "Stima", delay.computedCompletionDate)),
       )
@@ -745,7 +755,7 @@ object PlanningPage:
         selected.groupBy(identity).toList.flatMap { case (id, occurrences) => byId.get(id).map(_ -> occurrences.size) }.sortBy(_._1.name)
       }
     // Client-side preview of the selected templates' default hours (the backend recomputes them authoritatively).
-    val simSelectedHours: Signal[Int] = simRows.map(_.map((entry, count) => entry.totalRequiredHours * count).sum)
+    val simSelectedMinutes: Signal[Int] = simRows.map(_.map((entry, count) => entry.totalRequiredMinutes * count).sum)
 
     def simAdd(id: UUID): Unit =
       simSelected.update(_ :+ id)
@@ -768,10 +778,10 @@ object PlanningPage:
       def invalid(message: String): Unit = simResult.set(Some(Left(ApiError("invalid", message, Nil))))
       val request = simMode.now() match
         case "hours" =>
-          simHours.now().trim.nn.toIntOption match
-            case Some(hours) if hours >= 1 => Some(OrderSimulationRequest(Some(hours), None))
+          Formats.parseDuration(simHours.now()) match
+            case Some(minutes) if minutes >= 1 => Some(OrderSimulationRequest(Some(minutes), None))
             case _ =>
-              invalid("Inserisci un numero di ore valido (almeno 1).")
+              invalid("Inserisci una durata valida nel formato h:mm (es. 40:00).")
               None
         case _ =>
           val ids = simSelected.now().toList
@@ -845,7 +855,7 @@ object PlanningPage:
                       div(cls := "truncate text-sm text-slate-700", entry.name),
                       div(cls := "truncate text-xs text-slate-400", entry.code),
                     ),
-                    span(cls := "shrink-0 text-xs tabular-nums text-slate-500", s"${entry.totalRequiredHours}h"),
+                    span(cls := "shrink-0 text-xs tabular-nums text-slate-500", s"${Formats.duration(entry.totalRequiredMinutes)}h"),
                     // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
                     onMouseDown.preventDefault --> { _ => simAdd(entry.id) },
                   )
@@ -874,7 +884,7 @@ object PlanningPage:
             if count > 1 then span(cls := "shrink-0 rounded bg-slate-200 px-1.5 text-xs font-semibold tabular-nums text-slate-700", s"×$count")
             else emptyNode,
           ),
-          div(cls := "truncate text-xs text-slate-400", s"${entry.code} · ${entry.totalRequiredHours}h cad."),
+          div(cls := "truncate text-xs text-slate-400", s"${entry.code} · ${Formats.duration(entry.totalRequiredMinutes)}h cad."),
         ),
         div(
           cls := "flex shrink-0 items-center gap-1",
@@ -899,7 +909,7 @@ object PlanningPage:
           div(
             cls := "mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-emerald-700",
             response.startDate.map(start => span(s"Inizio lavori: ${Formats.date(start)}")).getOrElse(emptyNode),
-            span(s"Ore da pianificare: ${response.totalHours}h"),
+            span(s"Ore da pianificare: ${Formats.duration(response.totalMinutes)}h"),
           ),
           p(
             cls := "mt-1.5 text-xs text-emerald-600",
@@ -939,7 +949,7 @@ object PlanningPage:
                 case "hours" =>
                   div(
                     cls := "max-w-xs",
-                    field("Ore complessive stimate", textInput(simHours, "es. 40", "number")),
+                    field("Ore complessive stimate (h:mm)", textInput(simHours, "es. 40:00")),
                   )
                 case _ =>
                   div(
@@ -962,9 +972,9 @@ object PlanningPage:
                           },
                           div(
                             cls := "text-xs text-slate-500",
-                            child.text <-- simSelected.signal.combineWith(simSelectedHours).map { case (selected, hours) =>
+                            child.text <-- simSelected.signal.combineWith(simSelectedMinutes).map { case (selected, minutes) =>
                               if selected.isEmpty then ""
-                              else s"${selected.size} lavorazioni selezionate · ${hours}h stimate da catalogo"
+                              else s"${selected.size} lavorazioni selezionate · ${Formats.duration(minutes)}h stimate da catalogo"
                             },
                           ),
                         )

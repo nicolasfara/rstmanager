@@ -35,7 +35,7 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           task.id shouldEqual id
           task.name.toString shouldEqual name
           task.taskDescription.map(_.toString) shouldEqual desc
-          task.requiredHours.value shouldEqual hours
+          task.requiredDuration.value shouldEqual hours
           task.defaultEmployeeId shouldEqual employee
 
   it should "allow zero as a valid requiredHours value" in:
@@ -65,31 +65,31 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
       errors.swap.foreach(_.length shouldEqual 2L)
 
   // ---------------------------------------------------------------------------
-  // TaskHours – Monoid laws
+  // TaskDuration – Monoid laws
   // ---------------------------------------------------------------------------
 
-  "TaskHours Monoid" should "satisfy left identity: empty + x == x" in:
+  "TaskDuration Monoid" should "satisfy left identity: empty + x == x" in:
     forAll(genNonNegativeInt): n =>
-      val h = TaskHours.applyUnsafe(n)
-      (TaskHours.applyUnsafe(0) + h) shouldEqual h
+      val h = TaskDuration.applyUnsafe(n)
+      (TaskDuration.applyUnsafe(0) + h) shouldEqual h
 
   it should "satisfy right identity: x + empty == x" in:
     forAll(genNonNegativeInt): n =>
-      val h = TaskHours.applyUnsafe(n)
-      (h + TaskHours.applyUnsafe(0)) shouldEqual h
+      val h = TaskDuration.applyUnsafe(n)
+      (h + TaskDuration.applyUnsafe(0)) shouldEqual h
 
   it should "satisfy associativity: (a + b) + c == a + (b + c)" in:
-    // Bound values to avoid Int overflow when summing three TaskHours
+    // Bound values to avoid Int overflow when summing three TaskDuration
     val genSafeHours = Gen.chooseNum(0, Int.MaxValue / 3)
     forAll(genSafeHours, genSafeHours, genSafeHours): (a, b, c) =>
-      val ha = TaskHours.applyUnsafe(a)
-      val hb = TaskHours.applyUnsafe(b)
-      val hc = TaskHours.applyUnsafe(c)
+      val ha = TaskDuration.applyUnsafe(a)
+      val hb = TaskDuration.applyUnsafe(b)
+      val hc = TaskDuration.applyUnsafe(c)
       ((ha + hb) + hc) shouldEqual (ha + (hb + hc))
 
   it should "have subtraction return the raw Int difference" in:
     forAll(genNonNegativeInt, genNonNegativeInt): (a, b) =>
-      val ha = TaskHours.applyUnsafe(a)
-      val hb = TaskHours.applyUnsafe(b)
+      val ha = TaskDuration.applyUnsafe(a)
+      val hb = TaskDuration.applyUnsafe(b)
       (ha - hb) shouldEqual (a - b)
 end TaskTest

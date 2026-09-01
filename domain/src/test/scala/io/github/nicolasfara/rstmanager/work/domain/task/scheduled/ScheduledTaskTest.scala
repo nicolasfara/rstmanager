@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.task.scheduled
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.*
 
@@ -19,15 +19,15 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   // ---------------------------------------------------------------------------
 
   private val genUUID: Gen[UUID] = Gen.delay(UUID.randomUUID().nn)
-  private val genHours: Gen[TaskHours] = Gen.posNum[Int].map(TaskHours.applyUnsafe)
+  private val genHours: Gen[TaskDuration] = Gen.posNum[Int].map(TaskDuration.applyUnsafe)
 
   /**
    * Two hour values where `completed <= expected`, modelling a task still in progress but not yet over budget.
    */
-  private val genBoundedHours: Gen[(TaskHours, TaskHours)] =
+  private val genBoundedHours: Gen[(TaskDuration, TaskDuration)] =
     for
       expected <- genHours
-      completed <- Gen.chooseNum(1, expected.value).map(TaskHours.applyUnsafe)
+      completed <- Gen.chooseNum(1, expected.value).map(TaskDuration.applyUnsafe)
     yield (expected, completed)
 
   private val genPendingTask: Gen[PendingTask] =
@@ -41,9 +41,9 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     for
       id <- genUUID
       taskId <- genUUID
-      expectedHours <- genHours
-      completedHours <- genHours
-    yield InProgressTask(id, taskId, expectedHours, completedHours)
+      expectedDuration <- genHours
+      completedDuration <- genHours
+    yield InProgressTask(id, taskId, expectedDuration, completedDuration)
 
   private val genBoundedInProgressTask: Gen[InProgressTask] =
     for
@@ -56,25 +56,25 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     for
       id <- genUUID
       taskId <- genUUID
-      expectedHours <- genHours
-      completedHours <- genHours
-    yield CompletedTask(id, taskId, expectedHours, completedHours, DateTime.now())
+      expectedDuration <- genHours
+      completedDuration <- genHours
+    yield CompletedTask(id, taskId, expectedDuration, completedDuration, DateTime.now())
 
-  private val zeroHours: TaskHours = TaskHours.applyUnsafe(0)
+  private val zeroHours: TaskDuration = TaskDuration.applyUnsafe(0)
 
   // ---------------------------------------------------------------------------
   // PendingTask invariants
   // ---------------------------------------------------------------------------
 
-  "A PendingTask" should "always report zero completedHours" in:
+  "A PendingTask" should "always report zero completedDuration" in:
     forAll(genPendingTask): task =>
-      task.completedHours shouldEqual zeroHours
+      task.completedDuration shouldEqual zeroHours
 
-  it should "always report remainingHours equal to expectedHours" in:
+  it should "always report remainingDuration equal to expectedDuration" in:
     forAll(genPendingTask): task =>
-      task.remainingHours shouldEqual task.expectedHours
+      task.remainingDuration shouldEqual task.expectedDuration
 
-  it should "transition to InProgressTask with same id, taskId and expectedHours" in:
+  it should "transition to InProgressTask with same id, taskId and expectedDuration" in:
     forAll(genPendingTask): task =>
       val result = task.markAsInProgress
       result.isRight shouldEqual true
@@ -82,8 +82,8 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         t shouldBe a[InProgressTask]
         t.id shouldEqual task.id
         t.taskId shouldEqual task.taskId
-        t.expectedHours shouldEqual task.expectedHours
-        t.completedHours shouldEqual zeroHours
+        t.expectedDuration shouldEqual task.expectedDuration
+        t.completedDuration shouldEqual zeroHours
 
   it should "reject revertToInProgress with TaskMustBeInProgress" in:
     forAll(genPendingTask): task =>
@@ -101,9 +101,9 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   // CompletedTask invariants
   // ---------------------------------------------------------------------------
 
-  "A CompletedTask" should "always report zero remainingHours" in:
+  "A CompletedTask" should "always report zero remainingDuration" in:
     forAll(genCompletedTask): task =>
-      task.remainingHours shouldEqual zeroHours
+      task.remainingDuration shouldEqual zeroHours
 
   it should "reject further completion with TaskAlreadyCompleted" in:
     forAll(genCompletedTask, genHours): (task, hours) =>
@@ -113,7 +113,7 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     forAll(genCompletedTask): task =>
       task.markAsInProgress shouldEqual Left(TaskAlreadyCompleted)
 
-  it should "revert to an InProgressTask whose expectedHours equals its completedHours" in:
+  it should "revert to an InProgressTask whose expectedDuration equals its completedDuration" in:
     forAll(genCompletedTask): task =>
       val result = task.revertToInProgress
       result.isRight shouldEqual true
@@ -121,45 +121,45 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         t shouldBe a[InProgressTask]
         t.id shouldEqual task.id
         t.taskId shouldEqual task.taskId
-        t.expectedHours shouldEqual task.completedHours
-        t.completedHours shouldEqual task.completedHours
+        t.expectedDuration shouldEqual task.completedDuration
+        t.completedDuration shouldEqual task.completedDuration
 
   // ---------------------------------------------------------------------------
   // InProgressTask invariants
   // ---------------------------------------------------------------------------
 
-  "An InProgressTask" should "report remainingHours = max(0, expectedHours - completedHours)" in:
+  "An InProgressTask" should "report remainingDuration = max(0, expectedDuration - completedDuration)" in:
     forAll(genInProgressTask): task =>
-      val expected = Math.max(0, task.expectedHours.value - task.completedHours.value)
-      task.remainingHours shouldEqual TaskHours.applyUnsafe(expected)
+      val expected = Math.max(0, task.expectedDuration.value - task.completedDuration.value)
+      task.remainingDuration shouldEqual TaskDuration.applyUnsafe(expected)
 
-  it should "satisfy completedHours + remainingHours == expectedHours when not over budget" in:
+  it should "satisfy completedDuration + remainingDuration == expectedDuration when not over budget" in:
     forAll(genBoundedInProgressTask): task =>
-      task.completedHours.value + task.remainingHours.value shouldEqual task.expectedHours.value
+      task.completedDuration.value + task.remainingDuration.value shouldEqual task.expectedDuration.value
 
-  it should "return zero remainingHours when completedHours exceeds expectedHours" in:
+  it should "return zero remainingDuration when completedDuration exceeds expectedDuration" in:
     forAll(genInProgressTask): task =>
-      if task.completedHours.value >= task.expectedHours.value then task.remainingHours shouldEqual zeroHours
+      if task.completedDuration.value >= task.expectedDuration.value then task.remainingDuration shouldEqual zeroHours
 
   it should "be unchanged after advance then rollback by the same hours (roundtrip)" in:
     forAll(genInProgressTask, genHours): (task, hours) =>
       val roundtrip = task.advanceInProgressTask(hours).flatMap(_.rollbackInProgressTask(hours))
       roundtrip.isRight shouldEqual true
       roundtrip.foreach: t =>
-        t.completedHours shouldEqual task.completedHours
-        t.expectedHours shouldEqual task.expectedHours
+        t.completedDuration shouldEqual task.completedDuration
+        t.expectedDuration shouldEqual task.expectedDuration
         t.id shouldEqual task.id
 
-  it should "accumulate completedHours monotonically when advanced multiple times" in:
+  it should "accumulate completedDuration monotonically when advanced multiple times" in:
     forAll(genInProgressTask, genHours, genHours): (task, h1, h2) =>
       val result = task.advanceInProgressTask(h1).flatMap(_.advanceInProgressTask(h2))
       result.isRight shouldEqual true
       result.foreach: t =>
-        t.completedHours.value shouldEqual task.completedHours.value + h1.value + h2.value
+        t.completedDuration.value shouldEqual task.completedDuration.value + h1.value + h2.value
 
-  it should "reject rollbackInProgressTask when withHours exceeds completedHours" in:
+  it should "reject rollbackInProgressTask when withHours exceeds completedDuration" in:
     forAll(genInProgressTask): task =>
-      val tooManyHours = TaskHours.applyUnsafe(task.completedHours.value + 1)
+      val tooManyHours = TaskDuration.applyUnsafe(task.completedDuration.value + 1)
       task.rollbackInProgressTask(tooManyHours) shouldEqual Left(TaskWithNegativeProgress)
 
   it should "reject markAsInProgress with TaskAlreadyInProgress" in:
@@ -170,71 +170,71 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     forAll(genInProgressTask): task =>
       task.revertToInProgress shouldEqual Left(TaskAlreadyInProgress)
 
-  it should "complete successfully and carry final completedHours = completedHours + withHours" in:
+  it should "complete successfully and carry final completedDuration = completedDuration + withHours" in:
     forAll(genInProgressTask, genHours): (task, hours) =>
       val result = task.completeTask(hours)
       result.isRight shouldEqual true
       result.foreach: t =>
         t shouldBe a[CompletedTask]
-        t.completedHours.value shouldEqual task.completedHours.value + hours.value
-        t.expectedHours shouldEqual task.expectedHours
+        t.completedDuration.value shouldEqual task.completedDuration.value + hours.value
+        t.expectedDuration shouldEqual task.expectedDuration
 
   // ---------------------------------------------------------------------------
-  // setProgress / changeExpectedHours
+  // setProgress / changeExpectedDuration
   // ---------------------------------------------------------------------------
 
   "setProgress" should "complete the task when the completed hours reach the expected hours" in:
     forAll(genPendingTask): task =>
-      val result = task.setProgress(task.expectedHours)
+      val result = task.setProgress(task.expectedDuration)
       result shouldBe a[CompletedTask]
-      result.completedHours shouldEqual task.expectedHours
-      result.remainingHours shouldEqual zeroHours
+      result.completedDuration shouldEqual task.expectedDuration
+      result.remainingDuration shouldEqual zeroHours
 
   it should "return the task to pending when the completed hours are zero" in:
     forAll(genBoundedInProgressTask): task =>
       val result = task.setProgress(zeroHours)
       result shouldBe a[PendingTask]
-      result.expectedHours shouldEqual task.expectedHours
+      result.expectedDuration shouldEqual task.expectedDuration
 
   it should "keep the task in progress for a partial completion below the estimate" in:
     forAll(genBoundedInProgressTask): task =>
-      whenever(task.expectedHours.value > 1):
-        val partial = TaskHours.applyUnsafe(task.expectedHours.value - 1)
+      whenever(task.expectedDuration.value > 1):
+        val partial = TaskDuration.applyUnsafe(task.expectedDuration.value - 1)
         val result = task.setProgress(partial)
         result shouldBe a[InProgressTask]
-        result.completedHours shouldEqual partial
+        result.completedDuration shouldEqual partial
 
   it should "reopen a completed task when progress drops below the estimate" in:
     forAll(genCompletedTask): task =>
-      whenever(task.expectedHours.value > 1):
-        val result = task.setProgress(TaskHours.applyUnsafe(task.expectedHours.value - 1))
+      whenever(task.expectedDuration.value > 1):
+        val result = task.setProgress(TaskDuration.applyUnsafe(task.expectedDuration.value - 1))
         result shouldBe a[InProgressTask]
 
-  "changeExpectedHours" should "preserve the completed hours while re-deriving the state" in:
+  "changeExpectedDuration" should "preserve the completed hours while re-deriving the state" in:
     forAll(genBoundedInProgressTask, genHours): (task, newExpected) =>
-      val result = task.changeExpectedHours(newExpected)
-      result.completedHours shouldEqual task.completedHours
-      result.expectedHours shouldEqual newExpected
+      val result = task.changeExpectedDuration(newExpected)
+      result.completedDuration shouldEqual task.completedDuration
+      result.expectedDuration shouldEqual newExpected
 
   it should "complete the task when the new estimate is not above the completed hours" in:
     forAll(genBoundedInProgressTask): task =>
-      whenever(task.completedHours.value > 0):
-        val result = task.changeExpectedHours(task.completedHours)
+      whenever(task.completedDuration.value > 0):
+        val result = task.changeExpectedDuration(task.completedDuration)
         result shouldBe a[CompletedTask]
 
   // ---------------------------------------------------------------------------
   // createScheduledTask smart constructor
   // ---------------------------------------------------------------------------
 
-  "createScheduledTask" should "succeed for any positive expectedHours and produce a PendingTask" in:
+  "createScheduledTask" should "succeed for any positive expectedDuration and produce a PendingTask" in:
     forAll(genUUID, genUUID, Gen.posNum[Int]): (id, taskId, hours) =>
       val result = ScheduledTask.createScheduledTask(id, taskId, hours)
       result.isValid shouldEqual true
       result.foreach: task =>
-        task.expectedHours.value shouldEqual hours
-        task.completedHours shouldEqual zeroHours
+        task.expectedDuration.value shouldEqual hours
+        task.completedDuration shouldEqual zeroHours
 
-  it should "fail for zero or negative expectedHours" in:
+  it should "fail for zero or negative expectedDuration" in:
     forAll(Gen.chooseNum(Int.MinValue, -1)): hours =>
       ScheduledTask.createScheduledTask(UUID.randomUUID().nn, UUID.randomUUID().nn, hours).isValid shouldEqual false
 end ScheduledTaskTest

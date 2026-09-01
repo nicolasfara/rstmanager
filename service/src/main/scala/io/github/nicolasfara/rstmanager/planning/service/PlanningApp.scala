@@ -14,7 +14,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturin
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 
 import cats.data.{ NonEmptyChain, NonEmptyList }
@@ -108,9 +108,9 @@ object DemoScenario:
       .addTaskDependencies(assembly, Set(cutting))
       .addTaskDependencies(finishing, Set(assembly))
     val tasks = NonEmptyList.of(
-      PendingTask(UUID.randomUUID().nn, cutting, TaskHours(16)),
-      PendingTask(UUID.randomUUID().nn, assembly, TaskHours(24)),
-      PendingTask(UUID.randomUUID().nn, finishing, TaskHours(8)),
+      PendingTask(UUID.randomUUID().nn, cutting, TaskDuration(16 * 60)),
+      PendingTask(UUID.randomUUID().nn, assembly, TaskDuration(24 * 60)),
+      PendingTask(UUID.randomUUID().nn, finishing, TaskDuration(8 * 60)),
     )
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(

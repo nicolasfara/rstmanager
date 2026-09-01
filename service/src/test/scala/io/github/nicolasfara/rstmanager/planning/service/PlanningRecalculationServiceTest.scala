@@ -9,7 +9,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturin
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 
 import cats.data.NonEmptyList
@@ -72,7 +72,7 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
 
   private def openOrder(id: OrderId): InProgressOrder =
     val taskId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000013").nn
-    val scheduledTask = PendingTask(UUID.fromString("00000000-0000-0000-0000-000000000014").nn, taskId, TaskHours.applyUnsafe(8))
+    val scheduledTask = PendingTask(UUID.fromString("00000000-0000-0000-0000-000000000014").nn, taskId, TaskDuration.applyUnsafe(8))
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
         UUID.fromString("00000000-0000-0000-0000-000000000015").nn,

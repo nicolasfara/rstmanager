@@ -48,8 +48,8 @@ object OrderDrafts:
       taskEmployees: Map[String, String],
       newId: () => UUID,
   ): ManufacturingDto =
-    // Per-task hours override configured on the catalog template; a task without an entry keeps its task-catalog hours.
-    val hoursOverride = template.taskHours.map(entry => entry.taskId -> entry.hours).toMap
+    // Per-task duration override (minutes) configured on the catalog template; a task without an entry keeps its task-catalog duration.
+    val durationOverride = template.taskDurations.map(entry => entry.taskId -> entry.minutes).toMap
     ManufacturingDto(
       template.code,
       Formats.toIso(completionDate),
@@ -59,7 +59,7 @@ object OrderDrafts:
           newId(),
           task.id,
           "pending",
-          hoursOverride.getOrElse(task.id, task.requiredHours),
+          durationOverride.getOrElse(task.id, task.requiredMinutes),
           Some(0),
           None,
           taskEmployees.get(task.id.toString).flatMap(parseUuid),
@@ -82,7 +82,7 @@ object OrderDrafts:
   def fromCustom(core: MfgCoreState, tasks: List[TaskState], completionDate: String, newId: () => UUID): ManufacturingDto =
     val scheduled = tasks.flatMap { ts =>
       parseUuid(ts.taskId).map { taskId =>
-        ScheduledTaskDto(newId(), taskId, "pending", ts.hours.toIntOption.getOrElse(0), Some(0), None, parseUuid(ts.employeeId))
+        ScheduledTaskDto(newId(), taskId, "pending", Formats.parseDuration(ts.hours).getOrElse(0), Some(0), None, parseUuid(ts.employeeId))
       }
     }
     val selectedIds = scheduled.map(_.taskId.toString).toSet

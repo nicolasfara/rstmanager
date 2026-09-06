@@ -5,7 +5,7 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskError, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
@@ -35,14 +35,14 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
   case PausedManufacturing(override val info: ScheduledManufacturingInfo, reason: Option[String], startedAt: DateTime, pausedAt: DateTime)
       extends ScheduledManufacturing(info)
 
-  /** Returns the sum of expected hours across all tasks. */
-  def expectedHours: TaskHours = info.tasks.foldMap(_.expectedHours)
+  /** Returns the sum of expected duration across all tasks, in minutes. */
+  def expectedDuration: TaskDuration = info.tasks.foldMap(_.expectedDuration)
 
-  /** Returns the remaining work across all tasks. */
-  def remainingHours: TaskHours = info.tasks.foldMap(_.remainingHours)
+  /** Returns the remaining work across all tasks, in minutes. */
+  def remainingDuration: TaskDuration = info.tasks.foldMap(_.remainingDuration)
 
-  /** Returns the total completed work across all tasks. */
-  def completedHours: TaskHours = info.tasks.foldMap(_.completedHours)
+  /** Returns the total completed work across all tasks, in minutes. */
+  def completedDuration: TaskDuration = info.tasks.foldMap(_.completedDuration)
 
   /** Adds a scheduled task, registering its dependency edges and (optionally) its preferred employee. */
   def addTask(task: ScheduledTask, dependsOn: Set[TaskId], preferredEmployee: Option[EmployeeId]): ScheduledManufacturing =
@@ -120,25 +120,28 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
         if areAllTasksCompleted(this) then transitionToCompleted(this)
         else ScheduledManufacturingError.CannotCompleteWithOpenTasks.asLeft
 
-  /** Advances an in-progress task by the given amount of hours. */
-  def advanceTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.advanceInProgressTask(hours))
+  /** Advances an in-progress task by the given amount of minutes. */
+  def advanceTask(taskId: ScheduledTaskId, duration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, _.advanceInProgressTask(duration))
 
   /** Rolls back progress on an in-progress task. */
-  def rollbackTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.rollbackInProgressTask(hours))
+  def rollbackTask(taskId: ScheduledTaskId, duration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, _.rollbackInProgressTask(duration))
 
   /** Completes a task and promotes the manufacturing to completed when all tasks are done. */
-  def completeTask(taskId: ScheduledTaskId, hours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.completeTask(hours)).flatMap(promoteWhenAllTasksCompleted)
+  def completeTask(taskId: ScheduledTaskId, duration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, _.completeTask(duration)).flatMap(promoteWhenAllTasksCompleted)
 
-  /** Sets the absolute completed hours of a task and promotes the manufacturing to completed when all tasks are done. */
-  def setTaskProgress(taskId: ScheduledTaskId, completedHours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, task => task.setProgress(completedHours).asRight).flatMap(promoteWhenAllTasksCompleted)
+  /** Sets the absolute completed duration of a task and promotes the manufacturing to completed when all tasks are done. */
+  def setTaskProgress(taskId: ScheduledTaskId, completedDuration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, task => task.setProgress(completedDuration).asRight).flatMap(promoteWhenAllTasksCompleted)
 
-  /** Changes the total expected hours of a task and promotes the manufacturing to completed when all tasks are done. */
-  def changeTaskExpectedHours(taskId: ScheduledTaskId, expectedHours: TaskHours): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, task => task.changeExpectedHours(expectedHours).asRight).flatMap(promoteWhenAllTasksCompleted)
+  /** Changes the total expected duration of a task and promotes the manufacturing to completed when all tasks are done. */
+  def changeTaskExpectedDuration(
+      taskId: ScheduledTaskId,
+      expectedDuration: TaskDuration,
+  ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, task => task.changeExpectedDuration(expectedDuration).asRight).flatMap(promoteWhenAllTasksCompleted)
 
   /** Reopens a completed task and, if necessary, reopens the manufacturing itself. */
   def revertTaskToInProgress(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =

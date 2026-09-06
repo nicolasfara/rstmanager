@@ -4,7 +4,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.Monad
@@ -38,9 +38,9 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
         preferredEmployeeId: Option[UUID] = None,
     )
     case RemoveManufacturingTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
-    case SetTaskProgress(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedHours: TaskHours)
-    case ChangeTaskExpectedHours(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedHours: TaskHours)
-    case CompleteTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withHours: TaskHours)
+    case SetTaskProgress(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedDuration: TaskDuration)
+    case ChangeTaskExpectedHours(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedDuration: TaskDuration)
+    case CompleteTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withDuration: TaskDuration)
     case RevertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
     case ChangeManufacturingDependencies(dependencies: OrderDependencies)
     case ChangeTaskDependencies(manufacturingId: ScheduledManufacturingId, dependencies: ManufacturingDependencies)
@@ -88,12 +88,12 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
       App.state.decide(_.addManufacturingTask(manufacturingId, task, dependsOn, preferredEmployeeId)).void >> publishSchedulingRecalculation
     case Command.RemoveManufacturingTask(manufacturingId, taskId) =>
       App.state.decide(_.removeManufacturingTask(manufacturingId, taskId)).void >> publishSchedulingRecalculation
-    case Command.SetTaskProgress(manufacturingId, taskId, completedHours) =>
-      App.state.decide(_.setTaskProgress(manufacturingId, taskId, completedHours)).void >> publishSchedulingRecalculation
-    case Command.ChangeTaskExpectedHours(manufacturingId, taskId, expectedHours) =>
-      App.state.decide(_.changeTaskExpectedHours(manufacturingId, taskId, expectedHours)).void >> publishSchedulingRecalculation
-    case Command.CompleteTask(manufacturingId, taskId, withHours) =>
-      App.state.decide(_.completeTask(manufacturingId, taskId, withHours)).void >> publishSchedulingRecalculation
+    case Command.SetTaskProgress(manufacturingId, taskId, completedDuration) =>
+      App.state.decide(_.setTaskProgress(manufacturingId, taskId, completedDuration)).void >> publishSchedulingRecalculation
+    case Command.ChangeTaskExpectedHours(manufacturingId, taskId, expectedDuration) =>
+      App.state.decide(_.changeTaskExpectedDuration(manufacturingId, taskId, expectedDuration)).void >> publishSchedulingRecalculation
+    case Command.CompleteTask(manufacturingId, taskId, withDuration) =>
+      App.state.decide(_.completeTask(manufacturingId, taskId, withDuration)).void >> publishSchedulingRecalculation
     case Command.RevertTask(manufacturingId, taskId) =>
       App.state.decide(_.revertTask(manufacturingId, taskId)).void >> publishSchedulingRecalculation
     case Command.ChangeManufacturingDependencies(dependencies) =>

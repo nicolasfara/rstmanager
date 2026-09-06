@@ -7,7 +7,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingA
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingService.Command
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 
 import cats.Id
 import edomata.core.{ CommandMessage, EdomatonResult, RequestContext }
@@ -136,9 +136,9 @@ class ManufacturingTest extends AnyFlatSpecLike:
 
     result.isValid shouldEqual true
     result.foreach { manufacturing =>
-      manufacturing.taskHours.get(cutting).map(_.value) shouldEqual Some(12)
-      manufacturing.hoursForTask(cutting, TaskHours(4)).value shouldEqual 12
-      manufacturing.hoursForTask(assembly, TaskHours(4)).value shouldEqual 4
+      manufacturing.taskDurations.get(cutting).map(_.value) shouldEqual Some(12)
+      manufacturing.durationForTask(cutting, TaskDuration(4)).value shouldEqual 12
+      manufacturing.durationForTask(assembly, TaskDuration(4)).value shouldEqual 4
     }
 
   it should "reject task hours overrides referencing tasks outside the composition" in:

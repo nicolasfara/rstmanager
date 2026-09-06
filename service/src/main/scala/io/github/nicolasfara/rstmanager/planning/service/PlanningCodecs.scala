@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.planning.service
 import io.github.nicolasfara.rstmanager.hr.domain.DailyHours
 import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
@@ -22,7 +22,7 @@ object PlanningCodecs:
     Encoder.encodeString.contramap(_.toString),
   )
 
-  given Codec[TaskHours] = Codec.from(Decoder.decodeInt.emap(TaskHours.either), Encoder.encodeInt.contramap(_.value))
+  given Codec[TaskDuration] = Codec.from(Decoder.decodeInt.emap(TaskDuration.either), Encoder.encodeInt.contramap(_.value))
 
   given Codec[DailyHours] = Codec.from(Decoder.decodeInt.emap(DailyHours.either), Encoder.encodeInt.contramap(_.value))
 

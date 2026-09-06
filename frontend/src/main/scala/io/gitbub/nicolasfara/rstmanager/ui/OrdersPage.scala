@@ -129,7 +129,7 @@ object OrdersPage:
       taskEmployees: Map[String, String],
   )
   private object AddMfgState:
-    val empty: AddMfgState = AddMfgState("custom", "", "", "", "", "", "8", "", Map.empty)
+    val empty: AddMfgState = AddMfgState("custom", "", "", "", "", "", "8:00", "", Map.empty)
 
   /** State for the inline add-task form fields. */
   private case class AddTaskState(taskId: String, hours: String, employee: String)
@@ -228,11 +228,12 @@ object OrdersPage:
       case _ => Nil
     }
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
-      case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
+      case Some(Right(list)) => ("" -> "— task —") :: list.map(t => t.id.toString -> s"${t.name} (${Formats.duration(t.requiredMinutes)}h)")
       case _ => List("" -> "—")
     }
     val manufacturingCatalogOptions: Signal[List[(String, String)]] = manufacturingCatalogData.map {
-      case Some(Right(list)) => ("" -> "— lavorazione —") :: list.map(m => m.id.toString -> s"${m.code} · ${m.name} (${m.totalRequiredHours}h)")
+      case Some(Right(list)) =>
+        ("" -> "— lavorazione —") :: list.map(m => m.id.toString -> s"${m.code} · ${m.name} (${Formats.duration(m.totalRequiredMinutes)}h)")
       case _ => List("" -> "—")
     }
     val employeeOptions: Signal[List[(String, String)]] = employeesData.map {
@@ -255,7 +256,7 @@ object OrdersPage:
       ),
     )
 
-    def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8", Set.empty, "")))
+    def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8:00", Set.empty, "")))
     def newMfg(): MfgDraft =
       MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())))
 
@@ -353,11 +354,11 @@ object OrdersPage:
 
     // Inline "add task" form (targets the manufacturing whose id is held here)
     val addTaskMfgId = Var(Option.empty[UUID])
-    val addTaskState = Var(AddTaskState("", "8", ""))
+    val addTaskState = Var(AddTaskState("", "8:00", ""))
 
     def resetAddTask(): Unit =
       addTaskMfgId.set(None)
-      addTaskState.set(AddTaskState("", "8", ""))
+      addTaskState.set(AddTaskState("", "8:00", ""))
 
     def openEdit(order: OrderResponse): Unit =
       val orderDepsByMfg: Map[UUID, Set[String]] =
@@ -373,9 +374,10 @@ object OrdersPage:
         val taskDepsByTemplate: Map[UUID, Set[String]] =
           m.dependencies.map(d => d.taskId -> d.dependsOn.map(_.toString).toSet).toMap
         m.tasks.map { t =>
-          val completed = t.completedHours.getOrElse(0)
+          val completed = t.completedMinutes.getOrElse(0)
           val deps = taskDepsByTemplate.getOrElse(t.taskId, Set.empty)
-          val state = TaskEditState(t.expectedHours.toString, completed.toString, deps, t.preferredEmployeeId.map(_.toString).getOrElse(""))
+          val state =
+            TaskEditState(Formats.duration(t.expectedMinutes), Formats.duration(completed), deps, t.preferredEmployeeId.map(_.toString).getOrElse(""))
           TaskEditRow(m.id, t.id, t.taskId, DirtyTracker(state, Var(state)))
         }
       })
@@ -450,10 +452,10 @@ object OrdersPage:
 
       val taskUpdates: List[() => Future[ApiClient.Result[Unit]]] = editTasks.now().flatMap { row =>
         val es = row.tracker.current.now()
-        val newExpected = es.expected.toIntOption
-        val newCompleted = es.completed.toIntOption
-        val expectedChanged = newExpected.exists(_ => row.tracker.changed(_.expected.toIntOption))
-        val completedChanged = newCompleted.exists(_ => row.tracker.changed(_.completed.toIntOption))
+        val newExpected = Formats.parseDuration(es.expected)
+        val newCompleted = Formats.parseDuration(es.completed)
+        val expectedChanged = newExpected.exists(_ => row.tracker.changed(s => Formats.parseDuration(s.expected)))
+        val completedChanged = newCompleted.exists(_ => row.tracker.changed(s => Formats.parseDuration(s.completed)))
         if expectedChanged || completedChanged then
           val request = TaskProgressUpdateRequest(if completedChanged then newCompleted else None, if expectedChanged then newExpected else None)
           List(() => ApiClient.updateScheduledTask(order.id, row.manufacturingId, row.taskId, request).map(_.map(_ => ())))
@@ -515,7 +517,7 @@ object OrdersPage:
         parseUuid(s.taskId) match
           case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona un task valido per la nuova lavorazione.", Nil))
           case Some(taskId) =>
-            val task = ScheduledTaskDto(randomUuid(), taskId, "pending", s.hours.toIntOption.getOrElse(0), Some(0), None)
+            val task = ScheduledTaskDto(randomUuid(), taskId, "pending", Formats.parseDuration(s.hours).getOrElse(0), Some(0), None)
             val dto = ManufacturingDto(
               s.code.trim.nn,
               Formats.toIso(s.date),
@@ -539,7 +541,8 @@ object OrdersPage:
         case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona un task valido.", Nil))
         case Some(taskId) =>
           applyStructural(
-            ApiClient.addManufacturingTask(order.id, mfgId, AddTaskRequest(taskId, s.hours.toIntOption.getOrElse(0), Nil, parseUuid(s.employee))),
+            ApiClient
+              .addManufacturingTask(order.id, mfgId, AddTaskRequest(taskId, Formats.parseDuration(s.hours).getOrElse(0), Nil, parseUuid(s.employee))),
           )
     }
 
@@ -650,8 +653,8 @@ object OrdersPage:
             selectInput(t.state.signal.map(_.employeeId), Observer[String](v => t.state.update(_.copy(employeeId = v))), employeeOptions),
           ),
           field(
-            "Ore",
-            textInput(t.state.signal.map(_.hours), Observer[String](v => t.state.update(_.copy(hours = v))), "", "number"),
+            "Durata (h:mm)",
+            textInput(t.state.signal.map(_.hours), Observer[String](v => t.state.update(_.copy(hours = v))), "1:35"),
           ),
           button(
             tpe := "button",
@@ -687,7 +690,7 @@ object OrdersPage:
                 template.tasks.map { task =>
                   div(
                     cls := "grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)] sm:items-center",
-                    div(cls := "text-sm text-slate-700", s"${task.name} (${task.requiredHours}h)"),
+                    div(cls := "text-sm text-slate-700", s"${task.name} (${Formats.duration(task.requiredMinutes)}h)"),
                     selectInput(
                       currentMap.map(_.getOrElse(task.id.toString, "")),
                       Observer[String](v => setEmployee(task.id.toString, v)),
@@ -709,10 +712,10 @@ object OrdersPage:
               div(
                 cls := "rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600",
                 div(cls := "font-medium text-slate-700", s"${template.code} · ${template.name}"),
-                div(cls := "mt-1", template.tasks.map(task => s"${task.name} (${task.requiredHours}h)").mkString(", ")),
+                div(cls := "mt-1", template.tasks.map(task => s"${task.name} (${Formats.duration(task.requiredMinutes)}h)").mkString(", ")),
                 div(
                   cls := "mt-1 text-slate-400",
-                  s"${template.totalRequiredHours}h totali · ${template.dependencies.map(_.dependsOn.size).sum} dipendenze",
+                  s"${Formats.duration(template.totalRequiredMinutes)}h totali · ${template.dependencies.map(_.dependsOn.size).sum} dipendenze",
                 ),
               )
         },
@@ -923,21 +926,19 @@ object OrdersPage:
                   ),
                 ),
                 field(
-                  "Previste",
+                  "Previste (h:mm)",
                   textInput(
                     row.tracker.current.signal.map(_.expected),
                     Observer[String](v => row.tracker.current.update(_.copy(expected = v))),
-                    "",
-                    "number",
+                    "1:35",
                   ),
                 ),
                 field(
-                  "Fatte",
+                  "Fatte (h:mm)",
                   textInput(
                     row.tracker.current.signal.map(_.completed),
                     Observer[String](v => row.tracker.current.update(_.copy(completed = v))),
-                    "",
-                    "number",
+                    "1:35",
                   ),
                 ),
                 button(
@@ -961,7 +962,7 @@ object OrdersPage:
               div(
                 cls := "text-xs text-slate-500",
                 child.text <-- employeeSuffix.map(suffix =>
-                  s"${t.expectedHours}h previste · ${t.completedHours.getOrElse(0)}h fatte · ${OrderStatus.label(t.status)}$suffix",
+                  s"${Formats.duration(t.expectedMinutes)}h previste · ${Formats.duration(t.completedMinutes.getOrElse(0))}h fatte · ${OrderStatus.label(t.status)}$suffix",
                 ),
               ),
             )
@@ -991,8 +992,8 @@ object OrdersPage:
                   selectInput(addTaskState.signal.map(_.employee), Observer[String](v => addTaskState.update(_.copy(employee = v))), employeeOptions),
                 ),
                 field(
-                  "Ore",
-                  textInput(addTaskState.signal.map(_.hours), Observer[String](v => addTaskState.update(_.copy(hours = v))), "", "number"),
+                  "Durata (h:mm)",
+                  textInput(addTaskState.signal.map(_.hours), Observer[String](v => addTaskState.update(_.copy(hours = v))), "1:35"),
                 ),
                 button(
                   tpe := "button",
@@ -1183,8 +1184,8 @@ object OrdersPage:
                           ),
                         ),
                         field(
-                          "Ore",
-                          textInput(addMfgState.signal.map(_.hours), Observer[String](v => addMfgState.update(_.copy(hours = v))), "", "number"),
+                          "Durata (h:mm)",
+                          textInput(addMfgState.signal.map(_.hours), Observer[String](v => addMfgState.update(_.copy(hours = v))), "1:35"),
                         ),
                       ),
                     )

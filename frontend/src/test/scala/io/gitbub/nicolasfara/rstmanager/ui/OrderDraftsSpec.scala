@@ -45,13 +45,13 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
       taskIds = Nil,
       tasks = Nil,
       dependencies = Nil,
-      totalRequiredHours = 0,
+      totalRequiredMinutes = 0,
       defaultEmployees = Nil,
     )
 
-  /** A catalog carrying `tasks`, with the derived `taskIds`/`totalRequiredHours` kept consistent. */
+  /** A catalog carrying `tasks`, with the derived `taskIds`/`totalRequiredMinutes` kept consistent. */
   private def catalogWith(tasks: List[TaskResponse]): ManufacturingCatalogResponse =
-    baseCatalog.copy(tasks = tasks, taskIds = tasks.map(_.id), totalRequiredHours = tasks.map(_.requiredHours).sum)
+    baseCatalog.copy(tasks = tasks, taskIds = tasks.map(_.id), totalRequiredMinutes = tasks.map(_.requiredMinutes).sum)
 
   private val baseCore: MfgCoreState =
     MfgCoreState("custom", "", "C1", "2026-08-01", "", "", Set.empty, Map.empty)
@@ -68,7 +68,7 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
     dto.completionDate shouldBe "2026-08-01T00:00:00.000Z"
     dto.description shouldBe Some("catalog desc")
     dto.tasks.map(_.taskId) shouldBe List(taskA, taskB)
-    dto.tasks.map(_.expectedHours) shouldBe List(4, 6)
+    dto.tasks.map(_.expectedMinutes) shouldBe List(4, 6)
     dto.tasks.map(_.status).distinct shouldBe List("pending")
     dto.dependencies shouldBe List(TaskDependencyDto(taskB, List(taskA)))
 
@@ -85,13 +85,13 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
     dto.tasks.find(_.taskId == taskA).flatMap(_.preferredEmployeeId) shouldBe Some(empA)
     dto.tasks.find(_.taskId == taskB).flatMap(_.preferredEmployeeId) shouldBe None
 
-  test("fromCatalog applies the catalog hours override per task, falling back to the task-catalog hours"):
+  test("fromCatalog applies the catalog duration override per task, falling back to the task-catalog duration"):
     val template = catalogWith(List(taskResponse(taskA, 4), taskResponse(taskB, 6)))
-      .copy(taskHours = List(TaskHoursOverrideDto(taskA, 10)))
+      .copy(taskDurations = List(TaskDurationOverrideDto(taskA, 10)))
     val dto = OrderDrafts.fromCatalog(template, "2026-08-01", "", Map.empty, seqIds())
 
-    dto.tasks.find(_.taskId == taskA).map(_.expectedHours) shouldBe Some(10) // overridden
-    dto.tasks.find(_.taskId == taskB).map(_.expectedHours) shouldBe Some(6) // falls back to catalog hours
+    dto.tasks.find(_.taskId == taskA).map(_.expectedMinutes) shouldBe Some(10) // overridden
+    dto.tasks.find(_.taskId == taskB).map(_.expectedMinutes) shouldBe Some(6) // falls back to catalog duration
 
   test("fromCatalog parses the manufacturing-level preferred employee, dropping an invalid one"):
     val template = catalogWith(List(taskResponse(taskA, 4)))
@@ -100,17 +100,17 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
 
   // ---- fromCustom --------------------------------------------------------------------------------
 
-  test("fromCustom keeps only tasks with a valid id and parses hours, defaulting unparseable hours to 0"):
+  test("fromCustom keeps only tasks with a valid id and parses the h:mm duration, defaulting unparseable input to 0"):
     val tasks = List(
-      TaskState(taskA.toString, "8", Set.empty, ""),
+      TaskState(taskA.toString, "8", Set.empty, ""), // plain integer -> whole hours -> 480 minutes
       TaskState("", "5", Set.empty, ""), // no task id -> dropped
-      TaskState(taskB.toString, "abc", Set.empty, ""), // bad hours -> 0
+      TaskState(taskB.toString, "abc", Set.empty, ""), // bad duration -> 0
     )
     val dto = OrderDrafts.fromCustom(baseCore.copy(code = " C7 "), tasks, "2026-08-01", seqIds())
 
     dto.code shouldBe "C7" // trimmed
     dto.tasks.map(_.taskId) shouldBe List(taskA, taskB)
-    dto.tasks.map(_.expectedHours) shouldBe List(8, 0)
+    dto.tasks.map(_.expectedMinutes) shouldBe List(480, 0)
 
   test("fromCustom keeps dependencies only between selected tasks and drops self-edges"):
     val tasks = List(

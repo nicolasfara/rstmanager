@@ -8,7 +8,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturin
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderData, OrderId, OrderNumber, OrderPriority }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskHours }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskDuration }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 
@@ -27,20 +27,20 @@ import io.github.iltotore.iron.*
 object OrderSimulationService:
   /** What the hypothetical order requires, in one of the two supported shapes. */
   enum SimulationDemand derives CanEqual:
-    /** A single opaque block of work of the given total hours, with no internal task structure. */
-    case TotalHours(hours: TaskHours)
+    /** A single opaque block of work of the given total duration (minutes), with no internal task structure. */
+    case TotalDuration(duration: TaskDuration)
 
     /**
      * One synthetic manufacturing per selected catalog template, each carrying its catalog tasks (already resolved by the caller) with their default
-     * required hours, task dependency graph, and default employees.
+     * required duration, task dependency graph, and default employees.
      */
     case FromManufacturings(selection: NonEmptyList[(Manufacturing, NonEmptyList[Task])])
 
   /**
    * Outcome of one simulation run.
    *
-   * @param totalHours
-   *   Hours of work the hypothetical order requires.
+   * @param totalMinutes
+   *   Minutes of work the hypothetical order requires.
    * @param startDate
    *   First production day on which work for the hypothetical order would start; `None` when nothing could be planned or nothing needs planning.
    * @param estimatedCompletionDate
@@ -49,7 +49,7 @@ object OrderSimulationService:
    *   Reasons the hypothetical order could not be placed, when planning failed.
    */
   final case class SimulationResult(
-      totalHours: Int,
+      totalMinutes: Int,
       startDate: Option[DateTime],
       estimatedCompletionDate: Option[DateTime],
       unplannedReasons: List[UnplannedReason],
@@ -75,21 +75,21 @@ object OrderSimulationService:
   ): Either[NonEmptyList[PlanningError], SimulationResult] =
     val simulatedOrder = syntheticOrder(now, demand)
     val simulatedOrderId = simulatedOrder.data.id
-    val totalHours = simulatedOrder.data.setOfManufacturing.toList.map(_.remainingHours.value).sum
+    val totalMinutes = simulatedOrder.data.setOfManufacturing.toList.map(_.remainingDuration.value).sum
     val openOrderIds = openOrders.collect { case order: InProgressOrder => order.data.id }
     val request = PlanningRequest(UUID.randomUUID().nn, now, PlanningTrigger.DailyPlanning, now, openOrderIds :+ simulatedOrderId)
 
     SchedulingService.computeSchedule(request, openOrders :+ simulatedOrder, employees).map { outcome =>
       outcome.unplannedOrders.find(_.orderId.equals(simulatedOrderId)) match
         case Some(unplanned) =>
-          SimulationResult(totalHours, None, None, unplanned.blockedTasks.toList.map(_.reason))
+          SimulationResult(totalMinutes, None, None, unplanned.blockedTasks.toList.map(_.reason))
         case None =>
           val days = outcome.slices.filter(_.orderId.equals(simulatedOrderId)).map(_.day)
           val completion = days.maxByOption(_.getMillis)
           SimulationResult(
-            totalHours,
+            totalMinutes,
             days.minByOption(_.getMillis),
-            // A demand of zero remaining hours produces no slices and is deliverable right away.
+            // A demand of zero remaining minutes produces no slices and is deliverable right away.
             completion.orElse(Some(now.withTimeAtStartOfDay().nn)),
             Nil,
           )
@@ -105,8 +105,8 @@ object OrderSimulationService:
   private def syntheticOrder(now: DateTime, demand: SimulationDemand): InProgressOrder =
     val deadline = horizon(now)
     val manufacturings = demand match
-      case SimulationDemand.TotalHours(hours) =>
-        NonEmptyList.one(hoursOnlyManufacturing(hours, deadline))
+      case SimulationDemand.TotalDuration(duration) =>
+        NonEmptyList.one(durationOnlyManufacturing(duration, deadline))
       case SimulationDemand.FromManufacturings(selection) =>
         selection.map((template, tasks) => fromTemplate(template, tasks, deadline))
     InProgressOrder(
@@ -122,13 +122,13 @@ object OrderSimulationService:
       deadline,
     )
 
-  private def hoursOnlyManufacturing(hours: TaskHours, deadline: DateTime): ScheduledManufacturing =
+  private def durationOnlyManufacturing(duration: TaskDuration, deadline: DateTime): ScheduledManufacturing =
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
         UUID.randomUUID().nn,
         "SIM".refineUnsafe[ManufacturingCode],
         deadline,
-        NonEmptyList.one(PendingTask(UUID.randomUUID().nn: ScheduledTaskId, UUID.randomUUID().nn, hours)),
+        NonEmptyList.one(PendingTask(UUID.randomUUID().nn: ScheduledTaskId, UUID.randomUUID().nn, duration)),
         ManufacturingDependencies(),
       ),
     )
@@ -136,7 +136,7 @@ object OrderSimulationService:
   /** Instantiates one catalog template as a not-started scheduled manufacturing, like an order created from the catalog would. */
   private def fromTemplate(template: Manufacturing, tasks: NonEmptyList[Task], deadline: DateTime): ScheduledManufacturing =
     val scheduledTasks: NonEmptyList[ScheduledTask] =
-      tasks.map(task => PendingTask(UUID.randomUUID().nn: ScheduledTaskId, task.id, task.requiredHours))
+      tasks.map(task => PendingTask(UUID.randomUUID().nn: ScheduledTaskId, task.id, task.requiredDuration))
     val preferredEmployees = scheduledTasks.toList.flatMap { scheduled =>
       template.defaultEmployees.get(scheduled.taskId).map(scheduled.id -> _)
     }.toMap

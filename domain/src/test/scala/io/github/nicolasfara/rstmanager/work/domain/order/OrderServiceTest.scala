@@ -10,7 +10,7 @@ import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent.*
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.InProgressTask
 
@@ -72,7 +72,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
     task(taskId)
 
   private def task(id: ScheduledTaskId): InProgressTask =
-    InProgressTask(id, templateTaskId, TaskHours(8), TaskHours(0))
+    InProgressTask(id, templateTaskId, TaskDuration(8), TaskDuration(0))
 
   private def twoManufacturingsData(): OrderData =
     orderData(NonEmptyList.of(manufacturing(), manufacturing(secondManufacturingId, NonEmptyList.one(task(otherTaskId)))))
@@ -118,35 +118,35 @@ class OrderServiceTest extends AnyFlatSpecLike:
 
   it should "delegate nested task commands through the order aggregate" in:
     val data = orderData(NonEmptyList.one(manufacturing(tasks = NonEmptyList.of(task(), task(otherTaskId)))))
-    val result = run(Command.CompleteTask(manufacturingId, taskId, TaskHours(8)), InProgressOrder(data, nextDay))
+    val result = run(Command.CompleteTask(manufacturingId, taskId, TaskDuration(8)), InProgressOrder(data, nextDay))
 
     result match
       case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
         newState.data.id shouldEqual data.id
-        events.toChain.toList shouldEqual List(ManufacturingTaskCompleted(manufacturingId, taskId, TaskHours(8)))
+        events.toChain.toList shouldEqual List(ManufacturingTaskCompleted(manufacturingId, taskId, TaskDuration(8)))
         notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
       case other => fail(s"Unexpected result: $other")
 
   it should "set a task's absolute progress, completing the manufacturing while keeping the order in progress" in:
     val data = orderData()
-    val result = run(Command.SetTaskProgress(manufacturingId, taskId, TaskHours(8)), InProgressOrder(data, nextDay))
+    val result = run(Command.SetTaskProgress(manufacturingId, taskId, TaskDuration(8)), InProgressOrder(data, nextDay))
 
     result match
       case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
-        events.toChain.toList shouldEqual List(ManufacturingTaskProgressSet(manufacturingId, taskId, TaskHours(8)))
+        events.toChain.toList shouldEqual List(ManufacturingTaskProgressSet(manufacturingId, taskId, TaskDuration(8)))
         notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
         newState.data.setOfManufacturing.head shouldBe a[ScheduledManufacturing.CompletedManufacturing]
       case other => fail(s"Unexpected result: $other")
 
   it should "change a task's total expected hours" in:
     val data = orderData()
-    val result = run(Command.ChangeTaskExpectedHours(manufacturingId, taskId, TaskHours(16)), InProgressOrder(data, nextDay))
+    val result = run(Command.ChangeTaskExpectedHours(manufacturingId, taskId, TaskDuration(16)), InProgressOrder(data, nextDay))
 
     result match
       case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
-        events.toChain.toList shouldEqual List(ManufacturingTaskExpectedHoursChanged(manufacturingId, taskId, TaskHours(16)))
+        events.toChain.toList shouldEqual List(ManufacturingTaskExpectedHoursChanged(manufacturingId, taskId, TaskDuration(16)))
         notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
-        newState.data.setOfManufacturing.head.info.tasks.head.expectedHours shouldEqual TaskHours(16)
+        newState.data.setOfManufacturing.head.info.tasks.head.expectedDuration shouldEqual TaskDuration(16)
       case other => fail(s"Unexpected result: $other")
 
   it should "set and clear a task's preferred employee" in:
@@ -202,7 +202,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
   it should "surface nested aggregate errors" in:
     val unknownManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000106").nn
     val data = orderData()
-    val result = run(Command.CompleteTask(unknownManufacturingId, taskId, TaskHours(8)), InProgressOrder(data, nextDay))
+    val result = run(Command.CompleteTask(unknownManufacturingId, taskId, TaskDuration(8)), InProgressOrder(data, nextDay))
 
     result match
       case EdomatonResult.Rejected(notifications, reasons) =>
@@ -247,7 +247,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
 
   it should "replace the task dependency graph of a manufacturing" in:
     val secondTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010a").nn
-    val secondTask = InProgressTask(otherTaskId, secondTemplateId, TaskHours(8), TaskHours(0))
+    val secondTask = InProgressTask(otherTaskId, secondTemplateId, TaskDuration(8), TaskDuration(0))
     val data = orderData(NonEmptyList.one(manufacturing(NonEmptyList.of(task(), secondTask))))
     val dependencies = ManufacturingDependencies().addTaskDependencies(secondTemplateId, Set(templateTaskId))
     val result = run(Command.ChangeTaskDependencies(manufacturingId, dependencies), InProgressOrder(data, nextDay))

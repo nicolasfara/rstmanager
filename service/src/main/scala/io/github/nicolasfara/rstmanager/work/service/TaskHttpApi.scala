@@ -20,17 +20,17 @@ import sttp.tapir.server.ServerEndpoint
 object TaskHttpApi:
   import ApiError.ApiFailure
 
-  final case class TaskRequest(name: String, description: Option[String], requiredHours: Int, defaultEmployeeId: Option[UUID] = None):
-    def toDomain(id: UUID): ValidatedNec[String, Task] = Task.createTask(id, name, description, requiredHours, defaultEmployeeId)
+  final case class TaskRequest(name: String, description: Option[String], requiredMinutes: Int, defaultEmployeeId: Option[UUID] = None):
+    def toDomain(id: UUID): ValidatedNec[String, Task] = Task.createTask(id, name, description, requiredMinutes, defaultEmployeeId)
 
   object TaskRequest:
-    val example: TaskRequest = TaskRequest("Cutting", Some("Cut raw material to size"), 8, None)
+    val example: TaskRequest = TaskRequest("Cutting", Some("Cut raw material to size"), 480, None)
 
-  final case class TaskResponse(id: UUID, name: String, description: Option[String], requiredHours: Int, defaultEmployeeId: Option[UUID])
+  final case class TaskResponse(id: UUID, name: String, description: Option[String], requiredMinutes: Int, defaultEmployeeId: Option[UUID])
 
   object TaskResponse:
     def fromDomain(task: Task): TaskResponse =
-      TaskResponse(task.id, task.name, task.taskDescription, task.requiredHours.value, task.defaultEmployeeId)
+      TaskResponse(task.id, task.name, task.taskDescription, task.requiredDuration.value, task.defaultEmployeeId)
 
   private def conflict(error: TaskError): ApiFailure = error match
     case TaskError.TaskAlreadyExists => ApiError.conflict("task-already-exists", "A task with this id already exists.", Nil)

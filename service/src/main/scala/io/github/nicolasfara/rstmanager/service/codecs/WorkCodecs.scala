@@ -21,7 +21,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskHours, TaskId, TaskService }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskDuration, TaskId, TaskService }
 import io.github.nicolasfara.rstmanager.work.domain.task.events.TaskEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
@@ -126,8 +126,17 @@ object WorkCodecs:
         taskIds <- cursor.get[NonEmptyList[TaskId]]("taskIds")
         dependencies <- cursor.get[ManufacturingDependencies]("dependencies")
         defaultEmployees <- cursor.get[Option[Map[TaskId, EmployeeId]]]("defaultEmployees")
-        taskHours <- cursor.get[Option[Map[TaskId, TaskHours]]]("taskHours")
-      yield Manufacturing(id, code, name, description, taskIds, dependencies, defaultEmployees.getOrElse(Map.empty), taskHours.getOrElse(Map.empty))
+        taskDurations <- cursor.get[Option[Map[TaskId, TaskDuration]]]("taskDurations")
+      yield Manufacturing(
+        id,
+        code,
+        name,
+        description,
+        taskIds,
+        dependencies,
+        defaultEmployees.getOrElse(Map.empty),
+        taskDurations.getOrElse(Map.empty),
+      )
     },
     deriveEncoder,
   )

@@ -93,8 +93,8 @@ object Dtos:
 
   // ---- Tasks (catalog) ---------------------------------------------------------------------------
 
-  final case class TaskRequest(name: String, description: Option[String], requiredHours: Int, defaultEmployeeId: Option[UUID] = None)
-  final case class TaskResponse(id: UUID, name: String, description: Option[String], requiredHours: Int, defaultEmployeeId: Option[UUID])
+  final case class TaskRequest(name: String, description: Option[String], requiredMinutes: Int, defaultEmployeeId: Option[UUID] = None)
+  final case class TaskResponse(id: UUID, name: String, description: Option[String], requiredMinutes: Int, defaultEmployeeId: Option[UUID])
 
   // ---- Manufacturings (catalog) ------------------------------------------------------------------
 
@@ -103,8 +103,8 @@ object Dtos:
   /** Default employee proposed for one task of the template when the manufacturing is scheduled inside an order. */
   final case class TaskDefaultEmployeeDto(taskId: UUID, employeeId: UUID)
 
-  /** Per-task hours override of the template; a task without an entry falls back to the task-catalog hours. */
-  final case class TaskHoursOverrideDto(taskId: UUID, hours: Int)
+  /** Per-task duration override (minutes) of the template; a task without an entry falls back to the task-catalog duration. */
+  final case class TaskDurationOverrideDto(taskId: UUID, minutes: Int)
 
   final case class ManufacturingCatalogRequest(
       code: String,
@@ -113,7 +113,7 @@ object Dtos:
       taskIds: List[UUID],
       dependencies: List[ManufacturingCatalogDependencyDto],
       defaultEmployees: Option[List[TaskDefaultEmployeeDto]] = None,
-      taskHours: Option[List[TaskHoursOverrideDto]] = None,
+      taskDurations: Option[List[TaskDurationOverrideDto]] = None,
   )
 
   final case class ManufacturingCatalogResponse(
@@ -124,9 +124,9 @@ object Dtos:
       taskIds: List[UUID],
       tasks: List[TaskResponse],
       dependencies: List[ManufacturingCatalogDependencyDto],
-      totalRequiredHours: Int,
+      totalRequiredMinutes: Int,
       defaultEmployees: List[TaskDefaultEmployeeDto] = Nil,
-      taskHours: List[TaskHoursOverrideDto] = Nil,
+      taskDurations: List[TaskDurationOverrideDto] = Nil,
   )
 
   // ---- Orders ------------------------------------------------------------------------------------
@@ -143,8 +143,8 @@ object Dtos:
       id: UUID,
       taskId: UUID,
       status: String,
-      expectedHours: Int,
-      completedHours: Option[Int],
+      expectedMinutes: Int,
+      completedMinutes: Option[Int],
       completionDate: Option[String],
       preferredEmployeeId: Option[UUID] = None,
   )
@@ -193,7 +193,7 @@ object Dtos:
 
   final case class OrderUpdateRequest(priority: Option[String], promisedDeliveryDate: Option[String], description: Option[String] = None)
   final case class TransitionRequest(action: String, reason: Option[String])
-  final case class TaskProgressUpdateRequest(completedHours: Option[Int], expectedHours: Option[Int])
+  final case class TaskProgressUpdateRequest(completedMinutes: Option[Int], expectedMinutes: Option[Int])
 
   /** Replaces the dependency graph between the order manufacturings. */
   final case class OrderDependenciesUpdateRequest(dependencies: List[ManufacturingDependencyDto])
@@ -210,7 +210,7 @@ object Dtos:
   )
 
   /** Add a new scheduled task (referencing a catalog task) to a manufacturing, optionally with a preferred employee. */
-  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID], preferredEmployeeId: Option[UUID] = None)
+  final case class AddTaskRequest(taskId: UUID, expectedMinutes: Int, dependsOn: List[UUID], preferredEmployeeId: Option[UUID] = None)
 
   final case class OrderResponse(
       id: UUID,
@@ -239,7 +239,7 @@ object Dtos:
       employeeIds: Option[List[UUID]],
   )
 
-  final case class CandidateEmployeeDto(employeeId: UUID, availableHours: Int, assignedHours: Int)
+  final case class CandidateEmployeeDto(employeeId: UUID, availableHours: Int, assignedMinutes: Int)
 
   final case class ScheduledTaskSliceDto(
       orderId: UUID,
@@ -247,7 +247,7 @@ object Dtos:
       taskId: UUID,
       day: String,
       candidateEmployee: CandidateEmployeeDto,
-      remainingHoursAfterSlice: Int,
+      remainingMinutesAfterSlice: Int,
   )
 
   final case class DailyScheduleDto(day: String, slices: List[ScheduledTaskSliceDto])
@@ -264,7 +264,7 @@ object Dtos:
   final case class UnplannedReasonDto(
       code: String,
       message: String,
-      requiredHours: Option[Int],
+      requiredMinutes: Option[Int],
       cycle: List[UUID],
       dependency: Option[UUID],
   )
@@ -311,12 +311,12 @@ object Dtos:
 
   final case class PlanningAttemptResponse(commandId: String, planning: PlanningStateDto)
 
-  /** Order-simulation request: exactly one of `totalHours` or `manufacturingIds` must be provided. */
-  final case class OrderSimulationRequest(totalHours: Option[Int], manufacturingIds: Option[List[UUID]])
+  /** Order-simulation request: exactly one of `totalMinutes` or `manufacturingIds` must be provided. */
+  final case class OrderSimulationRequest(totalMinutes: Option[Int], manufacturingIds: Option[List[UUID]])
 
   final case class OrderSimulationResponse(
       feasible: Boolean,
-      totalHours: Int,
+      totalMinutes: Int,
       startDate: Option[String],
       estimatedCompletionDate: Option[String],
       reasons: List[UnplannedReasonDto],
@@ -339,7 +339,7 @@ object Dtos:
   given Codec[TaskResponse] = deriveCodec
   given Codec[ManufacturingCatalogDependencyDto] = deriveCodec
   given Codec[TaskDefaultEmployeeDto] = deriveCodec
-  given Codec[TaskHoursOverrideDto] = deriveCodec
+  given Codec[TaskDurationOverrideDto] = deriveCodec
   given Codec[ManufacturingCatalogRequest] = deriveCodec
   given Codec[ManufacturingCatalogResponse] = deriveCodec
 

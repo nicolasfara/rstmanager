@@ -9,7 +9,7 @@ import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.given
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.service.http.ApiError.ApiFailure
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, TaskApp }
 
 import cats.data.{ NonEmptyChain, NonEmptyList }
@@ -123,18 +123,18 @@ object PlanningRoutes:
       tasks: TaskApp.Store,
       request: OrderSimulationRequest,
   ): IO[Either[ApiFailure, SimulationDemand]] =
-    (request.totalHours, request.manufacturingIds) match
-      case (Some(hours), None) =>
+    (request.totalMinutes, request.manufacturingIds) match
+      case (Some(minutes), None) =>
         IO.pure(
-          if hours < 1 then validationFailure(NonEmptyChain.one("totalHours must be at least 1.")).asLeft
-          else SimulationDemand.TotalHours(TaskHours.applyUnsafe(hours)).asRight,
+          if minutes < 1 then validationFailure(NonEmptyChain.one("totalMinutes must be at least 1.")).asLeft
+          else SimulationDemand.TotalDuration(TaskDuration.applyUnsafe(minutes)).asRight,
         )
       case (None, Some(ids)) =>
         NonEmptyList.fromList(ids) match
           case None => IO.pure(validationFailure(NonEmptyChain.one("manufacturingIds must contain at least one manufacturing.")).asLeft)
           case Some(selection) => resolveManufacturings(manufacturings, tasks, selection)
       case _ =>
-        IO.pure(validationFailure(NonEmptyChain.one("Provide exactly one of totalHours or manufacturingIds.")).asLeft)
+        IO.pure(validationFailure(NonEmptyChain.one("Provide exactly one of totalMinutes or manufacturingIds.")).asLeft)
 
   /** Loads the selected catalog templates and their catalog tasks; duplicate ids are allowed and instantiate the template multiple times. */
   private def resolveManufacturings(

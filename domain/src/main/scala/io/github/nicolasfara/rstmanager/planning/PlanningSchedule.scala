@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.planning
 import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.{ NonEmptyList, Validated, ValidatedNec }
@@ -14,39 +14,39 @@ import com.github.nscala_time.time.Imports.DateTime
  * Employee selected for one scheduled task slice.
  *
  * The assignment is deliberately slice-level, not task-level: a task may span multiple days and the employee may change between slices.
- * `availableHours` is the employee capacity for the production day after weekly capacity and calendar overrides have been applied. `assignedHours` is
- * the portion of that availability consumed by this specific slice.
+ * `availableHours` is the employee capacity (in whole hours) for the production day after weekly capacity and calendar overrides have been applied.
+ * `assignedDuration` is the portion of that availability consumed by this specific slice, expressed in minutes.
  *
- * The smart constructor checks the per-slice invariant `0 < assignedHours <= availableHours`. It does not validate the employee's total load across
- * all slices on the same day; that belongs to the future scheduling algorithm.
+ * The smart constructor checks the per-slice invariant `0 < assignedDuration <= availableHours * 60`. It does not validate the employee's total load
+ * across all slices on the same day; that belongs to the future scheduling algorithm.
  *
  * @param employeeId
  *   Employee selected for the work slice.
  * @param availableHours
  *   Employee hours available on the slice day.
- * @param assignedHours
- *   Hours assigned to this slice.
+ * @param assignedDuration
+ *   Minutes assigned to this slice.
  */
-final case class CandidateEmployee(employeeId: EmployeeId, availableHours: DailyHours, assignedHours: TaskHours)
+final case class CandidateEmployee(employeeId: EmployeeId, availableHours: DailyHours, assignedDuration: TaskDuration)
 
 object CandidateEmployee:
   /** Creates an employee assignment for a single task slice. */
-  def create(employeeId: EmployeeId, availableHours: DailyHours, assignedHours: TaskHours): ValidatedNec[PlanningError, CandidateEmployee] =
+  def create(employeeId: EmployeeId, availableHours: DailyHours, assignedDuration: TaskDuration): ValidatedNec[PlanningError, CandidateEmployee] =
     Validated.condNec(
-      assignedHours.value > 0 && assignedHours.value <= availableHours.value,
-      CandidateEmployee(employeeId, availableHours, assignedHours),
-      PlanningError.InvalidEmployeeAssignment(availableHours, assignedHours),
+      assignedDuration.value > 0 && assignedDuration.value <= availableHours.value * 60,
+      CandidateEmployee(employeeId, availableHours, assignedDuration),
+      PlanningError.InvalidEmployeeAssignment(availableHours, assignedDuration),
     )
 
 /**
  * Amount of task work planned for one production day.
  *
  * A slice is the smallest planning output currently modeled. It says that, on a given day, one employee should spend
- * `candidateEmployee.assignedHours` on one scheduled task belonging to one scheduled manufacturing and order. Task effort remains hour-based through
- * [[TaskHours]], so a task that needs more work than a day allows is represented by multiple slices over multiple days.
+ * `candidateEmployee.assignedDuration` on one scheduled task belonging to one scheduled manufacturing and order. Task effort is minute-based through
+ * [[TaskDuration]], so a task that needs more work than a day allows is represented by multiple slices over multiple days.
  *
- * `remainingHoursAfterSlice` records the projected task remainder after this slice is applied. It is informational domain output for users and audit
- * trails; actual task progress remains owned by the work execution model.
+ * `remainingDurationAfterSlice` records the projected task remainder after this slice is applied. It is informational domain output for users and
+ * audit trails; actual task progress remains owned by the work execution model.
  *
  * @param orderId
  *   Order receiving the planned work.
@@ -58,8 +58,8 @@ object CandidateEmployee:
  *   Production day for this slice.
  * @param candidateEmployee
  *   Employee assignment for this slice.
- * @param remainingHoursAfterSlice
- *   Projected remaining task hours after the assigned work is completed.
+ * @param remainingDurationAfterSlice
+ *   Projected remaining task duration (minutes) after the assigned work is completed.
  */
 final case class ScheduledTaskSlice(
     orderId: OrderId,
@@ -67,7 +67,7 @@ final case class ScheduledTaskSlice(
     taskId: ScheduledTaskId,
     day: DateTime,
     candidateEmployee: CandidateEmployee,
-    remainingHoursAfterSlice: TaskHours,
+    remainingDurationAfterSlice: TaskDuration,
 )
 
 /**
@@ -147,7 +147,7 @@ object DelayedManufacturing:
  */
 enum UnplannedReason derives CanEqual:
   /** No future production day with enough remaining workforce capacity exists for the task. */
-  case NoFutureCapacity(requiredHours: TaskHours)
+  case NoFutureCapacity(requiredDuration: TaskDuration)
 
   /** The manufacturing dependency graph contains a cycle involving the listed task templates. */
   case DependencyCycle(cycle: Set[TaskId])

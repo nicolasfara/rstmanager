@@ -19,7 +19,7 @@ object TasksPage:
     val editingId = Var(Option.empty[UUID])
     val name = Var("")
     val description = Var("")
-    val hours = Var("8")
+    val hours = Var("8:00")
     val defaultEmployee = Var("")
     val blockedDelete = Var(Option.empty[ApiError])
     // Task awaiting delete confirmation (double-check before the destructive action).
@@ -36,30 +36,34 @@ object TasksPage:
     }
 
     def resetForm(): Unit =
-      editingId.set(None); name.set(""); description.set(""); hours.set("8"); defaultEmployee.set(""); formError.set(None)
+      editingId.set(None); name.set(""); description.set(""); hours.set("8:00"); defaultEmployee.set(""); formError.set(None)
 
     def edit(task: TaskResponse): Unit =
       editingId.set(Some(task.id))
       name.set(task.name)
       description.set(task.description.getOrElse(""))
-      hours.set(task.requiredHours.toString)
+      hours.set(Formats.duration(task.requiredMinutes))
       defaultEmployee.set(task.defaultEmployeeId.map(_.toString).getOrElse(""))
       formError.set(None)
 
     def submit(): Unit =
-      val request = TaskRequest(
-        name.now().trim.nn,
-        Some(description.now().trim.nn).filter(_.nonEmpty),
-        hours.now().toIntOption.getOrElse(0),
-        Try(UUID.fromString(defaultEmployee.now()).nn).toOption,
-      )
-      val effect = editingId.now() match
-        case Some(id) => ApiClient.updateTask(id, request)
-        case None => ApiClient.createTask(request)
-      effect.foreach {
-        case Right(_) => resetForm(); AppBus.mutatedTasks()
-        case Left(err) => showError(formError, "Salvataggio task")(err)
-      }
+      Formats.parseDuration(hours.now()) match
+        case None =>
+          formError.set(Some(ApiError("invalid-duration", "Durata non valida. Usa il formato h:mm (es. 1:35).", Nil)))
+        case Some(minutes) =>
+          val request = TaskRequest(
+            name.now().trim.nn,
+            Some(description.now().trim.nn).filter(_.nonEmpty),
+            minutes,
+            Try(UUID.fromString(defaultEmployee.now()).nn).toOption,
+          )
+          val effect = editingId.now() match
+            case Some(id) => ApiClient.updateTask(id, request)
+            case None => ApiClient.createTask(request)
+          effect.foreach {
+            case Right(_) => resetForm(); AppBus.mutatedTasks()
+            case Left(err) => showError(formError, "Salvataggio task")(err)
+          }
 
     def delete(id: UUID): Unit =
       ApiClient.deleteTask(id).foreach {
@@ -88,7 +92,7 @@ object TasksPage:
         cls := "border-b border-slate-100 last:border-0",
         td(cls := "px-4 py-2 font-medium text-slate-800", task.name),
         td(cls := "px-4 py-2 text-slate-500", task.description.getOrElse("—")),
-        td(cls := "px-4 py-2 tabular-nums", task.requiredHours.toString),
+        td(cls := "px-4 py-2 tabular-nums", s"${Formats.duration(task.requiredMinutes)}h"),
         td(cls := "px-4 py-2 text-slate-500", child.text <-- defaultEmployeeLabel(task)),
         td(
           cls := "px-4 py-2 text-right",
@@ -108,8 +112,8 @@ object TasksPage:
           ),
           div(
             cls := "shrink-0 text-right",
-            div(cls := "text-xs font-medium text-slate-500", "Ore"),
-            div(cls := "text-sm tabular-nums text-slate-800", task.requiredHours.toString),
+            div(cls := "text-xs font-medium text-slate-500", "Durata"),
+            div(cls := "text-sm tabular-nums text-slate-800", s"${Formats.duration(task.requiredMinutes)}h"),
           ),
         ),
         div(
@@ -144,7 +148,7 @@ object TasksPage:
               cls := "mt-3 space-y-3",
               field("Nome", textInput(name, "Es. Taglio")),
               field("Descrizione", textInput(description, "Opzionale")),
-              field("Ore richieste", textInput(hours, "8", inputType = "number")),
+              field("Durata richiesta (h:mm)", textInput(hours, "1:35")),
               field("Dipendente predefinito", selectInput(defaultEmployee, employeeOptions)),
               child.maybe <-- formError.signal.map(_.map(errorBanner)),
               div(
@@ -177,7 +181,7 @@ object TasksPage:
                       tr(
                         th(cls := "px-4 py-2", "Nome"),
                         th(cls := "px-4 py-2", "Descrizione"),
-                        th(cls := "px-4 py-2", "Ore"),
+                        th(cls := "px-4 py-2", "Durata"),
                         th(cls := "px-4 py-2", "Dipendente"),
                         th(cls := "px-4 py-2"),
                       ),

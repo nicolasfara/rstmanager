@@ -63,7 +63,7 @@ object ManufacturingsPage:
     val form = Var(freshForm())
 
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
-      case Some(Right(list)) => list.map(t => t.id.toString -> s"${t.name} (${t.requiredHours}h)")
+      case Some(Right(list)) => list.map(t => t.id.toString -> s"${t.name} (${Formats.duration(t.requiredMinutes)}h)")
       case _ => Nil
     }
     val tasksById: Signal[Map[String, TaskResponse]] = tasksData.map {
@@ -78,8 +78,8 @@ object ManufacturingsPage:
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
       val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
       val defaultEmployeeMap = manufacturing.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap
-      val overrideHoursMap = manufacturing.taskHours.map(h => h.taskId.toString -> h.hours).toMap
-      val catalogHoursMap = manufacturing.tasks.map(task => task.id.toString -> task.requiredHours).toMap
+      val overrideMinutesMap = manufacturing.taskDurations.map(h => h.taskId.toString -> h.minutes).toMap
+      val catalogMinutesMap = manufacturing.tasks.map(task => task.id.toString -> task.requiredMinutes).toMap
       form.set(
         ManufacturingFormState(
           Some(manufacturing.id),
@@ -88,13 +88,13 @@ object ManufacturingsPage:
           manufacturing.name,
           manufacturing.description.getOrElse(""),
           manufacturing.taskIds.map { id =>
-            val hours = overrideHoursMap.getOrElse(id.toString, catalogHoursMap.getOrElse(id.toString, 0)).toString
+            val minutes = overrideMinutesMap.getOrElse(id.toString, catalogMinutesMap.getOrElse(id.toString, 0))
             TaskRowState(
               nextKey(),
               id.toString,
               dependencyMap.getOrElse(id.toString, Set.empty),
               defaultEmployeeMap.getOrElse(id.toString, ""),
-              hours,
+              Formats.duration(minutes),
             )
           }.toList,
         ),
@@ -118,14 +118,14 @@ object ManufacturingsPage:
           employeeId <- parseUuid(row.employeeId)
         yield TaskDefaultEmployeeDto(taskId, employeeId)
       }
-      // Only send an override when the entered hours actually differ from the catalog task's hours, so untouched tasks keep following the catalog.
+      // Only send an override when the entered duration actually differs from the catalog task's duration, so untouched tasks keep following the catalog.
       val catalogTasks = tasksSnapshot.now()
-      val taskHours = current.taskRows.flatMap { row =>
+      val taskDurations = current.taskRows.flatMap { row =>
         for
           taskId <- parseUuid(row.taskId)
-          hours <- row.hours.trim.nn.toIntOption
-          if catalogTasks.get(row.taskId).forall(_.requiredHours != hours)
-        yield TaskHoursOverrideDto(taskId, hours)
+          minutes <- Formats.parseDuration(row.hours)
+          if catalogTasks.get(row.taskId).forall(_.requiredMinutes != minutes)
+        yield TaskDurationOverrideDto(taskId, minutes)
       }
       ManufacturingCatalogRequest(
         current.code.trim.nn,
@@ -134,7 +134,7 @@ object ManufacturingsPage:
         selectedIds,
         dependencies,
         Some(defaultEmployees),
-        Some(taskHours),
+        Some(taskDurations),
       )
     end requestFromForm
 
@@ -199,7 +199,7 @@ object ManufacturingsPage:
           manufacturing.description.map(d => div(cls := "text-xs text-slate-400", d)).getOrElse(emptyNode),
         ),
         td(cls := "px-4 py-2 text-slate-500", child.text <-- tasksSummary(manufacturing)),
-        td(cls := "px-4 py-2 tabular-nums", manufacturing.totalRequiredHours.toString),
+        td(cls := "px-4 py-2 tabular-nums", s"${Formats.duration(manufacturing.totalRequiredMinutes)}h"),
         td(
           cls := "px-4 py-2 text-right",
           roleGated(Role.Admin)(div(cls := "flex justify-end gap-2", actionButtons(manufacturing))),
@@ -219,8 +219,8 @@ object ManufacturingsPage:
           ),
           div(
             cls := "shrink-0 text-right",
-            div(cls := "text-xs font-medium text-slate-500", "Ore"),
-            div(cls := "text-sm tabular-nums text-slate-800", manufacturing.totalRequiredHours.toString),
+            div(cls := "text-xs font-medium text-slate-500", "Durata"),
+            div(cls := "text-sm tabular-nums text-slate-800", s"${Formats.duration(manufacturing.totalRequiredMinutes)}h"),
           ),
         ),
         div(
@@ -243,10 +243,10 @@ object ManufacturingsPage:
       searchableSelect(
         rowSignal(row).map(_.taskId),
         Observer[String] { next =>
-          // Propose the newly picked task's default employee and its catalog hours; both fields stay overridable.
+          // Propose the newly picked task's default employee and its catalog duration; both fields stay overridable.
           val picked = tasksSnapshot.now().get(next)
           val proposedEmployee = picked.flatMap(_.defaultEmployeeId).map(_.toString).getOrElse("")
-          val proposedHours = picked.map(_.requiredHours.toString).getOrElse("")
+          val proposedHours = picked.map(task => Formats.duration(task.requiredMinutes)).getOrElse("")
           updateTaskRow(row.key)(current =>
             current.copy(taskId = next, dependsOn = current.dependsOn.filter(_ != next), employeeId = proposedEmployee, hours = proposedHours),
           )
@@ -261,7 +261,7 @@ object ManufacturingsPage:
         state.taskRows.flatMap { other =>
           val id = other.taskId
           if other.key == row.key || id.isEmpty then None
-          else tasks.get(id).map(task => id -> s"${task.name} (${task.requiredHours}h)")
+          else tasks.get(id).map(task => id -> s"${task.name} (${Formats.duration(task.requiredMinutes)}h)")
         }
       }
 
@@ -276,8 +276,7 @@ object ManufacturingsPage:
       textInput(
         rowSignal(row).map(_.hours),
         Observer[String](next => updateTaskRow(row.key)(_.copy(hours = next))),
-        "Ore",
-        "number",
+        "1:35",
       )
 
     def renderTaskRow(row: TaskRowState): HtmlElement =
@@ -299,7 +298,7 @@ object ManufacturingsPage:
         div(
           cls := "mt-2 grid gap-2 sm:grid-cols-2",
           field("Dipendente predefinito", employeeSelect(row)),
-          field("Ore", hoursInput(row)),
+          field("Durata (h:mm)", hoursInput(row)),
         ),
         child <-- dependencyChoices(row).map { choices =>
           if choices.isEmpty then emptyNode
@@ -400,7 +399,7 @@ object ManufacturingsPage:
                       th(cls := "px-4 py-2", "Codice"),
                       th(cls := "px-4 py-2", "Nome"),
                       th(cls := "px-4 py-2", "Task"),
-                      th(cls := "px-4 py-2", "Ore"),
+                      th(cls := "px-4 py-2", "Durata"),
                       th(cls := "px-4 py-2"),
                     ),
                   ),

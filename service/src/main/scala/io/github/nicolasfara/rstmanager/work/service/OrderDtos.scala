@@ -7,7 +7,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingD
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskHours
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 
@@ -51,22 +51,22 @@ object OrderDtos:
       id: UUID,
       taskId: UUID,
       status: String,
-      expectedHours: Int,
-      completedHours: Option[Int],
+      expectedMinutes: Int,
+      completedMinutes: Option[Int],
       completionDate: Option[String],
       preferredEmployeeId: Option[UUID] = None,
   ):
     def toDomain(path: String): ValidatedNec[String, ScheduledTask] =
-      TaskHours.validatedNec(expectedHours).andThen { expected =>
+      TaskDuration.validatedNec(expectedMinutes).andThen { expected =>
         normalizeKind(status) match
           case "pending" => ScheduledTask.PendingTask(id, taskId, expected).validNec
           case "in_progress" | "inprogress" =>
-            required(completedHours, s"$path.completedHours").andThen(TaskHours.validatedNec).map { completed =>
+            required(completedMinutes, s"$path.completedMinutes").andThen(TaskDuration.validatedNec).map { completed =>
               ScheduledTask.InProgressTask(id, taskId, expected, completed)
             }
           case "completed" =>
             (
-              required(completedHours, s"$path.completedHours").andThen(TaskHours.validatedNec),
+              required(completedMinutes, s"$path.completedMinutes").andThen(TaskDuration.validatedNec),
               required(completionDate, s"$path.completionDate").andThen(parseDate(_, s"$path.completionDate")),
             ).mapN { (completed, completedOn) => ScheduledTask.CompletedTask(id, taskId, expected, completed, completedOn) }
           case other => s"$path.status '$other' is not supported. Use pending, in_progress, or completed.".invalidNec
@@ -79,7 +79,7 @@ object OrderDtos:
         UUID.fromString("00000000-0000-0000-0000-000000000401").nn,
         UUID.fromString("00000000-0000-0000-0000-000000000301").nn,
         "pending",
-        8,
+        480,
         Some(0),
         None,
       )
@@ -365,15 +365,15 @@ object OrderDtos:
     val example: TaskDependenciesUpdateRequest = TaskDependenciesUpdateRequest(List(TaskDependencyDto.example))
 
   /** Adds a new scheduled task (referencing a catalog task) to a manufacturing, optionally with a preferred employee. */
-  final case class AddTaskRequest(taskId: UUID, expectedHours: Int, dependsOn: List[UUID], preferredEmployeeId: Option[UUID] = None):
+  final case class AddTaskRequest(taskId: UUID, expectedMinutes: Int, dependsOn: List[UUID], preferredEmployeeId: Option[UUID] = None):
     def toCommand(manufacturingId: UUID, taskInstanceId: UUID): ValidatedNec[String, OrderService.Command] =
-      ScheduledTask.createScheduledTask(taskInstanceId, taskId, expectedHours).map { task =>
+      ScheduledTask.createScheduledTask(taskInstanceId, taskId, expectedMinutes).map { task =>
         OrderService.Command.AddManufacturingTask(manufacturingId, task, dependsOn, preferredEmployeeId)
       }
 
   object AddTaskRequest:
     val example: AddTaskRequest =
-      AddTaskRequest(UUID.fromString("00000000-0000-0000-0000-000000000301").nn, 8, Nil)
+      AddTaskRequest(UUID.fromString("00000000-0000-0000-0000-000000000301").nn, 480, Nil)
 
   final case class TransitionRequest(action: String, reason: Option[String]):
     def toCommand: ValidatedNec[String, OrderService.Command] =
@@ -388,24 +388,24 @@ object OrderDtos:
   object TransitionRequest:
     val example: TransitionRequest = TransitionRequest("suspend", Some("Waiting for material"))
 
-  /** Recalibration of a single scheduled task instance: its completed hours (progress) and/or its total expected hours. */
-  final case class TaskProgressUpdateRequest(completedHours: Option[Int], expectedHours: Option[Int]):
+  /** Recalibration of a single scheduled task instance: its completed minutes (progress) and/or its total expected minutes. */
+  final case class TaskProgressUpdateRequest(completedMinutes: Option[Int], expectedMinutes: Option[Int]):
     def toCommands(manufacturingId: UUID, taskId: UUID): ValidatedNec[String, List[OrderService.Command]] =
       (
-        expectedHours.traverse(validateExpectedHours),
-        completedHours.traverse(h => TaskHours.validatedNec(h).leftMap(_.map(m => s"completedHours $m"))),
+        expectedMinutes.traverse(validateExpectedMinutes),
+        completedMinutes.traverse(h => TaskDuration.validatedNec(h).leftMap(_.map(m => s"completedMinutes $m"))),
       ).mapN { (expected, completed) =>
         // Apply the new total first so the progress is re-derived against it.
         expected.map(OrderService.Command.ChangeTaskExpectedHours(manufacturingId, taskId, _)).toList ++
           completed.map(OrderService.Command.SetTaskProgress(manufacturingId, taskId, _)).toList
       }
 
-    private def validateExpectedHours(hours: Int): ValidatedNec[String, TaskHours] =
-      if hours < 1 then "expectedHours must be at least 1.".invalidNec
-      else TaskHours.validatedNec(hours).leftMap(_.map(m => s"expectedHours $m"))
+    private def validateExpectedMinutes(minutes: Int): ValidatedNec[String, TaskDuration] =
+      if minutes < 1 then "expectedMinutes must be at least 1.".invalidNec
+      else TaskDuration.validatedNec(minutes).leftMap(_.map(m => s"expectedMinutes $m"))
 
   object TaskProgressUpdateRequest:
-    val example: TaskProgressUpdateRequest = TaskProgressUpdateRequest(Some(6), Some(12))
+    val example: TaskProgressUpdateRequest = TaskProgressUpdateRequest(Some(360), Some(720))
 
   final case class ManufacturingResponse(
       id: UUID,

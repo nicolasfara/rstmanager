@@ -15,7 +15,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 
@@ -62,8 +62,12 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       BudgetHours(WeeklyHours.applyUnsafe(weeklyHours), overrides),
     )
 
+  // Scenarios are expressed in whole hours; the domain stores minutes, so the hour figure is scaled by 60.
   private def pendingTask(templateId: TaskId, hours: Int): PendingTask =
-    PendingTask(UUID.randomUUID().nn: ScheduledTaskId, templateId, TaskHours.applyUnsafe(hours))
+    PendingTask(UUID.randomUUID().nn: ScheduledTaskId, templateId, TaskDuration.applyUnsafe(hours * 60))
+
+  private def pendingTaskMinutes(templateId: TaskId, minutes: Int): PendingTask =
+    PendingTask(UUID.randomUUID().nn: ScheduledTaskId, templateId, TaskDuration.applyUnsafe(minutes))
 
   private def manufacturing(
       id: ScheduledManufacturingId,
@@ -149,7 +153,9 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
-    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedHours.value, slice.remainingHoursAfterSlice.value)) shouldEqual
+    outcome.slices.map(slice =>
+      (slice.day, slice.candidateEmployee.assignedDuration.value / 60, slice.remainingDurationAfterSlice.value / 60),
+    ) shouldEqual
       List((monday, 6, 0))
     outcome.delayedOrders shouldBe empty
     outcome.delayedManufacturings shouldBe empty
@@ -159,7 +165,9 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
-    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedHours.value, slice.remainingHoursAfterSlice.value)) shouldEqual
+    outcome.slices.map(slice =>
+      (slice.day, slice.candidateEmployee.assignedDuration.value / 60, slice.remainingDurationAfterSlice.value / 60),
+    ) shouldEqual
       List((monday, 8, 12), (tuesday, 8, 4), (wednesday, 4, 0))
 
   it should "cap today's capacity to the hours remaining when planning is requested late in the day" in:
@@ -168,8 +176,20 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val requestedAt5pm = requestAt(monday, monday.withTime(17, 0, 0, 0).nn, List(orderId))
     val outcome = scheduleOrFail(requestedAt5pm, List(theOrder), List(employee(employeeA)))
 
-    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedHours.value, slice.remainingHoursAfterSlice.value)) shouldEqual
+    outcome.slices.map(slice =>
+      (slice.day, slice.candidateEmployee.assignedDuration.value / 60, slice.remainingDurationAfterSlice.value / 60),
+    ) shouldEqual
       List((monday, 1, 5), (tuesday, 5, 0))
+
+  it should "split a task with minute-level precision across days" in:
+    // At 17:00 only 1h (60 min) of today's capacity is left; a 95-minute task spills 35 minutes onto the next day.
+    val task = pendingTaskMinutes(UUID.randomUUID().nn, 95)
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val requestedAt5pm = requestAt(monday, monday.withTime(17, 0, 0, 0).nn, List(orderId))
+    val outcome = scheduleOrFail(requestedAt5pm, List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value, slice.remainingDurationAfterSlice.value)) shouldEqual
+      List((monday, 60, 35), (tuesday, 35, 0))
 
   it should "not count the lunch break as time remaining when planning is requested during it" in:
     val task = pendingTask(UUID.randomUUID().nn, 4)
@@ -177,7 +197,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val requestedDuringLunch = requestAt(monday, monday.withTime(13, 30, 0, 0).nn, List(orderId))
     val outcome = scheduleOrFail(requestedDuringLunch, List(theOrder), List(employee(employeeA)))
 
-    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedHours.value)) shouldEqual List((monday, 4))
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual List((monday, 4))
 
   it should "move to the next production day when planning is requested after the workday ends" in:
     val task = pendingTask(UUID.randomUUID().nn, 4)
@@ -193,7 +213,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA), employee(employeeB)))
 
     outcome.slices.map(_.day).distinct shouldEqual List(monday)
-    outcome.slices.map(_.candidateEmployee.assignedHours.value).sum shouldEqual 12
+    outcome.slices.map(_.candidateEmployee.assignedDuration.value / 60).sum shouldEqual 12
     outcome.slices.map(_.candidateEmployee.employeeId).toSet shouldEqual Set(employeeA, employeeB)
 
   it should "schedule a dependent task starting the day after its prerequisite completes" in:
@@ -262,7 +282,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
-    outcome.slices.map(_.candidateEmployee.assignedHours.value).sum shouldEqual 50
+    outcome.slices.map(_.candidateEmployee.assignedDuration.value / 60).sum shouldEqual 50
     outcome.slices.last.day shouldEqual nextTuesday
     outcome.unplannedOrders shouldBe empty
 
@@ -273,7 +293,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
     outcome.slices shouldBe empty
     outcome.unplannedOrders shouldEqual List(
-      UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, task.id, UnplannedReason.NoFutureCapacity(TaskHours(8))))),
+      UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, task.id, UnplannedReason.NoFutureCapacity(TaskDuration(8 * 60))))),
     )
 
   it should "plan higher-priority orders and mark later orders unplanned when fixed-term capacity runs out" in:
@@ -287,7 +307,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val outcome =
       scheduleOrFail(request(monday, List(orderId, otherOrderId)), List(normal, urgent), List(employee(employeeA, contract = limitedContract)))
 
-    outcome.slices.map(slice => (slice.orderId, slice.day, slice.candidateEmployee.assignedHours.value)) shouldEqual
+    outcome.slices.map(slice => (slice.orderId, slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual
       List((orderId, monday, 8), (orderId, tuesday, 8))
     outcome.unplannedOrders.map(_.orderId) shouldEqual List(otherOrderId)
 
@@ -345,8 +365,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val completedTask = ScheduledTask.CompletedTask(
       UUID.randomUUID().nn: ScheduledTaskId,
       UUID.randomUUID().nn: TaskId,
-      TaskHours.applyUnsafe(8),
-      TaskHours.applyUnsafe(8),
+      TaskDuration.applyUnsafe(8 * 60),
+      TaskDuration.applyUnsafe(8 * 60),
       monday.minusDays(1).nn,
     )
     val dependentTask = pendingTask(UUID.randomUUID().nn, 4)
@@ -467,7 +487,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val command = Command.ComputePlan(planningRequest, List(theOrder), Nil)
     val context = RequestContext(CommandMessage("cmd-2", Instant.now().nn, "production-planning", command), Planning.initial)
     val expectedUnplanned =
-      UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, task.id, UnplannedReason.NoFutureCapacity(TaskHours(50)))))
+      UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, task.id, UnplannedReason.NoFutureCapacity(TaskDuration(50 * 60)))))
 
     PlanningService[Id].execute(context) match
       case EdomatonResult.Accepted(state, _, notifications) =>

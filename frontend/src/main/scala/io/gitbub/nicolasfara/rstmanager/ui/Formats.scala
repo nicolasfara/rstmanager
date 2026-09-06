@@ -24,6 +24,26 @@ object Formats:
     if parsed.getTime().isNaN then iso
     else s"${date(iso)} ${pad2(parsed.getHours().toInt)}:${pad2(parsed.getMinutes().toInt)}"
 
+  /** Formats a task duration given in total minutes as `H:MM` (e.g. 95 -> "1:35", 20 -> "0:20"). */
+  def duration(minutes: Int): String = s"${minutes / 60}:${pad2(minutes % 60)}"
+
+  /**
+   * Parses a task duration into total minutes. A value with a colon is read as `H:MM` (minutes in `0..59`); a plain integer is read as whole hours
+   * (`8` -> 480). Returns `None` for any malformed or negative input, so callers can gate form submission on it.
+   */
+  def parseDuration(text: String): Option[Int] =
+    val trimmed = text.trim.nn
+    if trimmed.isEmpty then None
+    else
+      val colon = trimmed.indexOf(":")
+      if colon < 0 then trimmed.toIntOption.filter(_ >= 0).map(_ * 60)
+      else
+        val hoursPart = trimmed.substring(0, colon).nn
+        val minsPart = trimmed.substring(colon + 1).nn
+        (hoursPart.toIntOption, minsPart.toIntOption) match
+          case (Some(hours), Some(mins)) if hours >= 0 && mins >= 0 && mins < 60 => Some(hours * 60 + mins)
+          case _ => None
+
   /** First segment of a UUID, handy for compact labels when no human name is available. */
   def shortId(id: UUID): String = id.toString.take(8)
 

@@ -20,17 +20,17 @@ type TaskName = DescribedAs[Not[Empty], "The task name must be alphanumeric"]
 /** Refined constraint for a non-empty task description. */
 type TaskDescription = DescribedAs[Not[Empty], "The task description must be alphanumeric"]
 
-/** Estimated duration of a task in hours. */
-type TaskHours = TaskHours.T
+/** Estimated duration of a task, expressed in total minutes. */
+type TaskDuration = TaskDuration.T
 
-/** Refined type companion for `TaskHours`, including arithmetic helpers and a `Monoid` instance. */
-object TaskHours extends RefinedType[Int, Positive0]:
-  given Monoid[TaskHours] with
-    def empty: TaskHours = TaskHours(0)
-    def combine(x: TaskHours, y: TaskHours): TaskHours = x + y
-  extension (value: TaskHours)
-    def +(other: TaskHours): TaskHours = TaskHours.applyUnsafe(value.value + other.value)
-    def -(other: TaskHours): Int = value.value - other.value
+/** Refined type companion for `TaskDuration` (total minutes), including arithmetic helpers and a `Monoid` instance. */
+object TaskDuration extends RefinedType[Int, Positive0]:
+  given Monoid[TaskDuration] with
+    def empty: TaskDuration = TaskDuration(0)
+    def combine(x: TaskDuration, y: TaskDuration): TaskDuration = x + y
+  extension (value: TaskDuration)
+    def +(other: TaskDuration): TaskDuration = TaskDuration.applyUnsafe(value.value + other.value)
+    def -(other: TaskDuration): Int = value.value - other.value
 
 /**
  * Immutable task definition used inside manufacturings.
@@ -41,8 +41,8 @@ object TaskHours extends RefinedType[Int, Positive0]:
  *   Human-readable task name.
  * @param taskDescription
  *   Optional task description.
- * @param requiredHours
- *   Estimated effort required to complete the task.
+ * @param requiredDuration
+ *   Estimated effort required to complete the task, in total minutes.
  * @param defaultEmployeeId
  *   Default employee proposed for this task when it is added to a manufacturing or an order; overridable at both steps.
  */
@@ -50,7 +50,7 @@ final case class Task(
     id: TaskId,
     name: String :| TaskName,
     taskDescription: Option[String :| TaskDescription],
-    requiredHours: TaskHours,
+    requiredDuration: TaskDuration,
     defaultEmployeeId: Option[EmployeeId] = None,
 )
 
@@ -64,8 +64,8 @@ object Task:
    *   Raw task name.
    * @param description
    *   Optional raw description.
-   * @param requiredHours
-   *   Raw task effort in hours.
+   * @param requiredMinutes
+   *   Raw task effort in total minutes.
    * @param defaultEmployeeId
    *   Optional default employee proposed for this task.
    */
@@ -73,14 +73,14 @@ object Task:
       id: UUID,
       name: String,
       description: Option[String],
-      requiredHours: Int,
+      requiredMinutes: Int,
       defaultEmployeeId: Option[EmployeeId],
   ): ValidatedNec[String, Task] =
     (
       Validated.validNec(id),
       name.refineValidatedNec[TaskName],
       description.traverse(_.refineValidatedNec[TaskDescription]),
-      TaskHours.validatedNec(requiredHours),
+      TaskDuration.validatedNec(requiredMinutes),
       Validated.validNec(defaultEmployeeId),
     ).mapN(Task.apply)
 end Task

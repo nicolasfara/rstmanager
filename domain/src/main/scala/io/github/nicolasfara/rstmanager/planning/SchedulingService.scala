@@ -7,7 +7,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingD
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderDependencyError, OrderId }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.data.NonEmptyList
@@ -154,6 +154,7 @@ object SchedulingService:
   private final case class PlannerState(
       days: Vector[DateTime],
       base: Vector[Map[EmployeeId, DailyHours]],
+      // `remaining` holds the still-allocatable minutes per employee for each day (day capacity in hours × 60, decremented as slices are placed).
       remaining: Vector[Map[EmployeeId, Int]],
       slices: Vector[ScheduledTaskSlice],
       nextSearchFrom: DateTime,
@@ -217,7 +218,7 @@ object SchedulingService:
             orderedManufacturings
               .foldLeft((state, Map.empty[ScheduledManufacturingId, Int]).asRight[NonEmptyList[UnplannedTask]]) {
                 case (Right((currentState, completionIdx)), manufacturing) =>
-                  if manufacturing.remainingHours.value == 0 then
+                  if manufacturing.remainingDuration.value == 0 then
                     // Work already done imposes no scheduling constraint on its dependents.
                     (currentState, completionIdx.updated(manufacturing.info.id, -1)).asRight
                   else
@@ -286,7 +287,7 @@ object SchedulingService:
               dependencies.find(plan.blocked.contains) match
                 case Some(blockedDependency) =>
                   plan.block(manufacturing.info.id, task, UnplannedReason.BlockedByDependency(blockedDependency))
-                case None if task.remainingHours.value == 0 =>
+                case None if task.remainingDuration.value == 0 =>
                   plan.markCompleted(task.taskId, dayIndex = -1)
                 case None =>
                   val earliestStart = dependencies.foldLeft(startIdx) { (idx, dependency) =>
@@ -297,7 +298,7 @@ object SchedulingService:
                     orderId,
                     manufacturing.info.id,
                     task.id,
-                    task.remainingHours.value,
+                    task.remainingDuration.value,
                     earliestStart,
                     employees,
                     manufacturing.info.preferredEmployeeForTask(task.id),
@@ -336,9 +337,9 @@ object SchedulingService:
       )
 
   /**
-   * Assigns the required hours of one task starting from `startIdx`, splitting over days and employees as needed.
+   * Assigns the required minutes of one task starting from `startIdx`, splitting over days and employees as needed.
    *
-   * Employees with the most remaining hours are picked first, with the employee id as a deterministic tie-break. Returns the updated state and the
+   * Employees with the most remaining minutes are picked first, with the employee id as a deterministic tie-break. Returns the updated state and the
    * day index of the last slice, or [[UnplannedReason.NoFutureCapacity]] when no future positive-capacity production day exists.
    */
   private def allocateTask(
@@ -346,12 +347,12 @@ object SchedulingService:
       orderId: OrderId,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      hours: Int,
+      minutes: Int,
       startIdx: Int,
       employees: List[Employee],
       preferredEmployeeId: Option[EmployeeId],
   ): Either[UnplannedReason, (PlannerState, Int)] =
-    val requiredHours = TaskHours.applyUnsafe(hours)
+    val requiredDuration = TaskDuration.applyUnsafe(minutes)
 
     @tailrec
     def go(
@@ -364,7 +365,7 @@ object SchedulingService:
       if needed <= 0 then Right((current.copy(slices = current.slices ++ slices), lastIdx))
       else
         ensureDay(current, idx, employees) match
-          case None => Left(UnplannedReason.NoFutureCapacity(requiredHours))
+          case None => Left(UnplannedReason.NoFutureCapacity(requiredDuration))
           case Some(expanded) =>
             val allCandidates = expanded.remaining(idx).toList.filter { case (_, left) => left > 0 }.sortBy { case (id, left) =>
               (-left, id.toString)
@@ -374,24 +375,24 @@ object SchedulingService:
               if pref.nonEmpty then pref else allCandidates
             }
             val (dayCapacity, daySlices, neededAfter) = candidates.foldLeft((expanded.remaining(idx), Vector.empty[ScheduledTaskSlice], needed)) {
-              case ((capacity, acc, toPlace), (employeeId, employeeHours)) =>
+              case ((capacity, acc, toPlace), (employeeId, employeeMinutes)) =>
                 if toPlace <= 0 then (capacity, acc, toPlace)
                 else
-                  val assigned = math.min(toPlace, employeeHours)
+                  val assigned = math.min(toPlace, employeeMinutes)
                   val slice = ScheduledTaskSlice(
                     orderId,
                     manufacturingId,
                     taskId,
                     expanded.days(idx),
-                    CandidateEmployee(employeeId, expanded.base(idx)(employeeId), TaskHours.applyUnsafe(assigned)),
-                    TaskHours.applyUnsafe(toPlace - assigned),
+                    CandidateEmployee(employeeId, expanded.base(idx)(employeeId), TaskDuration.applyUnsafe(assigned)),
+                    TaskDuration.applyUnsafe(toPlace - assigned),
                   )
-                  (capacity.updated(employeeId, employeeHours - assigned), acc :+ slice, toPlace - assigned)
+                  (capacity.updated(employeeId, employeeMinutes - assigned), acc :+ slice, toPlace - assigned)
             }
             val progressed = if daySlices.nonEmpty then idx else lastIdx
             go(expanded.copy(remaining = expanded.remaining.updated(idx, dayCapacity)), idx + 1, neededAfter, slices ++ daySlices, progressed)
 
-    go(state, startIdx, hours, Vector.empty, startIdx - 1)
+    go(state, startIdx, minutes, Vector.empty, startIdx - 1)
   end allocateTask
 
   @tailrec
@@ -401,7 +402,8 @@ object SchedulingService:
       nextCapacityDay(state.nextSearchFrom, employees, state.now) match
         case None => None
         case Some((day, capacity)) =>
-          val remaining = capacity.map { case (employeeId, hours) => employeeId -> hours.value }
+          // `base` keeps the day capacity in whole hours; `remaining` tracks the still-allocatable minutes for that day.
+          val remaining = capacity.map { case (employeeId, hours) => employeeId -> hours.value * 60 }
           ensureDay(
             state.copy(
               days = state.days :+ day,

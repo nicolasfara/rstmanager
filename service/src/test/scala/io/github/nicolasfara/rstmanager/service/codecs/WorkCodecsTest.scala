@@ -11,7 +11,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturingInfo,
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
-import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskHours, TaskId }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.data.NonEmptyList
@@ -33,7 +33,7 @@ class WorkCodecsTest extends AnyFlatSpecLike:
         "MFG-TEST".refineUnsafe[ManufacturingCode],
         day,
         NonEmptyList.one(
-          ScheduledTask.PendingTask(UUID.randomUUID().nn: ScheduledTaskId, UUID.randomUUID().nn: TaskId, TaskHours(8)),
+          ScheduledTask.PendingTask(UUID.randomUUID().nn: ScheduledTaskId, UUID.randomUUID().nn: TaskId, TaskDuration(8)),
         ),
         ManufacturingDependencies(),
       ),
@@ -100,11 +100,11 @@ class WorkCodecsTest extends AnyFlatSpecLike:
 
     val roundTripped = template.asJson.as[Manufacturing].fold(err => fail(s"Decoding failed: $err"), identity)
     roundTripped.defaultEmployees shouldEqual Map(taskId -> employeeId)
-    roundTripped.taskHours.get(taskId).map(_.value) shouldEqual Some(9)
+    roundTripped.taskDurations.get(taskId).map(_.value) shouldEqual Some(9)
 
-    val legacyJson = template.asJson.mapObject(_.remove("defaultEmployees").remove("taskHours"))
+    val legacyJson = template.asJson.mapObject(_.remove("defaultEmployees").remove("taskDurations"))
     val decoded = legacyJson.as[Manufacturing].fold(err => fail(s"Decoding failed: $err"), identity)
     decoded.defaultEmployees shouldBe empty
-    decoded.taskHours shouldBe empty
+    decoded.taskDurations shouldBe empty
     decoded.taskIds.toList shouldEqual List(taskId)
 end WorkCodecsTest

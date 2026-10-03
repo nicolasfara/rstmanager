@@ -6,7 +6,7 @@ lazy val scala3Version = "3.3.7"
 lazy val http4sVersion = "0.23.37"
 lazy val slf4jVersion = "2.0.19"
 lazy val logbackVersion = "1.6.3"
-lazy val tapirVersion = "1.13.31"
+lazy val tapirVersion = "1.13.32"
 lazy val log4catsVersion = "2.8.0"
 lazy val projectScalacOptions = Seq(
   "-encoding",

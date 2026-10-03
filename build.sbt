@@ -93,7 +93,7 @@ lazy val service = project
       case other => (assembly / assemblyMergeStrategy).value(other)
     },
     libraryDependencies ++= Seq(
-      "io.github.iltotore" %% "iron-circe" % "3.3.2",
+      "io.github.iltotore" %% "iron-circe" % "3.3.2-4-36c079",
       "dev.hnaderi" %% "edomata-backend" % "0.13.1",
       "dev.hnaderi" %% "edomata-skunk-circe" % "0.13.1",
       "com.github.jwt-scala" %% "jwt-circe" % "11.0.4",

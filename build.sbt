@@ -23,7 +23,7 @@ lazy val projectScalacOptions = Seq(
 )
 lazy val sharedDependencies = Seq(
   "com.github.nscala-time" %% "nscala-time" % "3.2.0",
-  "io.circe" %% "circe-core" % "0.14.16",
+  "io.circe" %% "circe-core" % "0.14.17",
   "io.circe" %% "circe-generic" % "0.14.16",
   "io.github.iltotore" %% "iron" % "3.3.2-4-36c079",
   "io.github.iltotore" %% "iron-cats" % "3.3.2",

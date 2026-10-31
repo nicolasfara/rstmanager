@@ -14,7 +14,7 @@ import monocle.syntax.all.*
 type BusinessName = DescribedAs[Not[Empty], "The business name cannot be empty"]
 
 /**
- * Customer aggregate containing identity, contacts, address, and fiscal classification.
+ * Customer master-data record (the state held by [[CustomerAggregate]]): identity, contacts, address, and fiscal classification.
  *
  * @param id
  *   Stable customer identifier.
@@ -87,7 +87,7 @@ end Customer
 
 object Customer:
   /**
-   * Creates a `Customer` aggregate from raw input values.
+   * Creates a `Customer` from raw input values.
    *
    * Validation is delegated to the value objects that make up the aggregate. The fiscal identifier is validated as an Italian fiscal code for
    * individuals and as a VAT number (including check digit) for companies. The business name is required for companies and optional for individuals.

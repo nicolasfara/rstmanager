@@ -20,7 +20,7 @@ import io.github.iltotore.iron.*
  * events carry it as `occurredOn`; it is optional only because events persisted before it existed lack it (the fold then falls back to the order
  * creation date, which is deterministic).
  */
-enum OrderEvent:
+enum OrderEvent derives CanEqual:
   /** The order has been created with its initial data. */
   case OrderCreated(orderData: OrderData, promisedDeliveryDate: DateTime)
 
@@ -30,7 +30,7 @@ enum OrderEvent:
   /** The order has been temporarily suspended. */
   case OrderSuspended(suspendedOn: DateTime, reason: Option[String :| SuspensionReason])
 
-  /** A suspended or cancelled order has been reactivated. */
+  /** A suspended order was resumed, or a cancelled or completed order was reopened. */
   case OrderReactivated(reactivatedOn: DateTime)
 
   /** The order has been completed. */

@@ -16,13 +16,13 @@ import io.github.iltotore.iron.constraint.any.DescribedAs
 type ManufacturingId = UUID
 
 /** Refined constraint for a non-empty manufacturing code. */
-type ManufacturingCode = DescribedAs[Not[Empty], "The code manufacturing should be not empty"]
+type ManufacturingCode = DescribedAs[Not[Empty], "The manufacturing code cannot be empty"]
 
 /** Refined constraint for a non-empty manufacturing name. */
-type ManufacturingName = DescribedAs[Not[Empty], "The manufacturing name should be not empty"]
+type ManufacturingName = DescribedAs[Not[Empty], "The manufacturing name cannot be empty"]
 
 /** Refined constraint for a non-empty manufacturing description. */
-type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing description should be not empty"]
+type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing description, if provided, cannot be empty"]
 
 /**
  * Manufacturing catalog template composed of live references to catalog tasks.

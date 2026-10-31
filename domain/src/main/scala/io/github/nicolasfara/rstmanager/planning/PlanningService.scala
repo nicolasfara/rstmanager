@@ -6,16 +6,14 @@ import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderId }
 
 import cats.Monad
 import cats.data.NonEmptyList
-import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 
 /**
  * Edomata service for the event-sourced [[Planning]] aggregate.
  *
- * One `ComputePlan` command runs a full planning attempt: it starts the attempt on the aggregate, executes [[SchedulingService.computeSchedule]],
- * records every produced fact (task slices, delays, unplanned orders, warnings) as planning events, and finally completes or rejects the attempt.
- * Downstream contexts are informed through notifications, so, for example, the order service can update work-completion deadlines when planning
- * delays an order.
+ * One `ComputePlan` command runs a full planning attempt: it starts the attempt on the aggregate, executes [[SchedulingService.computeSchedule]], and
+ * concludes the attempt with a single event carrying the whole result (or the reasons it was rejected), stamped with the command time. Downstream
+ * contexts are informed through notifications, so, for example, the order service can update work-completion deadlines when planning delays an order.
  *
  * The command carries the open orders and the workforce snapshot because planning combines work demand with HR capacity without reaching into other
  * aggregates; the application layer is responsible for loading them before dispatching the command.
@@ -48,45 +46,25 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
   end Notification
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router { case Command.ComputePlan(request, orders, employees) =>
-    // `App.state` always reads the state the command arrived on, so every decision after the first
-    // is taken on the state returned by the previous one. Every event is stamped with the command time.
     App.read.flatMap { context =>
       val now = new DateTime(context.command.time.toEpochMilli)
-      App.decide(context.state.request(request)).flatMap { inProgress =>
-        SchedulingService.computeSchedule(request, orders, employees) match
-          case Left(errors) => rejectPlan(inProgress, request, errors, now)
-          case Right(outcome) => completePlan(inProgress, request, outcome, now)
-      }
+      for
+        inProgress <- App.decide(context.state.request(request))
+        concluded <- App.decide(inProgress.conclude(SchedulingService.computeSchedule(request, orders, employees), now))
+        _ <- publishOutcome(request, concluded)
+      yield ()
     }
   }
 
-  private def rejectPlan[F[_]: Monad](
-      planning: Planning,
-      request: PlanningRequest,
-      errors: NonEmptyList[PlanningError],
-      now: DateTime,
-  ): App[F, Unit] =
-    App.decide(planning.reject(errors, now)).void >> App.publish(Notification.PlanningRejected(request.id, errors))
-
-  private def completePlan[F[_]: Monad](planning: Planning, request: PlanningRequest, outcome: SchedulingOutcome, now: DateTime): App[F, Unit] =
-    val delayNotifications =
-      outcome.delayedOrders.map(delay => Notification.OrderDelayed(delay.orderId, delay.expectedDeliveryDate, delay.promisedDeliveryDate)) ++
-        outcome.delayedManufacturings.map { delay =>
-          Notification.ManufacturingDelayed(delay.orderId, delay.manufacturingId, delay.expectedCompletionDate, delay.computedCompletionDate)
-        }
-    val unplannedNotifications = outcome.unplannedOrders.map(Notification.OrderUnplanned.apply)
-    for
-      afterSlices <- outcome.slices.foldM(planning)((state, slice) => App.decide(state.assignTaskSlice(slice, now)))
-      afterOrderDelays <- outcome.delayedOrders.foldM(afterSlices)((state, delay) => App.decide(state.delayOrder(delay, now)))
-      afterManufacturingDelays <- outcome.delayedManufacturings.foldM(afterOrderDelays)((state, delay) =>
-        App.decide(state.delayManufacturing(delay, now)),
-      )
-      afterUnplanned <- outcome.unplannedOrders.foldM(afterManufacturingDelays)((state, unplannedOrder) =>
-        App.decide(state.markOrderUnplanned(unplannedOrder, now)),
-      )
-      afterWarnings <- outcome.warnings.foldM(afterUnplanned)((state, warning) => App.decide(state.raiseWarning(warning, now)))
-      _ <- App.decide(afterWarnings.complete(now))
-      _ <- App.publish((delayNotifications ++ unplannedNotifications :+ Notification.PlanningCompleted(request.id))*)
-    yield ()
-  end completePlan
+  private def publishOutcome[F[_]: Monad](request: PlanningRequest, concluded: Planning): App[F, Unit] = concluded match
+    case Planning.CompletedPlanning(_, result, _) =>
+      val delayNotifications =
+        result.delayedOrders.map(delay => Notification.OrderDelayed(delay.orderId, delay.expectedDeliveryDate, delay.promisedDeliveryDate)) ++
+          result.delayedManufacturings.map { delay =>
+            Notification.ManufacturingDelayed(delay.orderId, delay.manufacturingId, delay.expectedCompletionDate, delay.computedCompletionDate)
+          }
+      val unplannedNotifications = result.unplannedOrders.map(Notification.OrderUnplanned.apply)
+      App.publish((delayNotifications ++ unplannedNotifications :+ Notification.PlanningCompleted(request.id))*)
+    case Planning.RejectedPlanning(_, errors, _) => App.publish(Notification.PlanningRejected(request.id, errors))
+    case Planning.NewPlanning | Planning.InProgressPlanning(_, _, _, _, _, _) => App.unit
 end PlanningService

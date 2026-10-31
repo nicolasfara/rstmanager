@@ -61,4 +61,7 @@ enum PlanningError derives CanEqual:
 
   /** Returned when an event requires an active planning request. */
   case PlanningMustBeInProgress
+
+  /** Returned when concluding an attempt did not leave it completed or rejected. */
+  case PlanningMustBeConcluded
 end PlanningError

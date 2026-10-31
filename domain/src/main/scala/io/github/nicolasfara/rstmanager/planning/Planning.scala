@@ -14,9 +14,9 @@ import edomata.syntax.all.*
 /**
  * Event-sourced aggregate representing one planning attempt lifecycle.
  *
- * `Planning` records the decisions made while producing a schedule. It does not run the scheduling algorithm; instead, it accepts the facts produced
- * by that algorithm as events. The final result is derived from the accepted task-slice, delay, and warning events so the completed schedule cannot
- * diverge from the audit trail.
+ * `Planning` records the outcome of each scheduling run. It does not run the scheduling algorithm: a run is recorded as `PlanningRequested` followed
+ * by one `ScheduleComputed` (the full day-by-day result) or `ScheduleRejected` event. Older journals also contain one event per task slice, delay,
+ * unplanned order, and warning before the final event; the fold still accepts them.
  *
  * Lifecycle:
  *   - [[Planning.NewPlanning]] has not received a request yet.
@@ -24,8 +24,8 @@ import edomata.syntax.all.*
  *   - [[Planning.CompletedPlanning]] stores the final feasible [[PlanningResult]].
  *   - [[Planning.RejectedPlanning]] stores terminal lifecycle or validation errors.
  *
- * Only an in-progress attempt can receive task slices, delays, unplanned orders, warnings, completion, or rejection. A new request can be started
- * from `NewPlanning` or after a previous attempt has completed or been rejected.
+ * Only an in-progress attempt can be concluded. A new request can be started from `NewPlanning` or after a previous attempt has completed or been
+ * rejected.
  *
  * Decisions never read the clock: the instant recorded on the emitted events (`now`) is supplied by the caller.
  */
@@ -36,8 +36,8 @@ enum Planning derives CanEqual:
   /**
    * Active planning attempt.
    *
-   * The lists are append-only projections of events already accepted by the aggregate. They are useful while the attempt is still being built, but
-   * the authoritative completed output is derived from these accepted facts when the attempt is completed.
+   * The lists are filled only when replaying older journals, which recorded one event per fact before concluding; current runs conclude directly from
+   * the request.
    */
   case InProgressPlanning(
       request: PlanningRequest,
@@ -60,50 +60,26 @@ enum Planning derives CanEqual:
     case InProgressPlanning(activeRequest, _, _, _, _, _) => Decision.reject(PlanningAlreadyInProgress(activeRequest.id))
   }.validate(_.mustBeInProgress)
 
-  /** Records a daily task assignment during an active planning attempt. */
-  def assignTaskSlice(slice: ScheduledTaskSlice, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> TaskSliceAssigned(slice, now).accept).validate(_.mustBeInProgress)
-
-  /** Records an order delay during an active planning attempt. */
-  def delayOrder(delay: DelayedOrder, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> OrderDelayedByPlanning(delay, now).accept).validate(_.mustBeInProgress)
-
-  /** Records a manufacturing delay during an active planning attempt. */
-  def delayManufacturing(delay: DelayedManufacturing, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> ManufacturingDelayedByPlanning(delay, now).accept).validate(_.mustBeInProgress)
-
-  /** Records an unplanned order during an active planning attempt. */
-  def markOrderUnplanned(unplannedOrder: UnplannedOrder, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> OrderMarkedUnplanned(unplannedOrder, now).accept).validate(_.mustBeInProgress)
-
-  /** Records a non-fatal planning warning during an active planning attempt. */
-  def raiseWarning(warning: PlanningWarning, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> PlanningWarningRaised(warning, now).accept).validate(_.mustBeInProgress)
-
-  /** Completes an active planning attempt with a feasible result derived from its accepted events. */
-  def complete(now: DateTime): Decision[PlanningError, PlanningEvent, Planning] = this.decide {
-    case planning: InProgressPlanning =>
+  /**
+   * Concludes an active attempt with the scheduler outcome, recorded as a single event: `ScheduleComputed` with the full day-by-day result, or
+   * `ScheduleRejected` with every reason when the outcome does not form a valid result.
+   */
+  def conclude(outcome: SchedulingOutcome, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] = this.decide {
+    case _: InProgressPlanning =>
       PlanningResult
-        .fromSlices(planning.slices, planning.delayedOrders, planning.delayedManufacturings, planning.unplannedOrders, planning.warnings)
-        .fold(errors => Decision.reject(errors.head), result => Decision.accept(ScheduleComputed(result, now)))
+        .fromSlices(outcome.slices, outcome.delayedOrders, outcome.delayedManufacturings, outcome.unplannedOrders, outcome.warnings)
+        .fold(errors => Decision.accept(ScheduleRejected(errors.toNonEmptyList, now)), result => Decision.accept(ScheduleComputed(result, now)))
     case _ => Decision.reject(PlanningMustBeInProgress)
-  }.validate(_.mustBeCompleted)
-
-  /** Rejects an active planning attempt with one or more planning errors. */
-  def reject(errors: NonEmptyList[PlanningError], now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> ScheduleRejected(errors, now).accept).validate(_.mustBeRejected)
+  }.validate(_.mustBeConcluded)
 
   private def mustBeInProgress: ValidatedNec[PlanningError, InProgressPlanning] = this match
     case planning: InProgressPlanning => planning.validNec
     case _ => PlanningMustBeInProgress.invalidNec
 
-  private def mustBeCompleted: ValidatedNec[PlanningError, CompletedPlanning] = this match
+  private def mustBeConcluded: ValidatedNec[PlanningError, CompletedPlanning | RejectedPlanning] = this match
     case planning: CompletedPlanning => planning.validNec
-    case _ => PlanningMustBeInProgress.invalidNec
-
-  private def mustBeRejected: ValidatedNec[PlanningError, RejectedPlanning] = this match
     case planning: RejectedPlanning => planning.validNec
-    case _ => PlanningMustBeInProgress.invalidNec
+    case _ => PlanningMustBeConcluded.invalidNec
 end Planning
 
 /** `DomainModel` instance for the event-sourced `Planning` aggregate. */

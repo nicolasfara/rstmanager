@@ -76,9 +76,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
       employees: List[Employee],
       demand: SimulationDemand,
   ): SimulationResult =
-    OrderSimulationService.simulate(monday, openOrders, employees, demand) match
-      case Right(result) => result
-      case Left(errors) => fail(s"Expected a simulation result, got: ${errors.toList.mkString(", ")}")
+    OrderSimulationService.simulate(monday, openOrders, employees, demand)
 
   "OrderSimulationService" should "estimate the completion date of a total-hours demand on an empty plan" in:
     val result = simulateOrFail(Nil, List(employee(employeeA)), SimulationDemand.TotalDuration(TaskDuration(20 * 60)))

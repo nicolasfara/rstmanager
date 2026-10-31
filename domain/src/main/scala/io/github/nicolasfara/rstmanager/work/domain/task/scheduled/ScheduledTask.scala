@@ -57,10 +57,13 @@ enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedDura
     case CompletedTask(_, _, _, completedDuration, _) => completedDuration
     case PendingTask(_, _, _) => TaskDuration(0)
 
-  /** Reopens a completed task so progress can continue. */
+  /**
+   * Reopens a completed task so progress can continue, keeping both its estimate and the work already done: whatever is left of the estimate is
+   * planned again (nothing when the task overran it, until its expected duration is raised).
+   */
   def revertToInProgress: Either[ScheduledTaskError, ScheduledTask] = this match
-    case CompletedTask(id, taskId, _, completedDuration, _) =>
-      InProgressTask(id, taskId, completedDuration, completedDuration).asRight[ScheduledTaskError]
+    case CompletedTask(id, taskId, expectedDuration, completedDuration, _) =>
+      InProgressTask(id, taskId, expectedDuration, completedDuration).asRight[ScheduledTaskError]
     case InProgressTask(_, _, _, _) => ScheduledTaskError.TaskAlreadyInProgress.asLeft
     case PendingTask(_, _, _) => ScheduledTaskError.TaskMustBeInProgress.asLeft
 

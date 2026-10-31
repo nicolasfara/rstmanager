@@ -114,7 +114,7 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     forAll(genCompletedTask): task =>
       task.markAsInProgress shouldEqual Left(TaskAlreadyCompleted)
 
-  it should "revert to an InProgressTask whose expectedDuration equals its completedDuration" in:
+  it should "revert to an InProgressTask keeping its estimate and the work already done" in:
     forAll(genCompletedTask): task =>
       val result = task.revertToInProgress
       result.isRight shouldEqual true
@@ -122,8 +122,9 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         t shouldBe a[InProgressTask]
         t.id shouldEqual task.id
         t.taskId shouldEqual task.taskId
-        t.expectedDuration shouldEqual task.completedDuration
+        t.expectedDuration shouldEqual task.expectedDuration
         t.completedDuration shouldEqual task.completedDuration
+        t.remainingDuration.value shouldEqual math.max(0, task.expectedDuration.value - task.completedDuration.value)
 
   // ---------------------------------------------------------------------------
   // InProgressTask invariants

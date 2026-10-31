@@ -239,7 +239,7 @@ object PlanningApiDtos:
 
   object DelayedOrderDto:
     def fromDomain(delay: DelayedOrder): DelayedOrderDto =
-      DelayedOrderDto(delay.orderId, formatDate(delay.expectedDeliveryDate), formatDate(delay.promisedDeliveryDate))
+      DelayedOrderDto(delay.orderId, formatDate(delay.deadline), formatDate(delay.plannedCompletion))
 
   final case class DelayedManufacturingDto(
       orderId: UUID,

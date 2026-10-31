@@ -100,17 +100,20 @@ object DailySchedule:
 /**
  * Order whose planned completion moved beyond its work-completion deadline.
  *
- * The planned completion field carries the first admissible completion date computed by the new schedule.
+ * @param deadline
+ *   The order's work-completion deadline (`Order.promisedDeliveryDate`).
+ * @param plannedCompletion
+ *   The last day the new schedule plans work for the order, i.e. its earliest possible completion; after `deadline`.
  */
-final case class DelayedOrder(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)
+final case class DelayedOrder(orderId: OrderId, deadline: DateTime, plannedCompletion: DateTime)
 
 object DelayedOrder:
-  /** Creates an order delay when the planned completion date is after the expected work deadline. */
-  def create(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime): ValidatedNec[PlanningError, DelayedOrder] =
+  /** Creates an order delay when the planned completion date is after the work deadline. */
+  def create(orderId: OrderId, deadline: DateTime, plannedCompletion: DateTime): ValidatedNec[PlanningError, DelayedOrder] =
     Validated.condNec(
-      promisedDeliveryDate.isAfter(expectedDeliveryDate),
-      DelayedOrder(orderId, expectedDeliveryDate, promisedDeliveryDate),
-      PlanningError.InvalidOrderDelay(orderId, expectedDeliveryDate, promisedDeliveryDate),
+      plannedCompletion.isAfter(deadline),
+      DelayedOrder(orderId, deadline, plannedCompletion),
+      PlanningError.InvalidOrderDelay(orderId, deadline, plannedCompletion),
     )
 
 /**

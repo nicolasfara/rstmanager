@@ -7,8 +7,9 @@ import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
-import io.circe.{ Codec, Decoder, Encoder }
+import io.circe.{ Codec, Decoder, Encoder, Json }
 import io.circe.generic.semiauto.deriveCodec
+import io.circe.syntax.*
 
 /**
  * Circe codecs used to persist planning events and notifications in the edomata journal and outbox.
@@ -31,7 +32,11 @@ object PlanningCodecs:
   given Codec[CandidateEmployee] = deriveCodec
   given Codec[ScheduledTaskSlice] = deriveCodec
   given Codec[DailySchedule] = deriveCodec
-  given Codec[DelayedOrder] = deriveCodec
+
+  /** Keeps the JSON keys of the persisted format (`expectedDeliveryDate` = deadline, `promisedDeliveryDate` = planned completion). */
+  given Codec[DelayedOrder] = Codec.forProduct3("orderId", "expectedDeliveryDate", "promisedDeliveryDate")(DelayedOrder.apply)(delay =>
+    (delay.orderId, delay.deadline, delay.plannedCompletion),
+  )
   given Codec[DelayedManufacturing] = deriveCodec
   given Codec[UnplannedReason] = deriveCodec
   given Codec[UnplannedTask] = deriveCodec
@@ -40,5 +45,21 @@ object PlanningCodecs:
   given Codec[PlanningResult] = deriveCodec
   given Codec[PlanningError] = deriveCodec
   given Codec[PlanningEvent] = deriveCodec
-  given Codec[PlanningService.Notification] = deriveCodec
+
+  private val derivedNotificationCodec: Codec[PlanningService.Notification] = deriveCodec
+
+  /** Derived, except that `OrderDelayed` keeps the JSON keys of the persisted format, like [[DelayedOrder]]. */
+  given Codec[PlanningService.Notification] = Codec.from(
+    Decoder.instance { cursor =>
+      cursor.downField("OrderDelayed").success match
+        case Some(delayed) =>
+          delayed.as[DelayedOrder].map(delay => PlanningService.Notification.OrderDelayed(delay.orderId, delay.deadline, delay.plannedCompletion))
+        case None => derivedNotificationCodec(cursor)
+    },
+    Encoder.instance {
+      case PlanningService.Notification.OrderDelayed(orderId, deadline, plannedCompletion) =>
+        Json.obj("OrderDelayed" -> DelayedOrder(orderId, deadline, plannedCompletion).asJson)
+      case other => derivedNotificationCodec(other)
+    },
+  )
 end PlanningCodecs

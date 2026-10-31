@@ -31,7 +31,7 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
     case PlanningRejected(requestId: PlanningRequestId, errors: NonEmptyList[PlanningError])
 
     /** Planning moved the computed completion of an order beyond its work deadline. */
-    case OrderDelayed(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)
+    case OrderDelayed(orderId: OrderId, deadline: DateTime, plannedCompletion: DateTime)
 
     /** Planning computed a manufacturing completion beyond its expected completion date. */
     case ManufacturingDelayed(
@@ -59,7 +59,7 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
   private def publishOutcome[F[_]: Monad](request: PlanningRequest, concluded: Planning): App[F, Unit] = concluded match
     case Planning.CompletedPlanning(_, result, _) =>
       val delayNotifications =
-        result.delayedOrders.map(delay => Notification.OrderDelayed(delay.orderId, delay.expectedDeliveryDate, delay.promisedDeliveryDate)) ++
+        result.delayedOrders.map(delay => Notification.OrderDelayed(delay.orderId, delay.deadline, delay.plannedCompletion)) ++
           result.delayedManufacturings.map { delay =>
             Notification.ManufacturingDelayed(delay.orderId, delay.manufacturingId, delay.expectedCompletionDate, delay.computedCompletionDate)
           }

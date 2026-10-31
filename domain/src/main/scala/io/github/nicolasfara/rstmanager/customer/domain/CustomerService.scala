@@ -10,7 +10,7 @@ object CustomerService extends CustomerAggregate.Service[CustomerService.Command
     case Delete
 
   enum Notification derives CanEqual:
-    /** The customer record changed. */
+    /** The customer record was created, updated, or deleted. */
     case CustomerChanged(customerId: CustomerId)
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {
@@ -19,7 +19,10 @@ object CustomerService extends CustomerAggregate.Service[CustomerService.Command
     case Command.Update(customer) =>
       mustTargetOwnStream(customer.id) >> App.state.decide(_.update(customer)).void >> App.publish(Notification.CustomerChanged(customer.id))
     case Command.Delete =>
-      App.state.decide(_.delete).void
+      App.state.decide(_.delete).flatMap {
+        case CustomerAggregate.Deleted(customer) => App.publish(Notification.CustomerChanged(customer.id))
+        case CustomerAggregate.Empty | CustomerAggregate.Active(_) => App.unit
+      }
   }
 
   /** Rejects a command whose customer belongs to another stream, so the stream id and the stored customer id always agree. */

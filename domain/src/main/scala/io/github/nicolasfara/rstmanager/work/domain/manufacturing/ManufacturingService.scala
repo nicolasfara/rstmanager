@@ -10,7 +10,7 @@ object ManufacturingService extends ManufacturingAggregate.Service[Manufacturing
     case Delete
 
   enum Notification derives CanEqual:
-    /** The manufacturing template changed. */
+    /** The manufacturing template was created, updated, or deleted. */
     case ManufacturingChanged(manufacturingId: ManufacturingId)
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {
@@ -23,7 +23,10 @@ object ManufacturingService extends ManufacturingAggregate.Service[Manufacturing
         Notification.ManufacturingChanged(manufacturing.id),
       )
     case Command.Delete =>
-      App.state.decide(_.delete).void
+      App.state.decide(_.delete).flatMap {
+        case ManufacturingAggregate.Deleted(manufacturing) => App.publish(Notification.ManufacturingChanged(manufacturing.id))
+        case ManufacturingAggregate.Empty | ManufacturingAggregate.Active(_) => App.unit
+      }
   }
 
   /** Rejects a command whose manufacturing belongs to another stream, so the stream id and the stored manufacturing id always agree. */

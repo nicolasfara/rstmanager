@@ -209,7 +209,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
       case EdomatonResult.Accepted(newState, events, notifications) =>
         newState shouldEqual Deleted(manufacturing)
         events.toChain.toList shouldEqual List(ManufacturingDeleted)
-        notifications shouldBe empty
+        notifications.toList shouldEqual List(ManufacturingService.Notification.ManufacturingChanged(manufacturing.id))
       case other => fail(s"Unexpected result: $other")
 
   it should "reject updates when the manufacturing does not exist" in:

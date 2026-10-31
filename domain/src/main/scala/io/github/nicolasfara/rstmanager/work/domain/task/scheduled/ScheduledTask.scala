@@ -88,29 +88,35 @@ enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedDura
 
   /**
    * Sets the absolute completed duration of the task, re-deriving its state from the new progress:
-   *   - `>= expectedDuration` completes the task (recording the completion timestamp),
+   *   - `>= expectedDuration` completes the task (recording `at` as the completion timestamp),
    *   - `<= 0` returns it to pending,
    *   - otherwise it is (or stays) in progress.
    *
    * Unlike [[advanceInProgressTask]], this works from any state, so it can start a pending task or reopen a completed one.
    */
-  def setProgress(completed: TaskDuration): ScheduledTask = withDuration(expectedDuration, completed)
+  def setProgress(completed: TaskDuration, at: DateTime): ScheduledTask = withDuration(expectedDuration, completed, at)
 
   /**
    * Changes the total expected duration while preserving the completed duration, re-deriving the task state accordingly (a task whose completed
    * duration now covers the new estimate becomes completed, and vice versa).
    */
-  def changeExpectedDuration(newExpectedDuration: TaskDuration): ScheduledTask = withDuration(newExpectedDuration, completedDuration)
+  def changeExpectedDuration(newExpectedDuration: TaskDuration, at: DateTime): ScheduledTask =
+    withDuration(newExpectedDuration, completedDuration, at)
 
-  private def withDuration(expected: TaskDuration, completed: TaskDuration): ScheduledTask =
-    if completed.value >= expected.value then CompletedTask(id, taskId, expected, completed, DateTime.now())
+  /** Re-derives the state from the durations; a task that was already completed keeps its original completion timestamp. */
+  private def withDuration(expected: TaskDuration, completed: TaskDuration, at: DateTime): ScheduledTask =
+    if completed.value >= expected.value then
+      val completionDate = this match
+        case CompletedTask(_, _, _, _, completedOn) => completedOn
+        case _ => at
+      CompletedTask(id, taskId, expected, completed, completionDate)
     else if completed.value <= 0 then PendingTask(id, taskId, expected)
     else InProgressTask(id, taskId, expected, completed)
 
-  /** Completes an in-progress task and records the completion timestamp. */
-  def completeTask(withDuration: TaskDuration): Either[ScheduledTaskError, ScheduledTask] = this match
+  /** Completes an in-progress task, recording `at` as the completion timestamp. */
+  def completeTask(withDuration: TaskDuration, at: DateTime): Either[ScheduledTaskError, ScheduledTask] = this match
     case InProgressTask(id, taskId, expectedDuration, completedDuration) =>
-      Right(CompletedTask(id, taskId, expectedDuration, completedDuration + withDuration, DateTime.now()))
+      Right(CompletedTask(id, taskId, expectedDuration, completedDuration + withDuration, at))
     case CompletedTask(_, _, _, _, _) => Left(ScheduledTaskError.TaskAlreadyCompleted)
     case PendingTask(_, _, _) => Left(ScheduledTaskError.TaskMustBeInProgress)
 

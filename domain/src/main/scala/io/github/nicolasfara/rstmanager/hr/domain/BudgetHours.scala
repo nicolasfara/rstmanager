@@ -28,9 +28,14 @@ final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride
     overrides.collectFirst {
       case WorkingDayOverride(hours, _, dayOfWeek) if dayOfWeek == day => hours
       case VacationOverride(interval) if interval.contains(day) => zeroDailyHours
-    }.getOrElse {
-      DailyHours.validatedNec(default.value / 5).fold(_ => zeroDailyHours, identity)
-    }
+    }.getOrElse(defaultDailyHours)
+
+  /**
+   * Daily hours derived from the weekly default over a five-day week, capped at the 24 hours a day can hold.
+   *
+   * This is the single definition shared with the scheduler: a weekly default above 120 hours yields 24, never an out-of-range value.
+   */
+  def defaultDailyHours: DailyHours = DailyHours.applyUnsafe(math.min(default.value / 5, 24))
 
   /** Returns a copy with a different weekly default. */
   def updateDefault(default: WeeklyHours): BudgetHours = this.focus(_.default).replace(default)

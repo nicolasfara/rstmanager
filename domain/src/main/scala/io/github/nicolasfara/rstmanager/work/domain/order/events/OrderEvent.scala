@@ -15,6 +15,10 @@ import io.github.iltotore.iron.*
  * Domain events emitted by the `Order` aggregate.
  *
  * The enum includes both order-level lifecycle events and task/manufacturing events that are persisted through the aggregate root.
+ *
+ * Every timestamp the fold needs must come from an event, never from the clock, so replaying a stream always rebuilds the same state. The task-level
+ * events carry it as `occurredOn`; it is optional only because events persisted before it existed lack it (the fold then falls back to the order
+ * creation date, which is deterministic).
  */
 enum OrderEvent:
   /** The order has been created with its initial data. */
@@ -87,23 +91,38 @@ enum OrderEvent:
   /** A task has been removed from a manufacturing. */
   case ManufacturingTaskRemoved(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, removedOn: DateTime)
 
-  /** Progress on a task within a manufacturing has been advanced. */
+  /** Legacy: progress on a task within a manufacturing has been advanced. No longer emitted; kept so old streams still decode and fold. */
   case ManufacturingTaskAdvanced(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, advancedBy: TaskDuration)
 
-  /** Progress on a task within a manufacturing has been rolled back. */
+  /** Legacy: progress on a task within a manufacturing has been rolled back. No longer emitted; kept so old streams still decode and fold. */
   case ManufacturingTaskRolledBack(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, deAdvancedBy: TaskDuration)
 
   /** The absolute progress (completed minutes) of a task within a manufacturing has been set. */
-  case ManufacturingTaskProgressSet(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedDuration: TaskDuration)
+  case ManufacturingTaskProgressSet(
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      completedDuration: TaskDuration,
+      occurredOn: Option[DateTime] = None,
+  )
 
   /** The total expected duration of a task within a manufacturing has been changed. */
-  case ManufacturingTaskExpectedHoursChanged(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, expectedDuration: TaskDuration)
+  case ManufacturingTaskExpectedHoursChanged(
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      expectedDuration: TaskDuration,
+      occurredOn: Option[DateTime] = None,
+  )
 
   /** A task within a manufacturing has been completed. */
-  case ManufacturingTaskCompleted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, withDuration: TaskDuration)
+  case ManufacturingTaskCompleted(
+      manufacturingId: ScheduledManufacturingId,
+      taskId: ScheduledTaskId,
+      withDuration: TaskDuration,
+      occurredOn: Option[DateTime] = None,
+  )
 
   /** A completed task within a manufacturing has been reopened. */
-  case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
+  case ManufacturingTaskReverted(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, occurredOn: Option[DateTime] = None)
 
   /** The dependency graph between the order manufacturings has been replaced. */
   case ManufacturingDependenciesChanged(dependencies: OrderDependencies, changedOn: DateTime)

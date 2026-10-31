@@ -475,7 +475,7 @@ object SchedulingService:
   private def isAtOrAfterContractEnd(day: DateTime, employee: Employee): Boolean =
     contractEnd(employee).exists(endDate => !endDate.isAfter(day))
 
-  private def defaultDailyHours(employee: Employee): Int = employee.budgetHours.default.value / 5
+  private def defaultDailyHours(employee: Employee): Int = employee.budgetHours.defaultDailyHours.value
 
   private def orderDelays(openOrders: List[InProgressOrder], slices: Vector[ScheduledTaskSlice]): List[DelayedOrder] =
     val lastDayByOrder = lastPlannedDay(slices)(_.orderId)

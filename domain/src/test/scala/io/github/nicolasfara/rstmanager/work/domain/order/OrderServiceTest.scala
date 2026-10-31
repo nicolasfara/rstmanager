@@ -16,6 +16,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 
 import cats.Id
 import cats.data.NonEmptyList
+import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import edomata.core.{ CommandMessage, EdomatonResult, RequestContext }
 import edomata.syntax.all.*
@@ -123,7 +124,10 @@ class OrderServiceTest extends AnyFlatSpecLike:
     result match
       case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
         newState.data.id shouldEqual data.id
-        events.toChain.toList shouldEqual List(ManufacturingTaskCompleted(manufacturingId, taskId, TaskDuration(8)))
+        events.toChain.toList match
+          case List(ManufacturingTaskCompleted(eventManufacturingId, eventTaskId, _, Some(_))) =>
+            (eventManufacturingId, eventTaskId) shouldEqual (manufacturingId, taskId)
+          case other => fail(s"Unexpected events: $other")
         notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
       case other => fail(s"Unexpected result: $other")
 
@@ -133,7 +137,10 @@ class OrderServiceTest extends AnyFlatSpecLike:
 
     result match
       case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
-        events.toChain.toList shouldEqual List(ManufacturingTaskProgressSet(manufacturingId, taskId, TaskDuration(8)))
+        events.toChain.toList match
+          case List(ManufacturingTaskProgressSet(eventManufacturingId, eventTaskId, _, Some(_))) =>
+            (eventManufacturingId, eventTaskId) shouldEqual (manufacturingId, taskId)
+          case other => fail(s"Unexpected events: $other")
         notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
         newState.data.setOfManufacturing.head shouldBe a[ScheduledManufacturing.CompletedManufacturing]
       case other => fail(s"Unexpected result: $other")
@@ -144,7 +151,10 @@ class OrderServiceTest extends AnyFlatSpecLike:
 
     result match
       case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
-        events.toChain.toList shouldEqual List(ManufacturingTaskExpectedHoursChanged(manufacturingId, taskId, TaskDuration(16)))
+        events.toChain.toList match
+          case List(ManufacturingTaskExpectedHoursChanged(eventManufacturingId, eventTaskId, _, Some(_))) =>
+            (eventManufacturingId, eventTaskId) shouldEqual (manufacturingId, taskId)
+          case other => fail(s"Unexpected events: $other")
         notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
         newState.data.setOfManufacturing.head.info.tasks.head.expectedDuration shouldEqual TaskDuration(16)
       case other => fail(s"Unexpected result: $other")
@@ -327,6 +337,80 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
         newState.data.setOfManufacturing.toList.map(_.info.id) should contain(secondManufacturingId)
       case other => fail(s"Unexpected result: $other")
+
+  it should "keep a suspended order suspended when nested manufacturings and tasks are edited" in:
+    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
+    val pausedOn = day.plusHours(3).nn
+    val reason = Some("Waiting for materials".refineUnsafe[SuspensionReason])
+    val suspended =
+      SuspendedOrder(orderData(NonEmptyList.one(manufacturing(tasks = NonEmptyList.of(task(), task(otherTaskId))))), nextDay, pausedOn, reason)
+    val commands = List(
+      Command.ChangeManufacturingDescription(manufacturingId, Some("Updated")),
+      Command.ChangeManufacturingCompletionDate(manufacturingId, nextDay.plusDays(3).nn),
+      Command.ChangeManufacturingStatus(manufacturingId, ManufacturingStatus.Paused, None),
+      Command.SetPreferredEmployee(manufacturingId, Some(employeeId)),
+      Command.SetTaskPreferredEmployee(manufacturingId, taskId, Some(employeeId)),
+      Command.SetTaskProgress(manufacturingId, taskId, TaskDuration(4)),
+      Command.ChangeTaskExpectedHours(manufacturingId, taskId, TaskDuration(12)),
+      Command.CompleteTask(manufacturingId, taskId, TaskDuration(8)),
+      Command.RemoveManufacturingTask(manufacturingId, otherTaskId),
+      Command.ChangeTaskDependencies(manufacturingId, ManufacturingDependencies()),
+      Command.ChangeManufacturingDependencies(OrderDependencies.empty),
+    )
+
+    commands.foreach { command =>
+      withClue(s"$command: ") {
+        run(command, suspended) match
+          case EdomatonResult.Accepted(newState: SuspendedOrder, _, _) =>
+            newState.pausedOn shouldEqual pausedOn
+            newState.reason shouldEqual reason
+            newState.promisedDeliveryDate shouldEqual nextDay
+          case other => fail(s"Unexpected result: $other")
+      }
+    }
+
+  it should "complete the last task of an order, completing its manufacturing while keeping the order in progress" in:
+    val data = orderData()
+    val result = run(Command.CompleteTask(manufacturingId, taskId, TaskDuration(8)), InProgressOrder(data, nextDay))
+
+    result match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, notifications) =>
+        newState.data.setOfManufacturing.head shouldBe a[ScheduledManufacturing.CompletedManufacturing]
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "rebuild the same state on every replay, taking lifecycle timestamps from the events" in:
+    val completedOn = day.plusHours(10).nn
+    val events = List(OrderCreated(orderData(), nextDay), ManufacturingTaskCompleted(manufacturingId, taskId, TaskDuration(8), Some(completedOn)))
+    def replay = events.foldLeft(Order.initial.validNec[OrderError])((state, event) => state.andThen(Order.transition(event)))
+
+    replay shouldEqual replay
+    replay.toOption.collect { case order: InProgressOrder => order.data.setOfManufacturing.head } match
+      case Some(ScheduledManufacturing.CompletedManufacturing(info, startedAt, completedAt)) =>
+        startedAt shouldEqual completedOn
+        completedAt shouldEqual completedOn
+        info.tasks.head match
+          case ScheduledTask.CompletedTask(_, _, _, _, taskCompletedOn) => taskCompletedOn shouldEqual completedOn
+          case other => fail(s"Unexpected task: $other")
+      case other => fail(s"Unexpected manufacturing: $other")
+
+  it should "fold legacy task events without a timestamp deterministically, using the order creation date" in:
+    val legacy = ManufacturingTaskCompleted(manufacturingId, taskId, TaskDuration(8))
+    val state = Order.transition(legacy)(InProgressOrder(orderData(), nextDay))
+
+    state.toOption.collect { case order: InProgressOrder => order.data.setOfManufacturing.head } match
+      case Some(ScheduledManufacturing.CompletedManufacturing(_, startedAt, completedAt)) =>
+        startedAt shouldEqual day
+        completedAt shouldEqual day
+      case other => fail(s"Unexpected manufacturing: $other")
+
+  it should "reject cancelling a completed or delivered order" in:
+    val data = orderData()
+    List(CompletedOrder(data, nextDay), DeliveredOrder(data, nextDay, nextDay)).foreach { state =>
+      run(Command.Cancel(None), state) match
+        case EdomatonResult.Rejected(_, reasons) => reasons.toChain.toList shouldEqual List(OrderMustBeInProgressOrPaused)
+        case other => fail(s"Unexpected result: $other")
+    }
 
   it should "create an order carrying manufacturing dependencies" in:
     val data = twoManufacturingsData()

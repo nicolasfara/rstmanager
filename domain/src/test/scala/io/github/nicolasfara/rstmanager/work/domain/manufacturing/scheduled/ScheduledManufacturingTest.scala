@@ -20,6 +20,7 @@ import org.scalatest.matchers.should.Matchers.*
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
 
 class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
+  private val at: DateTime = DateTime.parse("2026-06-15T10:00:00Z")
 
   // ---------------------------------------------------------------------------
   // Generators
@@ -190,12 +191,12 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   "advanceTask" should "return TaskIdNotFound for an unknown ID" in:
     forAll(genNotStarted, genUUID, genHours): (mfg, unknownId, hours) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
-        mfg.advanceTask(unknownId, hours) shouldEqual Left(TaskIdNotFound(unknownId))
+        mfg.advanceTask(unknownId, hours, at) shouldEqual Left(TaskIdNotFound(unknownId))
 
   it should "increase the total completedDuration by the advanced amount" in:
     forAll(genNotStartedWithInProgressAndHours): t =>
       val (mfg, taskId, hours) = t
-      val result = mfg.advanceTask(taskId, hours)
+      val result = mfg.advanceTask(taskId, hours, at)
       result.isRight shouldEqual true
       result.foreach: updated =>
         updated.completedDuration.value shouldEqual mfg.completedDuration.value + hours.value
@@ -203,17 +204,17 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   it should "transition a NotStartedManufacturing to InProgressManufacturing" in:
     forAll(genNotStartedWithInProgressAndHours): t =>
       val (mfg, taskId, hours) = t
-      mfg.advanceTask(taskId, hours).foreach(_ shouldBe a[InProgressManufacturing])
+      mfg.advanceTask(taskId, hours, at).foreach(_ shouldBe a[InProgressManufacturing])
 
   "rollbackTask" should "return TaskIdNotFound for an unknown ID" in:
     forAll(genNotStarted, genUUID, genHours): (mfg, unknownId, hours) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
-        mfg.rollbackTask(unknownId, hours) shouldEqual Left(TaskIdNotFound(unknownId))
+        mfg.rollbackTask(unknownId, hours, at) shouldEqual Left(TaskIdNotFound(unknownId))
 
   "advanceTask then rollbackTask" should "be a roundtrip: total completedDuration is unchanged" in:
     forAll(genNotStartedWithInProgressAndHours): t =>
       val (mfg, taskId, hours) = t
-      val roundtrip = mfg.advanceTask(taskId, hours).flatMap(_.rollbackTask(taskId, hours))
+      val roundtrip = mfg.advanceTask(taskId, hours, at).flatMap(_.rollbackTask(taskId, hours, at))
       roundtrip.isRight shouldEqual true
       roundtrip.foreach(_.completedDuration shouldEqual mfg.completedDuration)
 
@@ -224,12 +225,12 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   "completeTask" should "return TaskIdNotFound for an unknown ID" in:
     forAll(genNotStarted, genUUID, genHours): (mfg, unknownId, hours) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
-        mfg.completeTask(unknownId, hours) shouldEqual Left(TaskIdNotFound(unknownId))
+        mfg.completeTask(unknownId, hours, at) shouldEqual Left(TaskIdNotFound(unknownId))
 
   it should "transition to CompletedManufacturing when the last task is completed" in:
     forAll(genNotStartedSingleAndHours): t =>
       val (mfg, taskId, hours) = t
-      mfg.completeTask(taskId, hours).foreach(_ shouldBe a[CompletedManufacturing])
+      mfg.completeTask(taskId, hours, at).foreach(_ shouldBe a[CompletedManufacturing])
 
   it should "stay in InProgressManufacturing when there are still incomplete tasks" in:
     val genTwoInProgressAndHours: Gen[(NotStartedManufacturing, ScheduledTaskId, TaskDuration)] =
@@ -242,7 +243,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       yield (NotStartedManufacturing(info), t1.id, hours)
     forAll(genTwoInProgressAndHours): t =>
       val (mfg, taskId, hours) = t
-      mfg.completeTask(taskId, hours).foreach(_ shouldBe a[InProgressManufacturing])
+      mfg.completeTask(taskId, hours, at).foreach(_ shouldBe a[InProgressManufacturing])
 
   // ---------------------------------------------------------------------------
   // revertTaskToInProgress
@@ -251,15 +252,15 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   "revertTaskToInProgress" should "return TaskIdNotFound for an unknown ID" in:
     forAll(genNotStarted, genUUID): (mfg, unknownId) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
-        mfg.revertTaskToInProgress(unknownId) shouldEqual Left(TaskIdNotFound(unknownId))
+        mfg.revertTaskToInProgress(unknownId, at) shouldEqual Left(TaskIdNotFound(unknownId))
 
   it should "transition a CompletedManufacturing back to InProgressManufacturing" in:
     forAll(genNotStartedSingleAndHours): t =>
       val (mfg, taskId, hours) = t
       val result =
         for
-          completed <- mfg.completeTask(taskId, hours)
-          reverted <- completed.revertTaskToInProgress(completed.info.tasks.head.id)
+          completed <- mfg.completeTask(taskId, hours, at)
+          reverted <- completed.revertTaskToInProgress(completed.info.tasks.head.id, at)
         yield reverted
       result.isRight shouldEqual true
       result.foreach(_ shouldBe a[InProgressManufacturing])

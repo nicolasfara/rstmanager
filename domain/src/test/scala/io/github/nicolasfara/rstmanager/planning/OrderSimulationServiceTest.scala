@@ -111,6 +111,17 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
     // The dependent 4h task can only run the day after the 8h prerequisite completes.
     result.estimatedCompletionDate shouldEqual Some(tuesday)
 
+  it should "honour the template per-task duration overrides like a real order created from the catalog" in:
+    val cutting: TaskId = UUID.randomUUID().nn
+    val selection = NonEmptyList.one(
+      template(NonEmptyList.one(cutting), ManufacturingDependencies())
+        .copy(taskDurations = Map(cutting -> TaskDuration(2 * 60))) -> NonEmptyList.one(catalogTask(cutting, "Taglio", 8)),
+    )
+    val result = simulateOrFail(Nil, List(employee(employeeA)), SimulationDemand.FromManufacturings(selection))
+
+    result.totalMinutes shouldEqual 2 * 60
+    result.estimatedCompletionDate shouldEqual Some(monday)
+
   it should "report the simulated order as unfeasible when there is no workforce" in:
     val result = simulateOrFail(Nil, Nil, SimulationDemand.TotalDuration(TaskDuration(8 * 60)))
 

@@ -75,12 +75,13 @@ enum Order derives CanEqual:
   def deliver: Decision[OrderError, OrderEvent, Order] =
     this.perform(mustBeCompleted.toDecision *> OrderDelivered(DateTime.now()).accept).validate(_.mustBeDelivered)
 
-  /** Cancels the order unless it has not been created yet or is already cancelled. */
+  /** Cancels an active or suspended order; completed and delivered orders can no longer be cancelled. */
   def cancel(reason: Option[String :| CancellationReason]): Decision[OrderError, OrderEvent, Order] =
     this.decide {
+      case _: InProgressOrder | _: SuspendedOrder => Decision.accept(OrderCancelled(DateTime.now(), reason))
       case NewOrder => Decision.reject(NoSuchOrder)
       case CancelledOrder(_, _, _) => Decision.reject(OrderAlreadyCancelled)
-      case _ => Decision.accept(OrderCancelled(DateTime.now(), reason))
+      case _: CompletedOrder | _: DeliveredOrder => Decision.reject(OrderMustBeInProgressOrPaused)
     }
       .validate(_.mustBeCancelled)
 
@@ -207,7 +208,14 @@ enum Order derives CanEqual:
       completedDuration: TaskDuration,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskProgressSet(manufacturingId, taskId, completedDuration).accept)
+      .perform(
+        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskProgressSet(
+          manufacturingId,
+          taskId,
+          completedDuration,
+          Some(DateTime.now()),
+        ).accept,
+      )
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Changes the total expected duration of a task inside one of the order manufacturings. */
@@ -217,7 +225,14 @@ enum Order derives CanEqual:
       expectedDuration: TaskDuration,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskExpectedHoursChanged(manufacturingId, taskId, expectedDuration).accept)
+      .perform(
+        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskExpectedHoursChanged(
+          manufacturingId,
+          taskId,
+          expectedDuration,
+          Some(DateTime.now()),
+        ).accept,
+      )
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Completes a task inside one of the order manufacturings. */
@@ -227,13 +242,15 @@ enum Order derives CanEqual:
       withDuration: TaskDuration,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskCompleted(manufacturingId, taskId, withDuration).accept)
+      .perform(
+        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskCompleted(manufacturingId, taskId, withDuration, Some(DateTime.now())).accept,
+      )
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Reopens a completed task inside one of the order manufacturings. */
   def revertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskReverted(manufacturingId, taskId).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskReverted(manufacturingId, taskId, Some(DateTime.now())).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Replaces the dependency graph between the manufacturings of an active or suspended order. */
@@ -330,8 +347,8 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingDescription(_, manufacturingId, newDescription).toValidatedNec)
     case ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingCompletionDate(_, manufacturingId, newCompletionDate).toValidatedNec)
-    case ManufacturingStatusChanged(manufacturingId, newStatus, reason, _) =>
-      _.mustBeInProgressOrSuspended.andThen(changeManufacturingStatus(_, manufacturingId, newStatus, reason).toValidatedNec)
+    case ManufacturingStatusChanged(manufacturingId, newStatus, reason, changedOn) =>
+      _.mustBeInProgressOrSuspended.andThen(changeManufacturingStatus(_, manufacturingId, newStatus, reason, changedOn).toValidatedNec)
     case ManufacturingTaskAdded(manufacturingId, task, dependsOn, _, preferredEmployeeId) =>
       _.mustBeInProgressOrSuspended.andThen(addManufacturingTask(_, manufacturingId, task, dependsOn.toSet, preferredEmployeeId).toValidatedNec)
     case ManufacturingTaskRemoved(manufacturingId, taskId, _) =>
@@ -340,14 +357,14 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
       _.mustBeInProgressOrSuspended.andThen(advanceTask(_, manufacturingId, taskId, advancedBy).toValidatedNec)
     case ManufacturingTaskRolledBack(manufacturingId, taskId, deAdvancedBy) =>
       _.mustBeInProgressOrSuspended.andThen(rollbackTask(_, manufacturingId, taskId, deAdvancedBy).toValidatedNec)
-    case ManufacturingTaskProgressSet(manufacturingId, taskId, completedDuration) =>
-      _.mustBeInProgressOrSuspended.andThen(setTaskProgress(_, manufacturingId, taskId, completedDuration).toValidatedNec)
-    case ManufacturingTaskExpectedHoursChanged(manufacturingId, taskId, expectedDuration) =>
-      _.mustBeInProgressOrSuspended.andThen(changeTaskExpectedDuration(_, manufacturingId, taskId, expectedDuration).toValidatedNec)
-    case ManufacturingTaskCompleted(manufacturingId, taskId, withDuration) =>
-      _.mustBeInProgressOrSuspended.andThen(completeTask(_, manufacturingId, taskId, withDuration).toValidatedNec)
-    case ManufacturingTaskReverted(manufacturingId, taskId) =>
-      _.mustBeInProgressOrSuspended.andThen(revertTaskToInProgress(_, manufacturingId, taskId).toValidatedNec)
+    case ManufacturingTaskProgressSet(manufacturingId, taskId, completedDuration, occurredOn) =>
+      _.mustBeInProgressOrSuspended.andThen(setTaskProgress(_, manufacturingId, taskId, completedDuration, occurredOn).toValidatedNec)
+    case ManufacturingTaskExpectedHoursChanged(manufacturingId, taskId, expectedDuration, occurredOn) =>
+      _.mustBeInProgressOrSuspended.andThen(changeTaskExpectedDuration(_, manufacturingId, taskId, expectedDuration, occurredOn).toValidatedNec)
+    case ManufacturingTaskCompleted(manufacturingId, taskId, withDuration, occurredOn) =>
+      _.mustBeInProgressOrSuspended.andThen(completeTask(_, manufacturingId, taskId, withDuration, occurredOn).toValidatedNec)
+    case ManufacturingTaskReverted(manufacturingId, taskId, occurredOn) =>
+      _.mustBeInProgressOrSuspended.andThen(revertTaskToInProgress(_, manufacturingId, taskId, occurredOn).toValidatedNec)
     case ManufacturingDependenciesChanged(newDependencies, _) =>
       _.mustBeInProgressOrSuspended.andThen(changeManufacturingDependencies(_, newDependencies).toValidatedNec)
     case TaskDependenciesChanged(manufacturingId, newDependencies, _) =>

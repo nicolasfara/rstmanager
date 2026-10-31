@@ -338,6 +338,20 @@ class OrderServiceTest extends AnyFlatSpecLike:
         newState.data.setOfManufacturing.toList.map(_.info.id) should contain(secondManufacturingId)
       case other => fail(s"Unexpected result: $other")
 
+  it should "stamp events with the command time instead of reading the clock" in:
+    val commandTime = new DateTime(Instant.parse("2026-06-14T12:00:00Z").nn.toEpochMilli)
+    val data = orderData(NonEmptyList.one(manufacturing(tasks = NonEmptyList.of(task(), task(otherTaskId)))))
+
+    run(Command.Suspend(None), InProgressOrder(data, nextDay)) match
+      case EdomatonResult.Accepted(newState: SuspendedOrder, _, _) => newState.pausedOn.getMillis shouldEqual commandTime.getMillis
+      case other => fail(s"Unexpected result: $other")
+    run(Command.CompleteTask(manufacturingId, taskId, TaskDuration(8)), InProgressOrder(data, nextDay)) match
+      case EdomatonResult.Accepted(_, events, _) =>
+        events.toChain.toList match
+          case List(ManufacturingTaskCompleted(_, _, _, Some(occurredOn))) => occurredOn.getMillis shouldEqual commandTime.getMillis
+          case other => fail(s"Unexpected events: $other")
+      case other => fail(s"Unexpected result: $other")
+
   it should "keep a suspended order suspended when nested manufacturings and tasks are edited" in:
     val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
     val pausedOn = day.plusHours(3).nn

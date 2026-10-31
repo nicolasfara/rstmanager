@@ -26,6 +26,8 @@ import edomata.syntax.all.*
  *
  * Only an in-progress attempt can receive task slices, delays, unplanned orders, warnings, completion, or rejection. A new request can be started
  * from `NewPlanning` or after a previous attempt has completed or been rejected.
+ *
+ * Decisions never read the clock: the instant recorded on the emitted events (`now`) is supplied by the caller.
  */
 enum Planning derives CanEqual:
   /** Initial planning state, before a request has started. */
@@ -59,37 +61,37 @@ enum Planning derives CanEqual:
   }.validate(_.mustBeInProgress)
 
   /** Records a daily task assignment during an active planning attempt. */
-  def assignTaskSlice(slice: ScheduledTaskSlice): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> TaskSliceAssigned(slice, DateTime.now()).accept).validate(_.mustBeInProgress)
+  def assignTaskSlice(slice: ScheduledTaskSlice, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
+    this.perform(mustBeInProgress.toDecision *> TaskSliceAssigned(slice, now).accept).validate(_.mustBeInProgress)
 
   /** Records an order delay during an active planning attempt. */
-  def delayOrder(delay: DelayedOrder): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> OrderDelayedByPlanning(delay, DateTime.now()).accept).validate(_.mustBeInProgress)
+  def delayOrder(delay: DelayedOrder, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
+    this.perform(mustBeInProgress.toDecision *> OrderDelayedByPlanning(delay, now).accept).validate(_.mustBeInProgress)
 
   /** Records a manufacturing delay during an active planning attempt. */
-  def delayManufacturing(delay: DelayedManufacturing): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> ManufacturingDelayedByPlanning(delay, DateTime.now()).accept).validate(_.mustBeInProgress)
+  def delayManufacturing(delay: DelayedManufacturing, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
+    this.perform(mustBeInProgress.toDecision *> ManufacturingDelayedByPlanning(delay, now).accept).validate(_.mustBeInProgress)
 
   /** Records an unplanned order during an active planning attempt. */
-  def markOrderUnplanned(unplannedOrder: UnplannedOrder): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> OrderMarkedUnplanned(unplannedOrder, DateTime.now()).accept).validate(_.mustBeInProgress)
+  def markOrderUnplanned(unplannedOrder: UnplannedOrder, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
+    this.perform(mustBeInProgress.toDecision *> OrderMarkedUnplanned(unplannedOrder, now).accept).validate(_.mustBeInProgress)
 
   /** Records a non-fatal planning warning during an active planning attempt. */
-  def raiseWarning(warning: PlanningWarning): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> PlanningWarningRaised(warning, DateTime.now()).accept).validate(_.mustBeInProgress)
+  def raiseWarning(warning: PlanningWarning, now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
+    this.perform(mustBeInProgress.toDecision *> PlanningWarningRaised(warning, now).accept).validate(_.mustBeInProgress)
 
   /** Completes an active planning attempt with a feasible result derived from its accepted events. */
-  def complete: Decision[PlanningError, PlanningEvent, Planning] = this.decide {
+  def complete(now: DateTime): Decision[PlanningError, PlanningEvent, Planning] = this.decide {
     case planning: InProgressPlanning =>
       PlanningResult
         .fromSlices(planning.slices, planning.delayedOrders, planning.delayedManufacturings, planning.unplannedOrders, planning.warnings)
-        .fold(errors => Decision.reject(errors.head), result => Decision.accept(ScheduleComputed(result, DateTime.now())))
+        .fold(errors => Decision.reject(errors.head), result => Decision.accept(ScheduleComputed(result, now)))
     case _ => Decision.reject(PlanningMustBeInProgress)
   }.validate(_.mustBeCompleted)
 
   /** Rejects an active planning attempt with one or more planning errors. */
-  def reject(errors: NonEmptyList[PlanningError]): Decision[PlanningError, PlanningEvent, Planning] =
-    this.perform(mustBeInProgress.toDecision *> ScheduleRejected(errors, DateTime.now()).accept).validate(_.mustBeRejected)
+  def reject(errors: NonEmptyList[PlanningError], now: DateTime): Decision[PlanningError, PlanningEvent, Planning] =
+    this.perform(mustBeInProgress.toDecision *> ScheduleRejected(errors, now).accept).validate(_.mustBeRejected)
 
   private def mustBeInProgress: ValidatedNec[PlanningError, InProgressPlanning] = this match
     case planning: InProgressPlanning => planning.validNec

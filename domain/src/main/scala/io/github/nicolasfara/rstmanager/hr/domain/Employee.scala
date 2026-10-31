@@ -27,13 +27,10 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
     case Contract.PartTime(startDate, _) => !referenceDate.isBefore(startDate)
     case Contract.FixedTerm(startDate, endDate) => !referenceDate.isBefore(startDate) && endDate.isAfter(referenceDate)
 
-  /** Checks whether the employee is active right now. */
-  def isActive: Boolean = isActiveAt(DateTime.now())
-
-  /** Updates the budget hours if the employee is currently active. */
-  def updateBudgetHours(newBudgetHours: BudgetHours): Either[String, Employee] =
+  /** Updates the budget hours if the employee is active on `referenceDate`. */
+  def updateBudgetHours(newBudgetHours: BudgetHours, referenceDate: DateTime): Either[String, Employee] =
     Either.cond(
-      isActive,
+      isActiveAt(referenceDate),
       this.focus(_.budgetHours).replace(newBudgetHours),
       "Cannot update budget hours for an inactive employee.",
     )
@@ -50,9 +47,9 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
   /** Returns a copy with an updated surname. */
   def updateSurname(surname: String :| Surname): Employee = this.focus(_.info.surname).replace(surname)
 
-  /** Adds an hours override when the employee is active and no conflict exists. */
-  def setHoursOverride(hoursOverride: HoursOverride): Either[String, Employee] = for
-    _ <- Either.cond(isActive, (), "Cannot set hours override for an inactive employee.")
+  /** Adds an hours override when the employee is active on `referenceDate` and no conflict exists. */
+  def setHoursOverride(hoursOverride: HoursOverride, referenceDate: DateTime): Either[String, Employee] = for
+    _ <- Either.cond(isActiveAt(referenceDate), (), "Cannot set hours override for an inactive employee.")
     _ <- Either.cond(
       !budgetHours.hasConflict(hoursOverride),
       (),

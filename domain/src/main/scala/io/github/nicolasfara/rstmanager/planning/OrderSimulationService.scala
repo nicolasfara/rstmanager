@@ -1,5 +1,6 @@
 package io.github.nicolasfara.rstmanager.planning
 
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
@@ -77,7 +78,7 @@ object OrderSimulationService:
     val simulatedOrderId = simulatedOrder.data.id
     val totalMinutes = simulatedOrder.data.setOfManufacturing.toList.map(_.remainingDuration.value).sum
     val openOrderIds = openOrders.collect { case order: InProgressOrder => order.data.id }
-    val request = PlanningRequest(UUID.randomUUID().nn, now, PlanningTrigger.DailyPlanning, now, openOrderIds :+ simulatedOrderId)
+    val request = PlanningRequest(syntheticId("request"), now, PlanningTrigger.DailyPlanning, now, openOrderIds :+ simulatedOrderId)
 
     SchedulingService.computeSchedule(request, openOrders :+ simulatedOrder, employees).map { outcome =>
       outcome.unplannedOrders.find(_.orderId.equals(simulatedOrderId)) match
@@ -108,12 +109,12 @@ object OrderSimulationService:
       case SimulationDemand.TotalDuration(duration) =>
         NonEmptyList.one(durationOnlyManufacturing(duration, deadline))
       case SimulationDemand.FromManufacturings(selection) =>
-        selection.map((template, tasks) => fromTemplate(template, tasks, deadline))
+        selection.zipWithIndex.map { case ((template, tasks), index) => fromTemplate(index, template, tasks, deadline) }
     InProgressOrder(
       OrderData(
-        UUID.randomUUID().nn: OrderId,
+        syntheticId("order"): OrderId,
         "SIMULAZIONE".refineUnsafe[OrderNumber],
-        UUID.randomUUID().nn: CustomerId,
+        syntheticId("customer"): CustomerId,
         now,
         deadline,
         OrderPriority.Normal,
@@ -125,24 +126,26 @@ object OrderSimulationService:
   private def durationOnlyManufacturing(duration: TaskDuration, deadline: DateTime): ScheduledManufacturing =
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
-        UUID.randomUUID().nn,
+        syntheticId("manufacturing/0"),
         "SIM".refineUnsafe[ManufacturingCode],
         deadline,
-        NonEmptyList.one(PendingTask(UUID.randomUUID().nn: ScheduledTaskId, UUID.randomUUID().nn, duration)),
+        NonEmptyList.one(PendingTask(syntheticId("task/0/0"): ScheduledTaskId, syntheticId("task-template"), duration)),
         ManufacturingDependencies(),
       ),
     )
 
   /** Instantiates one catalog template as a not-started scheduled manufacturing, like an order created from the catalog would. */
-  private def fromTemplate(template: Manufacturing, tasks: NonEmptyList[Task], deadline: DateTime): ScheduledManufacturing =
+  private def fromTemplate(index: Int, template: Manufacturing, tasks: NonEmptyList[Task], deadline: DateTime): ScheduledManufacturing =
     val scheduledTasks: NonEmptyList[ScheduledTask] =
-      tasks.map(task => PendingTask(UUID.randomUUID().nn: ScheduledTaskId, task.id, template.durationForTask(task.id, task.requiredDuration)))
+      tasks.zipWithIndex.map { (task, taskIndex) =>
+        PendingTask(syntheticId(s"task/$index/$taskIndex"): ScheduledTaskId, task.id, template.durationForTask(task.id, task.requiredDuration))
+      }
     val preferredEmployees = scheduledTasks.toList.flatMap { scheduled =>
       template.defaultEmployees.get(scheduled.taskId).map(scheduled.id -> _)
     }.toMap
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
-        UUID.randomUUID().nn,
+        syntheticId(s"manufacturing/$index"),
         template.code,
         deadline,
         scheduledTasks,
@@ -150,4 +153,13 @@ object OrderSimulationService:
         taskPreferredEmployees = preferredEmployees,
       ),
     )
+
+  /**
+   * Deterministic identifier for a synthetic entity of the simulation.
+   *
+   * Name-based (version 3) UUIDs keep the simulation a pure function, are unique per label within one run, and cannot collide with the random
+   * (version 4) ids of real entities. Nothing synthetic is ever persisted.
+   */
+  private def syntheticId(label: String): UUID =
+    UUID.nameUUIDFromBytes(s"rstmanager/simulation/$label".getBytes(StandardCharsets.UTF_8))
 end OrderSimulationService

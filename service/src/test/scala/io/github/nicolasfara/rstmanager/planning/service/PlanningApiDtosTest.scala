@@ -11,7 +11,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class PlanningApiDtosTest extends AnyFlatSpecLike:
-  private val now: DateTime = DateTime.parse("2026-06-15").nn
+  private val now: DateTime = DateTime.parse("2026-06-15")
   private val orderId: UUID = UUID.fromString("00000000-0000-0000-0000-000000000001").nn
   private val employeeId: UUID = UUID.fromString("00000000-0000-0000-0000-000000000002").nn
   private val generatedId: UUID = UUID.fromString("00000000-0000-0000-0000-000000000003").nn

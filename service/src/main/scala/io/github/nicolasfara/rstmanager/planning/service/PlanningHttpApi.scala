@@ -76,7 +76,7 @@ object PlanningRoutes:
       gateway: PlanningEntityGateway,
   )(request: PlanningAttemptRequest): IO[Either[ApiFailure, PlanningAttemptResponse]] =
     for
-      nowAndRequestId <- IO((DateTime.now().nn, UUID.randomUUID().nn))
+      nowAndRequestId <- IO((DateTime.now(), UUID.randomUUID().nn))
       response <- request.toDomain(nowAndRequestId._1, nowAndRequestId._2).toEither match
         case Left(errors) => IO.pure(validationFailure(errors).asLeft)
         case Right(input) => dispatchPlanningCommand(backend, gateway, input)
@@ -109,7 +109,7 @@ object PlanningRoutes:
         gateway.snapshot(None, None).flatMap {
           case Left(error) => IO.pure(entityLoadFailure(error).asLeft)
           case Right(snapshot) =>
-            IO(DateTime.now().nn).map { now =>
+            IO(DateTime.now()).map { now =>
               OrderSimulationService.simulate(now, snapshot.orders, snapshot.employees, demand) match
                 case Left(errors) => simulationRejected(errors).asLeft
                 case Right(result) => OrderSimulationResponse.fromDomain(result).asRight

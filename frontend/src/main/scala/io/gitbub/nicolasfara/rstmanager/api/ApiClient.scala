@@ -87,9 +87,7 @@ object ApiClient:
 
   private def isSuccess(status: Int): Boolean = status >= 200 && status < 300
 
-  private def errorMessage(err: Throwable): String = err.getMessage match
-    case message: String => message
-    case _ => "Errore di rete"
+  private def errorMessage(err: Throwable): String = Option[String](err.getMessage).getOrElse("Errore di rete")
 
   /** A 401 means the token no longer satisfies the server: drop the session and go through the hosted login again. */
   private def handleUnauthorized(status: Int): Unit =

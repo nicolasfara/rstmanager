@@ -28,7 +28,7 @@ class EmployeeTest extends AnyFlatSpecLike:
     result.isValid shouldBe false
 
   "Employee.createEmployee" should "accumulate nested validation errors" in:
-    val contract = Contract.createFullTime(DateTime.now().nn - 1.month)
+    val contract = Contract.createFullTime(DateTime.now() - 1.month)
     val result = Employee.createEmployee(UUID.randomUUID().nn, "", "Doe", contract, -1, Nil)
 
     result.isValid shouldBe false
@@ -37,8 +37,8 @@ class EmployeeTest extends AnyFlatSpecLike:
   "An Employee" should "be inactive when the contract is terminated" in:
     val contract = validOrFail(
       Contract.createFixedTerm(
-        DateTime.now().nn - 2.months,
-        DateTime.now().nn - 1.day,
+        DateTime.now() - 2.months,
+        DateTime.now() - 1.day,
       ),
     )
     val employee = validOrFail(createEmployee("John", "Doe", contract, 40, Nil))
@@ -48,8 +48,8 @@ class EmployeeTest extends AnyFlatSpecLike:
   it should "be active when the contract is ongoing" in:
     val contract = validOrFail(
       Contract.createFixedTerm(
-        DateTime.now().nn - 1.month,
-        DateTime.now().nn + 1.month,
+        DateTime.now() - 1.month,
+        DateTime.now() + 1.month,
       ),
     )
     val employee = validOrFail(createEmployee("Jane", "Smith", contract, 40, Nil))
@@ -74,7 +74,7 @@ class EmployeeTest extends AnyFlatSpecLike:
     employee.isActiveAt(end) shouldBe false
 
   it should "allow updating budget hours when active" in:
-    val contract = Contract.createFullTime(DateTime.now().nn - 1.month)
+    val contract = Contract.createFullTime(DateTime.now() - 1.month)
     val employee = validOrFail(createEmployee("Alice", "Johnson", contract, 40, Nil))
     val newBudgetHours = validOrFail(BudgetHours.createBudgetHours(35, Nil))
 
@@ -85,8 +85,8 @@ class EmployeeTest extends AnyFlatSpecLike:
   it should "prevent updating budget hours when inactive" in:
     val contract = validOrFail(
       Contract.createFixedTerm(
-        DateTime.now().nn - 2.months,
-        DateTime.now().nn - 1.day,
+        DateTime.now() - 2.months,
+        DateTime.now() - 1.day,
       ),
     )
     val employee = validOrFail(createEmployee("Bob", "Brown", contract, 40, Nil))
@@ -98,7 +98,7 @@ class EmployeeTest extends AnyFlatSpecLike:
     result.left.getOrElse("") shouldBe "Cannot update budget hours for an inactive employee."
 
   it should "allow setting hours override when active and no conflict" in:
-    val contract = validOrFail(Contract.createPartTime(DateTime.now().nn - 1.month, 20))
+    val contract = validOrFail(Contract.createPartTime(DateTime.now() - 1.month, 20))
     val employee = validOrFail(createEmployee("Charlie", "Davis", contract, 20, Nil))
     val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
     val dailyOverride = validOrFail(WorkingDayOverride.createWorkingDayOverride(4, Some("Reduced hours"), overrideDate))
@@ -111,8 +111,8 @@ class EmployeeTest extends AnyFlatSpecLike:
   it should "prevent setting hours override when inactive" in:
     val contract = validOrFail(
       Contract.createFixedTerm(
-        DateTime.now().nn - 2.months,
-        DateTime.now().nn - 1.day,
+        DateTime.now() - 2.months,
+        DateTime.now() - 1.day,
       ),
     )
     val employee = validOrFail(createEmployee("Diana", "Evans", contract, 40, Nil))
@@ -125,7 +125,7 @@ class EmployeeTest extends AnyFlatSpecLike:
     result.left.getOrElse("") shouldBe "Cannot set hours override for an inactive employee."
 
   it should "prevent setting conflicting hours overrides when a vacation is set" in:
-    val contract = Contract.createFullTime(DateTime.now().nn - 1.month)
+    val contract = Contract.createFullTime(DateTime.now() - 1.month)
     val employee = validOrFail(createEmployee("Eve", "Foster", contract, 40, Nil))
     val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
     val vacationOverride = validOrFail(VacationOverride.createVacationOverride(overrideDate, overrideDate + 2.days))
@@ -138,7 +138,7 @@ class EmployeeTest extends AnyFlatSpecLike:
     secondResult.left.getOrElse("") shouldBe "An override for the specified day or interval already exists."
 
   it should "prevent setting conflicting vacation overrides" in:
-    val contract = Contract.createFullTime(DateTime.now().nn - 1.month)
+    val contract = Contract.createFullTime(DateTime.now() - 1.month)
     val employee = validOrFail(createEmployee("Frank", "Green", contract, 40, Nil))
     val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
     val firstVacationOverride = validOrFail(VacationOverride.createVacationOverride(overrideDate, overrideDate + 3.days))
@@ -151,7 +151,7 @@ class EmployeeTest extends AnyFlatSpecLike:
     secondResult.left.getOrElse("") shouldBe "An override for the specified day or interval already exists."
 
   it should "update the nested name through optics" in:
-    val contract = Contract.createFullTime(DateTime.now().nn - 1.month)
+    val contract = Contract.createFullTime(DateTime.now() - 1.month)
     val employee = validOrFail(createEmployee("Grace", "Hill", contract, 40, Nil))
 
     val updated = employee.updateName("Georgia".refineUnsafe[Name])

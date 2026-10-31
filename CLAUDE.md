@@ -30,7 +30,7 @@ stack e convenzioni del repo:
 
 ## Regole imposte da compiler & scalafix (tutti i moduli)
 
-Build con `-Werror -Wunused:all -Yexplicit-nulls -Ysafe-init
+Build con `-Werror -Wunused:all -Yexplicit-nulls -Wsafe-init
 -language:strictEquality`. scalafix `DisableSyntax` vieta: `null`,
 `asInstanceOf`, `isInstanceOf`, `throw`, `return`, xml, default args **sui
 `def`** (i default nelle case class sono ok), `final val`, val-pattern. Quindi:
@@ -40,6 +40,8 @@ Build con `-Werror -Wunused:all -Yexplicit-nulls -Ysafe-init
   normale — non rimuoverlo.
 - **explicit-nulls**: interop Java/JS ritorna `T | Null` → usa `.nn` al confine
   (`UUID.randomUUID().nn`, `Instant.now().nn`, `trim.nn`, `toLowerCase.nn`).
+  Da Scala 3.9 un `.nn` superfluo (qualificatore già non-null) è il warning
+  E216 → errore con `-Werror`: rimuovilo dove il compilatore lo segnala.
 - **niente cast**: narrowing con pattern matching; per l'interop JS usa facade
   `@js.native trait` invece di `asInstanceOf`.
 - Import/parametri inutilizzati sono errori. OrganizeImports:

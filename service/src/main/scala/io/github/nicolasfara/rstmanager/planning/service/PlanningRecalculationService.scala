@@ -83,7 +83,7 @@ object PlanningRecalculationService:
     private def buildRequest(cause: PlanningRecalculationCause, snapshot: PlanningEntityGateway.Snapshot): IO[PlanningRequest] =
       for
         requestId <- IO(cause.requestId.getOrElse(UUID.randomUUID().nn))
-        requestedOn <- IO(DateTime.now().nn)
+        requestedOn <- IO(DateTime.now())
       yield PlanningRequest(
         requestId,
         requestedOn.withTimeAtStartOfDay().nn,

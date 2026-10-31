@@ -26,7 +26,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
   private def validOrFail[A](value: ValidatedNec[PlanningError, A]): A =
     value.fold(errors => fail(errors.toChain.toList.mkString(", ")), identity)
 
-  private val day: DateTime = DateTime.parse("2026-06-15").nn
+  private val day: DateTime = DateTime.parse("2026-06-15")
   private val nextDay: DateTime = day.plusDays(1).nn
   private val employeeId: EmployeeId = UUID.fromString("00000000-0000-0000-0000-000000000001").nn
   private val orderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000002").nn

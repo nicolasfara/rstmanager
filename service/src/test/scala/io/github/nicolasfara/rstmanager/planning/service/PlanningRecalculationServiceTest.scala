@@ -24,7 +24,7 @@ import org.scalatest.matchers.should.Matchers.*
 class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
   private final case class Captured(request: PlanningRequest, orders: List[Order], employees: List[Employee])
 
-  private val monday: DateTime = DateTime.parse("2026-06-15").nn
+  private val monday: DateTime = DateTime.parse("2026-06-15")
   private val orderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000011").nn
   private val employeeId: EmployeeId = UUID.fromString("00000000-0000-0000-0000-000000000012").nn
 

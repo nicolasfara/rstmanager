@@ -32,7 +32,7 @@ object PlanningDailyScheduler:
     (sleepUntilNextRun(atHour) >> runDailyRecalculation(recalculator)).foreverM
 
   private def sleepUntilNextRun(atHour: Int): IO[Unit] =
-    IO(DateTime.now().nn).flatMap { now =>
+    IO(DateTime.now()).flatMap { now =>
       val wait = durationUntilNextRun(now, atHour)
       logger.info(s"Next daily planning consolidation scheduled in ${humanize(wait)} (at $atHour:00 local time).") >> IO.sleep(wait)
     }

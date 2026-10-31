@@ -29,7 +29,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class SchedulingServiceTest extends AnyFlatSpecLike:
-  private val monday: DateTime = DateTime.parse("2026-06-15").nn
+  private val monday: DateTime = DateTime.parse("2026-06-15")
   private val tuesday: DateTime = monday.plusDays(1).nn
   private val wednesday: DateTime = monday.plusDays(2).nn
   private val friday: DateTime = monday.plusDays(4).nn

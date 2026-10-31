@@ -2,7 +2,7 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtassembly.AssemblyPlugin.autoImport.*
 import sbtassembly.MergeStrategy
 
-lazy val scala3Version = "3.3.7"
+lazy val scala3Version = "3.9.0"
 lazy val http4sVersion = "0.23.38"
 lazy val slf4jVersion = "2.0.20"
 lazy val logbackVersion = "1.6.5"
@@ -18,7 +18,7 @@ lazy val projectScalacOptions = Seq(
   "-Werror",
   "-Wunused:all",
   "-Yexplicit-nulls",
-  "-Ysafe-init"
+  "-Wsafe-init"
 //  "-explain"
 )
 lazy val sharedDependencies = Seq(
@@ -26,7 +26,7 @@ lazy val sharedDependencies = Seq(
   "io.circe" %% "circe-core" % "0.14.17",
   "io.circe" %% "circe-generic" % "0.14.17",
   "io.github.iltotore" %% "iron" % "3.4.1",
-  "io.github.iltotore" %% "iron-cats" % "3.3.2",
+  "io.github.iltotore" %% "iron-cats" % "3.4.1",
   "org.scalactic" %% "scalactic" % "3.2.20",
   "org.scalatest" %% "scalatest" % "3.2.20" % "test",
   "org.scalacheck" %% "scalacheck" % "1.20.0" % "test",
@@ -93,7 +93,7 @@ lazy val service = project
       case other => (assembly / assemblyMergeStrategy).value(other)
     },
     libraryDependencies ++= Seq(
-      "io.github.iltotore" %% "iron-circe" % "3.3.2-4-36c079",
+      "io.github.iltotore" %% "iron-circe" % "3.4.1",
       "dev.hnaderi" %% "edomata-backend" % "0.13.1",
       "dev.hnaderi" %% "edomata-skunk-circe" % "0.13.1",
       "com.github.jwt-scala" %% "jwt-circe" % "11.0.4",

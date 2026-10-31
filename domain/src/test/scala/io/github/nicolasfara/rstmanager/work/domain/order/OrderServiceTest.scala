@@ -24,7 +24,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class OrderServiceTest extends AnyFlatSpecLike:
-  private val day: DateTime = DateTime.parse("2026-06-15").nn
+  private val day: DateTime = DateTime.parse("2026-06-15")
   private val nextDay: DateTime = day.plusDays(1).nn
   private val orderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
   private val customerId: CustomerId = UUID.fromString("00000000-0000-0000-0000-000000000102").nn

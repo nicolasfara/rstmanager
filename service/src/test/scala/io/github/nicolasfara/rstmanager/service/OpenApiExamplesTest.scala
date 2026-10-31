@@ -31,7 +31,7 @@ import sttp.tapir.docs.openapi.OpenAPIDocsInterpreter
 class OpenApiExamplesTest extends AnyFlatSpecLike:
   private val id: UUID = UUID.fromString("00000000-0000-0000-0000-000000000999").nn
   private val generatedManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000998").nn
-  private val now: DateTime = DateTime.parse("2026-06-14T09:30:00.000Z").nn
+  private val now: DateTime = DateTime.parse("2026-06-14T09:30:00.000Z")
 
   private def validOrFail[A](value: ValidatedNec[String, A]): A =
     value.fold(errors => fail(errors.toChain.toList.mkString(", ")), identity)

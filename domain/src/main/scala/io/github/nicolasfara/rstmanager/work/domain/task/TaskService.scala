@@ -15,10 +15,14 @@ object TaskService extends TaskAggregate.Service[TaskService.Command, TaskServic
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {
     case Command.Create(task) =>
-      App.state.decide(_.create(task)).void >> App.publish(Notification.TaskChanged(task.id))
+      mustTargetOwnStream(task.id) >> App.state.decide(_.create(task)).void >> App.publish(Notification.TaskChanged(task.id))
     case Command.Update(task) =>
-      App.state.decide(_.update(task)).void >> App.publish(Notification.TaskChanged(task.id))
+      mustTargetOwnStream(task.id) >> App.state.decide(_.update(task)).void >> App.publish(Notification.TaskChanged(task.id))
     case Command.Delete =>
       App.state.decide(_.delete).void
   }
+
+  /** Rejects a command whose task belongs to another stream, so the stream id and the stored task id always agree. */
+  private def mustTargetOwnStream[F[_]: Monad](id: TaskId): App[F, Unit] =
+    App.aggregateId.flatMap(streamId => if streamId == id.toString then App.unit else App.reject(TaskError.TaskIdMismatch))
 end TaskService

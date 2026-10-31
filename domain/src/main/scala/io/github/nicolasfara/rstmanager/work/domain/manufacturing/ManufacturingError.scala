@@ -7,3 +7,6 @@ enum ManufacturingError derives CanEqual:
 
   /** An update or delete was attempted on an id that does not exist (or was deleted). */
   case ManufacturingNotFound
+
+  /** The manufacturing carried in a command does not have the id of the manufacturing stream it was sent to. */
+  case ManufacturingIdMismatch

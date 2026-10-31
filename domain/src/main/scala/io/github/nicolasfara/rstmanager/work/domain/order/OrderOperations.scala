@@ -179,12 +179,49 @@ object OrderOperations:
       yield data.replaceManufacturing(manufacturing.withDependencies(newDependencies))
     }
 
+  /** Checks a new order: unique manufacturing and task ids, and valid manufacturing and task dependency graphs. */
+  def validateNewOrder(data: OrderData): Either[OrderError, Unit] =
+    uniqueIds(data.setOfManufacturing.toList) *> validateDependencies(data)
+
+  /** Checks that a manufacturing can join the order: its id and task ids are new, and its task dependency graph is valid. */
+  def validateManufacturingAddition(data: OrderData, manufacturing: ScheduledManufacturing): Either[OrderError, Unit] =
+    uniqueIds(manufacturing :: data.setOfManufacturing.toList) *> validateTaskDependencies(manufacturing, manufacturing.info.dependencies)
+
+  /** Checks that a task can join a manufacturing of the order: its id is new, and its prerequisites exist in the manufacturing without a cycle. */
+  def validateTaskAddition(
+      data: OrderData,
+      manufacturingId: ScheduledManufacturingId,
+      task: ScheduledTask,
+      dependsOn: Set[TaskId],
+  ): Either[OrderError, Unit] =
+    findManufacturing(data, manufacturingId).flatMap { manufacturing =>
+      val withTask = manufacturing.addTask(task, dependsOn, None)
+      uniqueIds(withTask :: data.setOfManufacturing.toList.filterNot(_.info.id == manufacturingId)) *>
+        validateTaskDependencies(withTask, withTask.info.dependencies)
+    }
+
+  /** Checks that a manufacturing exists and is not the last one: an order always keeps at least one manufacturing. */
+  def validateManufacturingRemoval(data: OrderData, manufacturingId: ScheduledManufacturingId): Either[OrderError, Unit] =
+    findManufacturing(data, manufacturingId) *>
+      Either.cond(data.setOfManufacturing.size > 1, (), OrderError.CannotRemoveLastManufacturing)
+
   /** Validates every dependency graph carried by the order data: the manufacturing graph and each manufacturing's task graph. */
   def validateDependencies(data: OrderData): Either[OrderError, Unit] =
     for
       _ <- validateManufacturingDependencies(data, data.dependencies)
       _ <- data.setOfManufacturing.toList.traverse_(manufacturing => validateTaskDependencies(manufacturing, manufacturing.info.dependencies))
     yield ()
+
+  /** Ensures no two manufacturings share an id and no two scheduled tasks share an id anywhere in the order. */
+  private def uniqueIds(manufacturings: List[ScheduledManufacturing]): Either[OrderError, Unit] =
+    val duplicateManufacturings = duplicates(manufacturings.map(_.info.id))
+    val duplicateTasks = duplicates(manufacturings.flatMap(_.info.tasks.toList.map(_.id)))
+    if duplicateManufacturings.nonEmpty then OrderError.DuplicateManufacturingIds(duplicateManufacturings).asLeft
+    else if duplicateTasks.nonEmpty then OrderError.DuplicateTaskIds(duplicateTasks).asLeft
+    else ().asRight
+
+  private def duplicates[A](values: List[A]): Set[A] =
+    values.groupBy(identity).collect { case (value, occurrences) if occurrences.size > 1 => value }.toSet
 
   /** Ensures the manufacturing graph only references manufacturings of the order and contains no cycle. */
   private def validateManufacturingDependencies(data: OrderData, dependencies: OrderDependencies): Either[OrderError, Unit] =
@@ -233,7 +270,8 @@ object OrderOperations:
   private def findManufacturing(data: OrderData, manufacturingId: ScheduledManufacturingId): Either[OrderError, ScheduledManufacturing] =
     data.setOfManufacturing.find(_.info.id == manufacturingId).toRight(OrderError.ManufacturingNotFound(manufacturingId))
 
-  private def dataOf(order: ActiveOrder): OrderData = order match
+  /** The content of an editable order. */
+  def dataOf(order: ActiveOrder): OrderData = order match
     case order: InProgressOrder => order.data
     case order: SuspendedOrder => order.data
 

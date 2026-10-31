@@ -15,10 +15,14 @@ object CustomerService extends CustomerAggregate.Service[CustomerService.Command
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {
     case Command.Create(customer) =>
-      App.state.decide(_.create(customer)).void >> App.publish(Notification.CustomerChanged(customer.id))
+      mustTargetOwnStream(customer.id) >> App.state.decide(_.create(customer)).void >> App.publish(Notification.CustomerChanged(customer.id))
     case Command.Update(customer) =>
-      App.state.decide(_.update(customer)).void >> App.publish(Notification.CustomerChanged(customer.id))
+      mustTargetOwnStream(customer.id) >> App.state.decide(_.update(customer)).void >> App.publish(Notification.CustomerChanged(customer.id))
     case Command.Delete =>
       App.state.decide(_.delete).void
   }
+
+  /** Rejects a command whose customer belongs to another stream, so the stream id and the stored customer id always agree. */
+  private def mustTargetOwnStream[F[_]: Monad](customerId: CustomerId): App[F, Unit] =
+    App.aggregateId.flatMap(streamId => if streamId == customerId.toString then App.unit else App.reject(CustomerError.CustomerIdMismatch))
 end CustomerService

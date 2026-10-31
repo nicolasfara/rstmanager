@@ -35,6 +35,7 @@ object TaskHttpApi:
   private def conflict(error: TaskError): ApiFailure = error match
     case TaskError.TaskAlreadyExists => ApiError.conflict("task-already-exists", "A task with this id already exists.", Nil)
     case TaskError.TaskNotFound => ApiError.notFound("Task", "")
+    case TaskError.TaskIdMismatch => ApiError.conflict("task-id-mismatch", "The task id does not match the addressed task.", Nil)
 
   given Codec[TaskRequest] = deriveCodec
   given Codec[TaskResponse] = deriveCodec

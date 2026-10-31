@@ -23,15 +23,15 @@ enum CustomerAggregate derives CanEqual:
   case Active(customer: Customer)
   case Deleted(customer: Customer)
 
-  /** Creates the record from the empty state. */
+  /** Creates the record from the empty state, provided the customer satisfies [[Customer.checkInvariants]]. */
   def create(customer: Customer): Decision[CustomerError, CustomerEvent, CustomerAggregate] = this.decide {
-    case Empty => Decision.accept(CustomerCreated(customer))
+    case Empty => customer.checkInvariants.toDecision *> CustomerCreated(customer).accept
     case _ => Decision.reject(CustomerAlreadyExists)
   }.validate(_.mustBeActive)
 
-  /** Replaces the record data when it is active. */
+  /** Replaces the record data when it is active, provided the new data satisfies [[Customer.checkInvariants]]. */
   def update(customer: Customer): Decision[CustomerError, CustomerEvent, CustomerAggregate] = this.decide {
-    case Active(_) => Decision.accept(CustomerUpdated(customer))
+    case Active(_) => customer.checkInvariants.toDecision *> CustomerUpdated(customer).accept
     case _ => Decision.reject(CustomerNotFound)
   }.validate(_.mustBeActive)
 

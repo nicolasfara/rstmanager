@@ -48,12 +48,12 @@ enum Order derives CanEqual:
   /**
    * Creates an order from `NewOrder`.
    *
-   * Fails with `OrderAlreadyCreated` for every other state, and rejects dependency graphs referencing unknown manufacturings/tasks or containing
-   * cycles.
+   * Fails with `OrderAlreadyCreated` for every other state, and rejects duplicate manufacturing or task ids and dependency graphs referencing unknown
+   * manufacturings/tasks or containing cycles.
    */
   def create(data: OrderData, promisedDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] = this.decide {
     case NewOrder =>
-      validateDependencies(data) match
+      validateNewOrder(data) match
         case Left(error) => Decision.reject(error)
         case Right(()) => Decision.accept(OrderCreated(data, promisedDeliveryDate))
     case _ => Decision.reject(OrderAlreadyCreated)
@@ -173,7 +173,7 @@ enum Order derives CanEqual:
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingStatusChanged(manufacturingId, newStatus, reason, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /** Adds a task to a manufacturing inside an active or suspended order. */
+  /** Adds a task to a manufacturing inside an active or suspended order; its id must be new and its prerequisites must exist without a cycle. */
   def addManufacturingTask(
       manufacturingId: ScheduledManufacturingId,
       task: ScheduledTask,
@@ -183,7 +183,8 @@ enum Order derives CanEqual:
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(
-        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskAdded(manufacturingId, task, dependsOn, now, preferredEmployeeId).accept,
+        mustBeEditable(validateTaskAddition(_, manufacturingId, task, dependsOn.toSet)).toDecision *>
+          ManufacturingTaskAdded(manufacturingId, task, dependsOn, now, preferredEmployeeId).accept,
       )
       .validate(_.mustBeInProgressOrSuspended)
 
@@ -197,16 +198,16 @@ enum Order derives CanEqual:
       .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskRemoved(manufacturingId, taskId, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /** Adds a manufacturing to an active or suspended order. */
+  /** Adds a manufacturing to an active or suspended order; its id and task ids must be new and its task graph valid. */
   def addManufacturing(manufacturing: ScheduledManufacturing, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingAdded(manufacturing, now).accept)
+      .perform(mustBeEditable(validateManufacturingAddition(_, manufacturing)).toDecision *> ManufacturingAdded(manufacturing, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /** Removes a manufacturing from an active or suspended order. */
+  /** Removes an existing manufacturing from an active or suspended order; the last one cannot be removed. */
   def removeManufacturing(manufacturingId: ScheduledManufacturingId, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingRemoved(manufacturingId, now).accept)
+      .perform(mustBeEditable(validateManufacturingRemoval(_, manufacturingId)).toDecision *> ManufacturingRemoved(manufacturingId, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Sets the absolute progress (completed minutes) of a task inside one of the order manufacturings. */
@@ -300,6 +301,19 @@ enum Order derives CanEqual:
     case order: InProgressOrder => order.validNec
     case order: SuspendedOrder => order.validNec
     case _ => OrderMustBeInProgressOrPaused.invalidNec
+
+  /** An editable order whose content also passes `check`. */
+  private def mustBeEditable(check: OrderData => Either[OrderError, Unit]): ValidatedNec[OrderError, InProgressOrder | SuspendedOrder] =
+    mustBeInProgressOrSuspended.andThen(order => check(dataOf(order)).toValidatedNec.as(order))
+
+  /** The order content, for every state but `NewOrder`. */
+  def orderData: Option[OrderData] = this match
+    case NewOrder => None
+    case InProgressOrder(data, _) => Some(data)
+    case SuspendedOrder(data, _, _, _) => Some(data)
+    case CompletedOrder(data, _) => Some(data)
+    case DeliveredOrder(data, _, _) => Some(data)
+    case CancelledOrder(data, _, _) => Some(data)
 
   private def mustBeInProgress: ValidatedNec[OrderError, InProgressOrder] = this match
     case order: InProgressOrder => order.validNec

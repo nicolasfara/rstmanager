@@ -68,9 +68,22 @@ final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride
           case vacation: VacationOverride => vacation.covers(day)
           case _: WorkingDayOverride => false
         }
+
+  /** Whether two of the overrides contradict each other: overlapping vacations, a working day inside a vacation, or two overrides for one day. */
+  def hasConflictingOverrides: Boolean =
+    overrides.tails.exists {
+      case head :: rest => rest.exists(BudgetHours.contradict(head, _))
+      case Nil => false
+    }
 end BudgetHours
 
 object BudgetHours:
+  private def contradict(first: HoursOverride, second: HoursOverride): Boolean = (first, second) match
+    case (firstVacation: VacationOverride, secondVacation: VacationOverride) => firstVacation.overlaps(secondVacation)
+    case (vacation: VacationOverride, WorkingDayOverride(_, _, day)) => vacation.covers(day)
+    case (WorkingDayOverride(_, _, day), vacation: VacationOverride) => vacation.covers(day)
+    case (WorkingDayOverride(_, _, firstDay), WorkingDayOverride(_, _, secondDay)) => firstDay.isEqual(secondDay)
+
   /** Creates `BudgetHours` from a raw weekly value and a list of overrides. */
   def createBudgetHours(default: Int, overrides: List[HoursOverride]): ValidatedNec[String, BudgetHours] =
     WeeklyHours.validatedNec(default).map(BudgetHours(_, overrides))

@@ -7,7 +7,7 @@ import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.codecs.CommonCodecs
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 
-import cats.data.ValidatedNec
+import cats.data.{ NonEmptyChain, ValidatedNec }
 import cats.effect.IO
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.LocalDate
@@ -123,6 +123,11 @@ object EmployeeHttpApi:
   private def conflict(error: EmployeeError): ApiFailure = error match
     case EmployeeError.EmployeeAlreadyExists => ApiError.conflict("employee-already-exists", "An employee with this id already exists.", Nil)
     case EmployeeError.EmployeeNotFound => ApiError.notFound("Employee", "")
+    case EmployeeError.ConflictingHoursOverrides =>
+      ApiError.validation(
+        NonEmptyChain.one("Hours overrides conflict: vacations overlap, a working day falls inside a vacation, or a day has two overrides"),
+      )
+    case EmployeeError.EmployeeIdMismatch => ApiError.conflict("employee-id-mismatch", "The employee id does not match the addressed employee.", Nil)
 
   private def normalizeKind(value: String): String = value.trim.nn.toLowerCase(Locale.ROOT).nn.replace('-', '_').nn
 

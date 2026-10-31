@@ -53,6 +53,10 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
       "An override for the specified day or interval already exists.",
     )
   yield this.focus(_.budgetHours).modify(_.setOverride(hoursOverride))
+
+  /** Rules every employee must satisfy however it was built; the aggregate enforces them on every create and update. */
+  def checkInvariants: ValidatedNec[EmployeeError, Employee] =
+    Validated.condNec(!budgetHours.hasConflictingOverrides, this, EmployeeError.ConflictingHoursOverrides)
 end Employee
 
 object Employee:

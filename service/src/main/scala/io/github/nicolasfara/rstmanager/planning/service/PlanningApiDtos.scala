@@ -372,7 +372,7 @@ object PlanningApiDtos:
 
   private def parseDate(value: String, path: String): ValidatedNec[String, DateTime] =
     Either
-      .catchNonFatal(DateTime.parse(value).nn)
+      .catchNonFatal(DateTime.parse(value))
       .leftMap(_ => s"$path must be an ISO-8601 date-time.")
       .toValidatedNec
 

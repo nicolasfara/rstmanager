@@ -98,57 +98,60 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
     case CompletedManufacturing(_, _, _) => ManufacturingStatus.Completed
 
   /**
-   * Manually moves the manufacturing to `target`, keeping the domain invariants:
+   * Manually moves the manufacturing to `target` at instant `at`, keeping the domain invariants:
    *   - `NotStarted` / `InProgress` / `Paused` freely interconvert (pausing a not-started manufacturing first starts it);
    *   - `Completed` is only reachable when every task is already completed, otherwise [[ScheduledManufacturingError.CannotCompleteWithOpenTasks]];
    *   - reopening a `Completed` manufacturing returns it to `InProgress`.
    */
-  def changeStatus(target: ManufacturingStatus): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeStatus(target, None)
-
   def changeStatus(
       target: ManufacturingStatus,
       reason: Option[String],
+      at: DateTime,
   ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    val now = DateTime.now()
-    val started = getStartedAt(this)
+    val started = getStartedAt(this, at)
     target match
       case ManufacturingStatus.NotStarted => NotStartedManufacturing(info).asRight
       case ManufacturingStatus.InProgress => InProgressManufacturing(info, started).asRight
-      case ManufacturingStatus.Paused => PausedManufacturing(info, reason, started, now).asRight
+      case ManufacturingStatus.Paused => PausedManufacturing(info, reason, started, at).asRight
       case ManufacturingStatus.Completed =>
-        if areAllTasksCompleted(this) then transitionToCompleted(this)
+        if areAllTasksCompleted(this) then transitionToCompleted(this, at).asRight
         else ScheduledManufacturingError.CannotCompleteWithOpenTasks.asLeft
 
   /** Advances an in-progress task by the given amount of minutes. */
-  def advanceTask(taskId: ScheduledTaskId, duration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.advanceInProgressTask(duration))
+  def advanceTask(taskId: ScheduledTaskId, duration: TaskDuration, at: DateTime): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, at, _.advanceInProgressTask(duration))
 
   /** Rolls back progress on an in-progress task. */
-  def rollbackTask(taskId: ScheduledTaskId, duration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.rollbackInProgressTask(duration))
+  def rollbackTask(taskId: ScheduledTaskId, duration: TaskDuration, at: DateTime): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, at, _.rollbackInProgressTask(duration))
 
   /** Completes a task and promotes the manufacturing to completed when all tasks are done. */
-  def completeTask(taskId: ScheduledTaskId, duration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.completeTask(duration)).flatMap(promoteWhenAllTasksCompleted)
+  def completeTask(taskId: ScheduledTaskId, duration: TaskDuration, at: DateTime): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, at, _.completeTask(duration, at)).map(promoteWhenAllTasksCompleted(_, at))
 
   /** Sets the absolute completed duration of a task and promotes the manufacturing to completed when all tasks are done. */
-  def setTaskProgress(taskId: ScheduledTaskId, completedDuration: TaskDuration): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, task => task.setProgress(completedDuration).asRight).flatMap(promoteWhenAllTasksCompleted)
+  def setTaskProgress(
+      taskId: ScheduledTaskId,
+      completedDuration: TaskDuration,
+      at: DateTime,
+  ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, at, task => task.setProgress(completedDuration, at).asRight).map(promoteWhenAllTasksCompleted(_, at))
 
   /** Changes the total expected duration of a task and promotes the manufacturing to completed when all tasks are done. */
   def changeTaskExpectedDuration(
       taskId: ScheduledTaskId,
       expectedDuration: TaskDuration,
+      at: DateTime,
   ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, task => task.changeExpectedDuration(expectedDuration).asRight).flatMap(promoteWhenAllTasksCompleted)
+    changeTaskState(taskId, at, task => task.changeExpectedDuration(expectedDuration, at).asRight).map(promoteWhenAllTasksCompleted(_, at))
 
   /** Reopens a completed task and, if necessary, reopens the manufacturing itself. */
-  def revertTaskToInProgress(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    changeTaskState(taskId, _.revertToInProgress)
+  def revertTaskToInProgress(taskId: ScheduledTaskId, at: DateTime): Either[ScheduledManufacturingError, ScheduledManufacturing] =
+    changeTaskState(taskId, at, _.revertToInProgress)
 
   private def changeTaskState(
       taskId: ScheduledTaskId,
+      at: DateTime,
       f: ScheduledTask => Either[ScheduledTaskError, ScheduledTask],
   ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
     for
@@ -158,22 +161,19 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
         else Right(task)
       }
       newManufacturing = updateTasks(updatedTasks, info.dependencies)
-    yield transitionToInProgressIfNeeded(newManufacturing)
+    yield transitionToInProgressIfNeeded(newManufacturing, at)
 
-  private def promoteWhenAllTasksCompleted(
-      manufacturing: ScheduledManufacturing,
-  ): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    if areAllTasksCompleted(manufacturing) then transitionToCompleted(manufacturing)
-    else Right(manufacturing)
+  private def promoteWhenAllTasksCompleted(manufacturing: ScheduledManufacturing, at: DateTime): ScheduledManufacturing =
+    if areAllTasksCompleted(manufacturing) then transitionToCompleted(manufacturing, at) else manufacturing
 
   private def ensureTaskExists(taskId: ScheduledTaskId): Either[ScheduledManufacturingError, ScheduledTask] =
     info.tasks.find(_.id == taskId) match
       case Some(task) => Right(task)
       case None => TaskIdNotFound(taskId).asLeft
 
-  private def transitionToInProgressIfNeeded(manufacturing: ScheduledManufacturing): ScheduledManufacturing =
+  private def transitionToInProgressIfNeeded(manufacturing: ScheduledManufacturing, at: DateTime): ScheduledManufacturing =
     manufacturing match
-      case NotStartedManufacturing(info) => InProgressManufacturing(info, DateTime.now())
+      case NotStartedManufacturing(info) => InProgressManufacturing(info, at)
       case other => other
 
   private def areAllTasksCompleted(manufacturing: ScheduledManufacturing): Boolean =
@@ -182,16 +182,19 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
       case _ => false
     }
 
-  private def getStartedAt(manufacturing: ScheduledManufacturing): DateTime =
+  /** Start instant of a manufacturing that has already started, or `at` for one that is starting now. */
+  private def getStartedAt(manufacturing: ScheduledManufacturing, at: DateTime): DateTime =
     manufacturing match
       case InProgressManufacturing(_, startedAt) => startedAt
       case PausedManufacturing(_, _, startedAt, _) => startedAt
-      case _ => DateTime.now()
+      case CompletedManufacturing(_, startedAt, _) => startedAt
+      case NotStartedManufacturing(_) => at
 
-  private def transitionToCompleted(manufacturing: ScheduledManufacturing): Either[ScheduledManufacturingError, ScheduledManufacturing] =
-    val completedAt = DateTime.now()
-    val completedTasks = NonEmptyList.fromListUnsafe(manufacturing.info.tasks.collect { case ct: CompletedTask => ct })
-    Right(CompletedManufacturing(manufacturing.info.copy(tasks = completedTasks), getStartedAt(manufacturing), completedAt))
+  /** Completes a manufacturing whose tasks are all completed; one that is already completed keeps its completion instant. */
+  private def transitionToCompleted(manufacturing: ScheduledManufacturing, at: DateTime): ScheduledManufacturing =
+    manufacturing match
+      case completed: CompletedManufacturing => completed
+      case other => CompletedManufacturing(other.info, getStartedAt(other, at), at)
 
   /** Rebuilds this manufacturing with replaced `info`, preserving its exact lifecycle state and timestamps. */
   private def withInfo(newInfo: ScheduledManufacturingInfo): ScheduledManufacturing = this match

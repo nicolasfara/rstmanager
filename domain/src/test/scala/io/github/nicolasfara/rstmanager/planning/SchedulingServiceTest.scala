@@ -3,6 +3,10 @@ package io.github.nicolasfara.rstmanager.planning
 import java.time.Instant
 import java.util.UUID
 
+import scala.concurrent.{ Await, Future }
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.*
+
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.planning.Planning.CompletedPlanning
@@ -29,7 +33,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class SchedulingServiceTest extends AnyFlatSpecLike:
-  private val monday: DateTime = DateTime.parse("2026-06-15").nn
+  private val monday: DateTime = DateTime.parse("2026-06-15")
   private val tuesday: DateTime = monday.plusDays(1).nn
   private val wednesday: DateTime = monday.plusDays(2).nn
   private val friday: DateTime = monday.plusDays(4).nn
@@ -159,6 +163,18 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       List((monday, 6, 0))
     outcome.delayedOrders shouldBe empty
     outcome.delayedManufacturings shouldBe empty
+
+  it should "terminate and use the employee when the weekly budget exceeds what fits in a working week" in:
+    // 125h/week is a valid `WeeklyHours` but more than 24h/day over five days: it used to make the capacity search loop forever.
+    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val overloaded = employee(employeeA, 125, Nil, Contract.FullTime(monday.minusYears(1).nn))
+    val computation = Future(SchedulingService.computeSchedule(request(monday, List(orderId)), List(theOrder), List(overloaded)))
+
+    Await.result(computation, 10.seconds) match
+      case Right(outcome) =>
+        outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual List((monday, 6))
+      case Left(errors) => fail(s"Expected a feasible schedule, got: ${errors.toList.mkString(", ")}")
 
   it should "split a task over consecutive days when it exceeds the daily capacity" in:
     val task = pendingTask(UUID.randomUUID().nn, 20)

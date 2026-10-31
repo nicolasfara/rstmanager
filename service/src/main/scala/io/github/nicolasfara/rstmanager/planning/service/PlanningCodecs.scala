@@ -18,7 +18,7 @@ import io.circe.generic.semiauto.deriveCodec
  */
 object PlanningCodecs:
   given Codec[DateTime] = Codec.from(
-    Decoder.decodeString.emap(raw => Either.catchNonFatal(DateTime.parse(raw).nn).leftMap(_ => s"Invalid ISO-8601 date-time: $raw")),
+    Decoder.decodeString.emap(raw => Either.catchNonFatal(DateTime.parse(raw)).leftMap(_ => s"Invalid ISO-8601 date-time: $raw")),
     Encoder.encodeString.contramap(_.toString),
   )
 

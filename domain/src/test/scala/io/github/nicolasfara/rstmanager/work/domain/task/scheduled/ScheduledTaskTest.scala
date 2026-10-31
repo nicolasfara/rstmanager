@@ -13,6 +13,7 @@ import org.scalatest.matchers.should.Matchers.*
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
 
 class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
+  private val at: DateTime = DateTime.parse("2026-06-15T10:00:00Z")
 
   // ---------------------------------------------------------------------------
   // Generators
@@ -107,7 +108,7 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   it should "reject further completion with TaskAlreadyCompleted" in:
     forAll(genCompletedTask, genHours): (task, hours) =>
-      task.completeTask(hours) shouldEqual Left(TaskAlreadyCompleted)
+      task.completeTask(hours, at) shouldEqual Left(TaskAlreadyCompleted)
 
   it should "reject markAsInProgress with TaskAlreadyCompleted" in:
     forAll(genCompletedTask): task =>
@@ -172,7 +173,7 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   it should "complete successfully and carry final completedDuration = completedDuration + withHours" in:
     forAll(genInProgressTask, genHours): (task, hours) =>
-      val result = task.completeTask(hours)
+      val result = task.completeTask(hours, at)
       result.isRight shouldEqual true
       result.foreach: t =>
         t shouldBe a[CompletedTask]
@@ -185,14 +186,14 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   "setProgress" should "complete the task when the completed hours reach the expected hours" in:
     forAll(genPendingTask): task =>
-      val result = task.setProgress(task.expectedDuration)
+      val result = task.setProgress(task.expectedDuration, at)
       result shouldBe a[CompletedTask]
       result.completedDuration shouldEqual task.expectedDuration
       result.remainingDuration shouldEqual zeroHours
 
   it should "return the task to pending when the completed hours are zero" in:
     forAll(genBoundedInProgressTask): task =>
-      val result = task.setProgress(zeroHours)
+      val result = task.setProgress(zeroHours, at)
       result shouldBe a[PendingTask]
       result.expectedDuration shouldEqual task.expectedDuration
 
@@ -200,26 +201,26 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     forAll(genBoundedInProgressTask): task =>
       whenever(task.expectedDuration.value > 1):
         val partial = TaskDuration.applyUnsafe(task.expectedDuration.value - 1)
-        val result = task.setProgress(partial)
+        val result = task.setProgress(partial, at)
         result shouldBe a[InProgressTask]
         result.completedDuration shouldEqual partial
 
   it should "reopen a completed task when progress drops below the estimate" in:
     forAll(genCompletedTask): task =>
       whenever(task.expectedDuration.value > 1):
-        val result = task.setProgress(TaskDuration.applyUnsafe(task.expectedDuration.value - 1))
+        val result = task.setProgress(TaskDuration.applyUnsafe(task.expectedDuration.value - 1), at)
         result shouldBe a[InProgressTask]
 
   "changeExpectedDuration" should "preserve the completed hours while re-deriving the state" in:
     forAll(genBoundedInProgressTask, genHours): (task, newExpected) =>
-      val result = task.changeExpectedDuration(newExpected)
+      val result = task.changeExpectedDuration(newExpected, at)
       result.completedDuration shouldEqual task.completedDuration
       result.expectedDuration shouldEqual newExpected
 
   it should "complete the task when the new estimate is not above the completed hours" in:
     forAll(genBoundedInProgressTask): task =>
       whenever(task.completedDuration.value > 0):
-        val result = task.changeExpectedDuration(task.completedDuration)
+        val result = task.changeExpectedDuration(task.completedDuration, at)
         result shouldBe a[CompletedTask]
 
   // ---------------------------------------------------------------------------

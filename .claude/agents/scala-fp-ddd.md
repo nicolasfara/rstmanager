@@ -110,7 +110,7 @@ consolidation; never introduce periodic/hourly polling on the backend.
 
 ## Non-negotiable house rules (enforced by the compiler & scalafix)
 
-The build runs with `-Werror -Wunused:all -Yexplicit-nulls -Ysafe-init
+The build runs with `-Werror -Wunused:all -Yexplicit-nulls -Wsafe-init
 -language:strictEquality`. scalafix `DisableSyntax` forbids: `null` literals,
 `asInstanceOf`, `isInstanceOf`, `throw`, `return`, `.xml`, default arguments **on
 `def`s** (case-class defaults are fine), `final val`, and val-patterns. Therefore:
@@ -121,6 +121,8 @@ The build runs with `-Werror -Wunused:all -Yexplicit-nulls -Ysafe-init
   expected; don't delete it.
 - **explicit-nulls**: Java interop returns `T | Null`; use `.nn` at the boundary
   (`UUID.randomUUID().nn`, `Instant.now().nn`) rather than assuming non-null.
+  On Scala 3.9 a redundant `.nn` (qualifier already non-null) is warning E216,
+  hence an error under `-Werror`: drop it where the compiler flags it.
 - **no asInstanceOf/isInstanceOf**: narrow with pattern matching. For unavoidable
   JS-interop narrowing in the frontend, follow the existing typed-facade pattern
   rather than casting.

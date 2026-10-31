@@ -22,7 +22,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class WorkCodecsTest extends AnyFlatSpecLike:
-  private val day: DateTime = DateTime.parse("2026-06-15").nn
+  private val day: DateTime = DateTime.parse("2026-06-15")
   private val firstManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000701").nn
   private val secondManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000702").nn
 

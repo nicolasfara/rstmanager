@@ -31,8 +31,8 @@ object OrderSimulationService:
     case TotalDuration(duration: TaskDuration)
 
     /**
-     * One synthetic manufacturing per selected catalog template, each carrying its catalog tasks (already resolved by the caller) with their default
-     * required duration, task dependency graph, and default employees.
+     * One synthetic manufacturing per selected catalog template, each carrying its catalog tasks (already resolved by the caller) with the template's
+     * per-task duration (falling back to the catalog duration), task dependency graph, and default employees.
      */
     case FromManufacturings(selection: NonEmptyList[(Manufacturing, NonEmptyList[Task])])
 
@@ -136,7 +136,7 @@ object OrderSimulationService:
   /** Instantiates one catalog template as a not-started scheduled manufacturing, like an order created from the catalog would. */
   private def fromTemplate(template: Manufacturing, tasks: NonEmptyList[Task], deadline: DateTime): ScheduledManufacturing =
     val scheduledTasks: NonEmptyList[ScheduledTask] =
-      tasks.map(task => PendingTask(UUID.randomUUID().nn: ScheduledTaskId, task.id, task.requiredDuration))
+      tasks.map(task => PendingTask(UUID.randomUUID().nn: ScheduledTaskId, task.id, template.durationForTask(task.id, task.requiredDuration)))
     val preferredEmployees = scheduledTasks.toList.flatMap { scheduled =>
       template.defaultEmployees.get(scheduled.taskId).map(scheduled.id -> _)
     }.toMap

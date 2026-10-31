@@ -98,7 +98,7 @@ add a method here in the existing grouped style (`sendJson`/`sendUnit`/`jsonBody
 ## Scala.js / strict-equality / null rules (compiler-enforced)
 
 Same flags as the rest of the repo: `-Werror -Wunused:all -Yexplicit-nulls
--Ysafe-init -language:strictEquality`, plus scalafix forbidding `null`,
+-Wsafe-init -language:strictEquality`, plus scalafix forbidding `null`,
 `asInstanceOf`, `isInstanceOf`, `throw`, `return`. In frontend code specifically:
 
 - **strictEquality**: any `==`/pattern-guard equality needs a `CanEqual`. Add

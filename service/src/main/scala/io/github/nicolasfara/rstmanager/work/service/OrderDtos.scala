@@ -496,7 +496,7 @@ object OrderDtos:
     value.refineValidatedNec[ManufacturingCode]
 
   private def parseDate(value: String, path: String): ValidatedNec[String, DateTime] =
-    Either.catchNonFatal(DateTime.parse(value).nn).leftMap(_ => s"$path must be an ISO-8601 date-time.").toValidatedNec
+    Either.catchNonFatal(DateTime.parse(value)).leftMap(_ => s"$path must be an ISO-8601 date-time.").toValidatedNec
 
   private def required[A](value: Option[A], path: String): ValidatedNec[String, A] = value.toValidNec(s"$path is required.")
 

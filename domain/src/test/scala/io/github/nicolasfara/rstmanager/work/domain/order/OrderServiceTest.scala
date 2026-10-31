@@ -425,6 +425,23 @@ class OrderServiceTest extends AnyFlatSpecLike:
         completedAt shouldEqual day
       case other => fail(s"Unexpected manufacturing: $other")
 
+  it should "replay a stored nested event that no longer applies without failing, leaving the content unchanged" in:
+    val order = InProgressOrder(orderData(), nextDay)
+    val unknownTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000110").nn
+
+    Order.transition(ManufacturingTaskCompleted(manufacturingId, unknownTaskId, TaskDuration(8), None))(order).toOption shouldEqual Some(order)
+
+  it should "replay a stored dependency graph as recorded, without re-validating it under the current rules" in:
+    val secondTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000111").nn
+    val cyclic = ManufacturingDependencies()
+      .addTaskDependencies(templateTaskId, Set(secondTemplateId))
+      .addTaskDependencies(secondTemplateId, Set(templateTaskId))
+
+    Order.transition(TaskDependenciesChanged(manufacturingId, cyclic, day))(InProgressOrder(orderData(), nextDay)).toOption match
+      case Some(replayed: InProgressOrder) =>
+        replayed.data.setOfManufacturing.head.info.dependencies.dependenciesOf(templateTaskId) shouldEqual Set(secondTemplateId)
+      case other => fail(s"Unexpected replay: $other")
+
   it should "reject cancelling a completed or delivered order" in:
     val data = orderData()
     List(CompletedOrder(data, nextDay), DeliveredOrder(data, nextDay, nextDay)).foreach { state =>

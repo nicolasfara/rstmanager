@@ -18,7 +18,12 @@ enum PlanningError derives CanEqual:
   /** Returned when an employee assignment is empty or exceeds the employee's available hours. */
   case InvalidEmployeeAssignment(availableHours: DailyHours, assignedDuration: TaskDuration)
 
-  /** Returned when a planned order delay does not actually move completion after the expected work deadline. */
+  /**
+   * Returned when a planned order delay does not actually move completion after the work deadline.
+   *
+   * `expectedDeliveryDate` is the work deadline and `promisedDeliveryDate` the planned completion: the names predate [[DelayedOrder]]'s and are kept
+   * because they are part of the persisted error format.
+   */
   case InvalidOrderDelay(orderId: OrderId, expectedDeliveryDate: DateTime, promisedDeliveryDate: DateTime)
 
   /** Returned when a planned manufacturing delay does not actually move completion after the expected date. */
@@ -61,4 +66,7 @@ enum PlanningError derives CanEqual:
 
   /** Returned when an event requires an active planning request. */
   case PlanningMustBeInProgress
+
+  /** Returned when concluding an attempt did not leave it completed or rejected. */
+  case PlanningMustBeConcluded
 end PlanningError

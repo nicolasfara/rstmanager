@@ -10,7 +10,7 @@ object TaskService extends TaskAggregate.Service[TaskService.Command, TaskServic
     case Delete
 
   enum Notification derives CanEqual:
-    /** The task definition changed. */
+    /** The task definition was created, updated, or deleted. */
     case TaskChanged(taskId: TaskId)
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {
@@ -19,7 +19,10 @@ object TaskService extends TaskAggregate.Service[TaskService.Command, TaskServic
     case Command.Update(task) =>
       mustTargetOwnStream(task.id) >> App.state.decide(_.update(task)).void >> App.publish(Notification.TaskChanged(task.id))
     case Command.Delete =>
-      App.state.decide(_.delete).void
+      App.state.decide(_.delete).flatMap {
+        case TaskAggregate.Deleted(task) => App.publish(Notification.TaskChanged(task.id))
+        case TaskAggregate.Empty | TaskAggregate.Active(_) => App.unit
+      }
   }
 
   /** Rejects a command whose task belongs to another stream, so the stream id and the stored task id always agree. */

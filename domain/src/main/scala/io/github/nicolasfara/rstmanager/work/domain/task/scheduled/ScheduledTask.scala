@@ -10,16 +10,12 @@ import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
-import io.github.iltotore.iron.constraint.numeric.Interval.*
 import monocle.syntax.all.*
 
 /** Unique identifier for a scheduled task instance. */
 type ScheduledTaskId = UUID
 object ScheduledTaskId:
   given CanEqual[ScheduledTaskId, ScheduledTaskId] = CanEqual.derived
-
-/** Percentage value constrained to the inclusive range `0` to `100`. */
-type Percentage = DescribedAs[Closed[0, 100], "Percentage must be between 0 and 100"]
 
 /**
  * Task instance tracked inside a scheduled manufacturing.

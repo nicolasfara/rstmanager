@@ -78,4 +78,9 @@ class CustomerServiceTest extends AnyFlatSpecLike:
   it should "reject a customer sent to another customer's stream" in:
     val otherStream: CustomerId = UUID.fromString("00000000-0000-0000-0000-0000000000c2").nn
     rejection(run(Command.Create(individual), CustomerAggregate.Empty, otherStream)) shouldEqual List(CustomerError.CustomerIdMismatch)
+  it should "publish the deleted customer's id, like every catalog aggregate" in:
+    run(Command.Delete, CustomerAggregate.Active(individual)) match
+      case EdomatonResult.Accepted(CustomerAggregate.Deleted(_), _, notifications) =>
+        notifications.toList shouldEqual List(Notification.CustomerChanged(customerId))
+      case other => fail(s"Unexpected result: $other")
 end CustomerServiceTest

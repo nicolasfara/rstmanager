@@ -7,7 +7,7 @@ import scalax.collection.edges.DiEdge
 import scalax.collection.immutable.Graph
 
 /** Errors returned when operating on an order-level manufacturing dependency graph. */
-enum OrderDependencyError:
+enum OrderDependencyError derives CanEqual:
   case CycleDetected(cyclePath: Set[ScheduledManufacturingId])
 
 /** Directed graph describing ordering constraints between the manufacturings of an order. */

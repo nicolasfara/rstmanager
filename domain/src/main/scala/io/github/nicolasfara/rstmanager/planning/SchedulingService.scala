@@ -61,13 +61,9 @@ object SchedulingService:
    * @param employees
    *   Workforce providing daily capacity from the request start onward.
    * @return
-   *   The computed [[SchedulingOutcome]], or terminal planning errors unrelated to normal capacity exhaustion.
+   *   The computed [[SchedulingOutcome]]. Planning always succeeds: work that cannot be placed is reported as unplanned orders, not as an error.
    */
-  def computeSchedule(
-      request: PlanningRequest,
-      orders: List[Order],
-      employees: List[Employee],
-  ): Either[NonEmptyList[PlanningError], SchedulingOutcome] =
+  def computeSchedule(request: PlanningRequest, orders: List[Order], employees: List[Employee]): SchedulingOutcome =
     val startOn = startOfDay(request.startOn)
     val openOrders = PlanningPriorityPolicy.sortOpenOrders(orders).filter(order => request.openOrderIds.contains(order.data.id))
     val initialState = PlannerState.empty(startOn, request.requestedOn)
@@ -87,7 +83,7 @@ object SchedulingService:
       manufacturingDelays(plannedOrders, planned.slices),
       unplanned.toList,
       skippedOrderWarnings(request, openOrders),
-    ).asRight
+    )
   end computeSchedule
 
   /** Returns the Monday-to-Friday production days from the given start day onward, normalized at start of day. */

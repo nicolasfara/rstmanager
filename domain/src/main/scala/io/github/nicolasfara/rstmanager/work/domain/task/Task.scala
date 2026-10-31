@@ -15,10 +15,10 @@ import io.github.iltotore.iron.constraint.all.*
 type TaskId = UUID
 
 /** Refined constraint for a non-empty task name. */
-type TaskName = DescribedAs[Not[Empty], "The task name must be alphanumeric"]
+type TaskName = DescribedAs[Not[Empty], "The task name cannot be empty"]
 
 /** Refined constraint for a non-empty task description. */
-type TaskDescription = DescribedAs[Not[Empty], "The task description must be alphanumeric"]
+type TaskDescription = DescribedAs[Not[Empty], "The task description, if provided, cannot be empty"]
 
 /** Estimated duration of a task, expressed in total minutes. */
 type TaskDuration = TaskDuration.T

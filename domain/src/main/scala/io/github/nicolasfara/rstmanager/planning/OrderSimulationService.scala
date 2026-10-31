@@ -73,28 +73,27 @@ object OrderSimulationService:
       openOrders: List[Order],
       employees: List[Employee],
       demand: SimulationDemand,
-  ): Either[NonEmptyList[PlanningError], SimulationResult] =
+  ): SimulationResult =
     val simulatedOrder = syntheticOrder(now, demand)
     val simulatedOrderId = simulatedOrder.data.id
     val totalMinutes = simulatedOrder.data.setOfManufacturing.toList.map(_.remainingDuration.value).sum
     val openOrderIds = openOrders.collect { case order: InProgressOrder => order.data.id }
     val request = PlanningRequest(syntheticId("request"), now, PlanningTrigger.DailyPlanning, now, openOrderIds :+ simulatedOrderId)
 
-    SchedulingService.computeSchedule(request, openOrders :+ simulatedOrder, employees).map { outcome =>
-      outcome.unplannedOrders.find(_.orderId.equals(simulatedOrderId)) match
-        case Some(unplanned) =>
-          SimulationResult(totalMinutes, None, None, unplanned.blockedTasks.toList.map(_.reason))
-        case None =>
-          val days = outcome.slices.filter(_.orderId.equals(simulatedOrderId)).map(_.day)
-          val completion = days.maxByOption(_.getMillis)
-          SimulationResult(
-            totalMinutes,
-            days.minByOption(_.getMillis),
-            // A demand of zero remaining minutes produces no slices and is deliverable right away.
-            completion.orElse(Some(now.withTimeAtStartOfDay().nn)),
-            Nil,
-          )
-    }
+    val outcome = SchedulingService.computeSchedule(request, openOrders :+ simulatedOrder, employees)
+    outcome.unplannedOrders.find(_.orderId.equals(simulatedOrderId)) match
+      case Some(unplanned) =>
+        SimulationResult(totalMinutes, None, None, unplanned.blockedTasks.toList.map(_.reason))
+      case None =>
+        val days = outcome.slices.filter(_.orderId.equals(simulatedOrderId)).map(_.day)
+        val completion = days.maxByOption(_.getMillis)
+        SimulationResult(
+          totalMinutes,
+          days.minByOption(_.getMillis),
+          // A demand of zero remaining minutes produces no slices and is deliverable right away.
+          completion.orElse(Some(now.withTimeAtStartOfDay().nn)),
+          Nil,
+        )
   end simulate
 
   /**

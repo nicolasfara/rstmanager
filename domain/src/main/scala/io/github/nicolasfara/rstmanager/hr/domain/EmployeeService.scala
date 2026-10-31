@@ -10,7 +10,7 @@ object EmployeeService extends EmployeeAggregate.Service[EmployeeService.Command
     case Delete
 
   enum Notification derives CanEqual:
-    /** The employee record changed, so dependent planning may need recomputation. */
+    /** The employee record was created, updated, or deleted, so dependent planning may need recomputation. */
     case EmployeeChanged(employeeId: EmployeeId)
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {

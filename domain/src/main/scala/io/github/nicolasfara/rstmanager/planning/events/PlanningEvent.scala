@@ -8,26 +8,27 @@ import com.github.nscala_time.time.Imports.DateTime
 /**
  * Domain events emitted by the planning aggregate.
  *
- * These events form the audit trail for a planning attempt. They record both the incremental facts produced while planning, such as task slice
- * assignments, and the terminal outcome, either a computed schedule or a rejected schedule with structured errors.
+ * These events form the audit trail for a planning attempt. A run is recorded as `PlanningRequested` followed by its terminal outcome, either a
+ * computed schedule or a rejected schedule with structured errors. The per-fact events in between are legacy: they are no longer emitted, and are
+ * kept so older journals still decode and fold.
  */
-enum PlanningEvent:
+enum PlanningEvent derives CanEqual:
   /** A domain change requested a new scheduling attempt. */
   case PlanningRequested(request: PlanningRequest)
 
-  /** Task hours were assigned to one employee for one production day. */
+  /** Legacy: task hours were assigned to one employee for one production day. */
   case TaskSliceAssigned(slice: ScheduledTaskSlice, assignedOn: DateTime)
 
-  /** An order received a new planned completion date from planning. */
+  /** Legacy: an order received a new planned completion date from planning. */
   case OrderDelayedByPlanning(delay: DelayedOrder, delayedOn: DateTime)
 
-  /** A manufacturing cannot complete by its expected date. */
+  /** Legacy: a manufacturing cannot complete by its expected date. */
   case ManufacturingDelayedByPlanning(delay: DelayedManufacturing, delayedOn: DateTime)
 
-  /** An order could not be planned with the known workforce and structural constraints. */
+  /** Legacy: an order could not be planned with the known workforce and structural constraints. */
   case OrderMarkedUnplanned(unplannedOrder: UnplannedOrder, markedOn: DateTime)
 
-  /** A non-fatal planning issue was detected. */
+  /** Legacy: a non-fatal planning issue was detected. */
   case PlanningWarningRaised(warning: PlanningWarning, raisedOn: DateTime)
 
   /** A feasible schedule was computed and can be exposed as the final planning result. */

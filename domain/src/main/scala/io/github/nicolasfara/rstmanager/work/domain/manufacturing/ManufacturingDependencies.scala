@@ -7,7 +7,7 @@ import scalax.collection.edges.{ DiEdge, DiEdgeImplicits }
 import scalax.collection.immutable.Graph
 
 /** Errors returned when operating on a manufacturing dependency graph. */
-enum ManufacturingDependencyError:
+enum ManufacturingDependencyError derives CanEqual:
   case CycleDetected(cyclePath: Set[TaskId])
 
 /** Directed graph describing ordering constraints between tasks in a manufacturing. */

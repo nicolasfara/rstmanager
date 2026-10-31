@@ -205,6 +205,19 @@ object OrderOperations:
     findManufacturing(data, manufacturingId) *>
       Either.cond(data.setOfManufacturing.size > 1, (), OrderError.CannotRemoveLastManufacturing)
 
+  /** Applies a recorded manufacturing dependency graph as-is: validation happened when the event was decided, under the rules of that time. */
+  def replayManufacturingDependencies(order: ActiveOrder, dependencies: OrderDependencies): ActiveOrder =
+    mapData(order)(_.withDependencies(dependencies))
+
+  /**
+   * Applies a recorded task dependency graph as-is (see [[replayManufacturingDependencies]]); an unknown manufacturing leaves the order unchanged.
+   */
+  def replayTaskDependencies(order: ActiveOrder, manufacturingId: ScheduledManufacturingId, dependencies: ManufacturingDependencies): ActiveOrder =
+    mapData(order)(data =>
+      findManufacturing(data, manufacturingId)
+        .fold(_ => data, manufacturing => data.replaceManufacturing(manufacturing.withDependencies(dependencies))),
+    )
+
   /** Validates every dependency graph carried by the order data: the manufacturing graph and each manufacturing's task graph. */
   def validateDependencies(data: OrderData): Either[OrderError, Unit] =
     for

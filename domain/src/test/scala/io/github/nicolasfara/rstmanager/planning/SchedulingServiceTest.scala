@@ -11,6 +11,7 @@ import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.planning.Planning.CompletedPlanning
 import io.github.nicolasfara.rstmanager.planning.PlanningService.{ Command, Notification }
+import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
@@ -148,9 +149,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       orders: List[Order],
       employees: List[Employee],
   ): SchedulingOutcome =
-    SchedulingService.computeSchedule(planningRequest, orders, employees) match
-      case Right(outcome) => outcome
-      case Left(errors) => fail(s"Expected a feasible schedule, got: ${errors.toList.mkString(", ")}")
+    SchedulingService.computeSchedule(planningRequest, orders, employees)
 
   "SchedulingService" should "schedule a task on a single day when the daily capacity suffices" in:
     val task = pendingTask(UUID.randomUUID().nn, 6)
@@ -171,10 +170,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val overloaded = employee(employeeA, 125, Nil, Contract.FullTime(monday.toLocalDate.minusYears(1)))
     val computation = Future(SchedulingService.computeSchedule(request(monday, List(orderId)), List(theOrder), List(overloaded)))
 
-    Await.result(computation, 10.seconds) match
-      case Right(outcome) =>
-        outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual List((monday, 6))
-      case Left(errors) => fail(s"Expected a feasible schedule, got: ${errors.toList.mkString(", ")}")
+    Await.result(computation, 10.seconds).slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual
+      List((monday, 6))
 
   it should "split a task over consecutive days when it exceeds the daily capacity" in:
     val task = pendingTask(UUID.randomUUID().nn, 20)
@@ -520,8 +517,10 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val context = RequestContext(CommandMessage("cmd-1", Instant.now().nn, "production-planning", command), Planning.initial)
 
     PlanningService[Id].execute(context) match
-      case EdomatonResult.Accepted(state, _, notifications) =>
+      case EdomatonResult.Accepted(state, events, notifications) =>
         state shouldBe a[CompletedPlanning]
+        // One run is recorded as exactly two events, whatever the number of slices.
+        events.toChain.toList should matchPattern { case List(PlanningEvent.PlanningRequested(_), PlanningEvent.ScheduleComputed(_, _)) => }
         notifications.toList shouldEqual List(Notification.PlanningCompleted(planningRequest.id))
       case other => fail(s"Expected an accepted planning attempt, got: $other")
 

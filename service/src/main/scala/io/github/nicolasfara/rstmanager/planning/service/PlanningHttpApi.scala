@@ -110,9 +110,7 @@ object PlanningRoutes:
           case Left(error) => IO.pure(entityLoadFailure(error).asLeft)
           case Right(snapshot) =>
             IO(DateTime.now()).map { now =>
-              OrderSimulationService.simulate(now, snapshot.orders, snapshot.employees, demand) match
-                case Left(errors) => simulationRejected(errors).asLeft
-                case Right(result) => OrderSimulationResponse.fromDomain(result).asRight
+              OrderSimulationResponse.fromDomain(OrderSimulationService.simulate(now, snapshot.orders, snapshot.employees, demand)).asRight
             }
         }
     }
@@ -170,13 +168,6 @@ object PlanningRoutes:
         }
       end if
     }
-
-  private def simulationRejected(errors: NonEmptyList[PlanningError]): ApiFailure =
-    StatusCode.Conflict -> ApiError(
-      "planning-simulation-rejected",
-      "The simulation could not be computed.",
-      errors.toList.map(PlanningDomainErrorDto.fromDomain(_).message),
-    )
 
   private def currentPlanningAttempt(backend: PlanningApp.PlanningBackend): IO[Either[ApiFailure, PlanningStateDto]] =
     backend.repository.get(PlanningApp.planningAddress).attempt.map {

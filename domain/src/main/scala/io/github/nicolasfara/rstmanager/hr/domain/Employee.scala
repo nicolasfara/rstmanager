@@ -9,7 +9,7 @@ import io.github.iltotore.iron.*
 import monocle.syntax.all.*
 
 /**
- * Employee aggregate containing personal information, contract, and available budget hours.
+ * Employee master-data record (the state held by [[EmployeeAggregate]]): personal information, contract, and available budget hours.
  *
  * @param id
  *   Stable employee identifier.
@@ -61,7 +61,7 @@ end Employee
 
 object Employee:
   /**
-   * Creates an `Employee` aggregate from raw identifier and validated value objects.
+   * Creates an `Employee` from a raw identifier and validated value objects.
    *
    * @param id
    *   Employee identifier.

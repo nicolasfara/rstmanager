@@ -239,7 +239,7 @@ object PlanningApiDtos:
 
   object DelayedOrderDto:
     def fromDomain(delay: DelayedOrder): DelayedOrderDto =
-      DelayedOrderDto(delay.orderId, formatDate(delay.expectedDeliveryDate), formatDate(delay.promisedDeliveryDate))
+      DelayedOrderDto(delay.orderId, formatDate(delay.deadline), formatDate(delay.plannedCompletion))
 
   final case class DelayedManufacturingDto(
       orderId: UUID,
@@ -368,6 +368,8 @@ object PlanningApiDtos:
           PlanningDomainErrorDto("planning_already_in_progress", s"Planning request $requestId is already in progress.")
         case PlanningError.PlanningMustBeInProgress =>
           PlanningDomainErrorDto("planning_must_be_in_progress", "Planning must be in progress for this operation.")
+        case PlanningError.PlanningMustBeConcluded =>
+          PlanningDomainErrorDto("planning_must_be_concluded", "The planning attempt was not concluded.")
   end PlanningDomainErrorDto
 
   private def parseDate(value: String, path: String): ValidatedNec[String, DateTime] =

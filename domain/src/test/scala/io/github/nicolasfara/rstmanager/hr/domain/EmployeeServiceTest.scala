@@ -31,7 +31,11 @@ class EmployeeServiceTest extends AnyFlatSpecLike:
   private def run(command: Command, state: EmployeeAggregate): EdomatonResult[EmployeeAggregate, EmployeeEvent, EmployeeError, Notification] =
     run(command, state, employeeId)
 
-  private def run(command: Command, state: EmployeeAggregate, address: EmployeeId): EdomatonResult[EmployeeAggregate, EmployeeEvent, EmployeeError, Notification] =
+  private def run(
+      command: Command,
+      state: EmployeeAggregate,
+      address: EmployeeId,
+  ): EdomatonResult[EmployeeAggregate, EmployeeEvent, EmployeeError, Notification] =
     val message = CommandMessage("message-1", Instant.parse("2026-06-14T12:00:00Z").nn, address.toString, command)
     EmployeeService[Id].execute(RequestContext(message, state))
 

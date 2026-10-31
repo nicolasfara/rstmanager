@@ -17,8 +17,26 @@ class CustomerServiceTest extends AnyFlatSpecLike:
 
   private def customerOf(customerType: CustomerType, fiscalCode: String, businessName: Option[String]): Customer =
     Customer
-      .createCustomer(customerId, "Mario", "Rossi", "mario@example.com", "+393331234567", "Via Roma 1", "Bologna", "40100", "Italia", fiscalCode,
-        customerType, businessName, None, None, None, None, None, None)
+      .createCustomer(
+        customerId,
+        "Mario",
+        "Rossi",
+        "mario@example.com",
+        "+393331234567",
+        "Via Roma 1",
+        "Bologna",
+        "40100",
+        "Italia",
+        fiscalCode,
+        customerType,
+        businessName,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+      )
       .fold(errors => fail(errors.toChain.toList.mkString(", ")), identity)
 
   private val individual = customerOf(CustomerType.Individual, "RSSMRA80A01H501U", None)
@@ -27,7 +45,11 @@ class CustomerServiceTest extends AnyFlatSpecLike:
   private def run(command: Command, state: CustomerAggregate): EdomatonResult[CustomerAggregate, CustomerEvent, CustomerError, Notification] =
     run(command, state, customerId)
 
-  private def run(command: Command, state: CustomerAggregate, address: CustomerId): EdomatonResult[CustomerAggregate, CustomerEvent, CustomerError, Notification] =
+  private def run(
+      command: Command,
+      state: CustomerAggregate,
+      address: CustomerId,
+  ): EdomatonResult[CustomerAggregate, CustomerEvent, CustomerError, Notification] =
     val message = CommandMessage("message-1", Instant.parse("2026-06-14T12:00:00Z").nn, address.toString, command)
     CustomerService[Id].execute(RequestContext(message, state))
 
@@ -38,14 +60,17 @@ class CustomerServiceTest extends AnyFlatSpecLike:
 
   "CustomerService" should "create valid individual and company customers" in:
     List(individual, company).foreach { customer =>
-      run(Command.Create(customer), CustomerAggregate.Empty) should matchPattern { case EdomatonResult.Accepted(CustomerAggregate.Active(_), _, _) => }
+      run(Command.Create(customer), CustomerAggregate.Empty) should matchPattern { case EdomatonResult.Accepted(CustomerAggregate.Active(_), _, _) =>
+      }
     }
 
   it should "reject a company without a business name, however the customer was built" in:
     rejection(run(Command.Create(company.copy(businessName = None)), CustomerAggregate.Empty)) shouldEqual List(CustomerError.BusinessNameRequired)
 
   it should "reject a fiscal identifier that does not match the customer type" in:
-    rejection(run(Command.Create(individual.updateCustomerType(CustomerType.Company).copy(businessName = company.businessName)), CustomerAggregate.Empty)) shouldEqual
+    rejection(
+      run(Command.Create(individual.updateCustomerType(CustomerType.Company).copy(businessName = company.businessName)), CustomerAggregate.Empty),
+    ) shouldEqual
       List(CustomerError.TaxCodeDoesNotMatchCustomerType(CustomerType.Company))
     rejection(run(Command.Update(company.updateCustomerType(CustomerType.Individual)), CustomerAggregate.Active(company))) shouldEqual
       List(CustomerError.TaxCodeDoesNotMatchCustomerType(CustomerType.Individual))

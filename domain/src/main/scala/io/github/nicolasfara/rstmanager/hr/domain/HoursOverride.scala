@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.hr.domain
 
 import cats.data.{ Validated, ValidatedNec }
 import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.*
+import com.github.nscala_time.time.Imports.LocalDate
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
@@ -22,7 +22,7 @@ object DailyHours extends RefinedType[Int, GreaterEqual[0] & LessEqual[24]]
 sealed trait HoursOverride
 
 /**
- * Overrides the working hours for a specific day.
+ * Overrides the working hours for a specific calendar day.
  *
  * @param hours
  *   Hours to apply on the given day.
@@ -31,7 +31,7 @@ sealed trait HoursOverride
  * @param day
  *   Day affected by the override.
  */
-final case class WorkingDayOverride(hours: DailyHours, reason: Option[String :| OverrideReason], day: DateTime) extends HoursOverride:
+final case class WorkingDayOverride(hours: DailyHours, reason: Option[String :| OverrideReason], day: LocalDate) extends HoursOverride:
   /** Returns a copy with updated hours. */
   def updateHours(hours: DailyHours): WorkingDayOverride = this.focus(_.hours).replace(hours)
 
@@ -39,7 +39,7 @@ final case class WorkingDayOverride(hours: DailyHours, reason: Option[String :| 
   def updateReason(reason: Option[String :| OverrideReason]): WorkingDayOverride = this.focus(_.reason).replace(reason)
 
   /** Returns a copy with an updated day. */
-  def updateDay(day: DateTime): WorkingDayOverride = this.focus(_.day).replace(day)
+  def updateDay(day: LocalDate): WorkingDayOverride = this.focus(_.day).replace(day)
 
 object WorkingDayOverride:
   /**
@@ -52,7 +52,7 @@ object WorkingDayOverride:
    * @param day
    *   Day affected by the override.
    */
-  def createWorkingDayOverride(hours: Int, reason: Option[String], day: DateTime): ValidatedNec[String, WorkingDayOverride] =
+  def createWorkingDayOverride(hours: Int, reason: Option[String], day: LocalDate): ValidatedNec[String, WorkingDayOverride] =
     val validatedReason = reason match
       case Some(value) => value.refineValidatedNec[OverrideReason].map(Some(_))
       case None => Validated.validNec(Option.empty[String :| OverrideReason])
@@ -62,33 +62,37 @@ object WorkingDayOverride:
       validatedReason,
       Validated.validNec(day),
     ).mapN(WorkingDayOverride.apply)
-
-  def apply(hours: Int, reason: Option[String], day: DateTime): ValidatedNec[String, WorkingDayOverride] =
-    createWorkingDayOverride(hours, reason, day)
 end WorkingDayOverride
 
 /**
- * Removes working capacity for a continuous interval, typically to represent vacation.
+ * Removes working capacity for a continuous range of calendar days, typically to represent vacation.
  *
- * @param interval
- *   Closed interval affected by the override.
+ * Both bounds are inclusive: `lastDay` is the last day off, matching the "Da … A …" wording of the user interface.
+ *
+ * @param firstDay
+ *   First day off.
+ * @param lastDay
+ *   Last day off.
  */
-final case class VacationOverride(interval: Interval) extends HoursOverride:
-  /** Returns a copy with an updated vacation interval. */
-  def updateInterval(interval: Interval): VacationOverride = this.focus(_.interval).replace(interval)
+final case class VacationOverride(firstDay: LocalDate, lastDay: LocalDate) extends HoursOverride:
+  /** Whether `day` is one of the vacation days. */
+  def covers(day: LocalDate): Boolean = !day.isBefore(firstDay) && !day.isAfter(lastDay)
+
+  /** Whether this vacation shares at least one day with `other`. */
+  def overlaps(other: VacationOverride): Boolean = !other.lastDay.isBefore(firstDay) && !lastDay.isBefore(other.firstDay)
 
 object VacationOverride:
   /**
-   * Creates a vacation override if the interval bounds are valid.
+   * Creates a vacation override if the range is valid (a single day is allowed).
    *
-   * @param startDate
-   *   Start of the vacation interval.
-   * @param endDate
-   *   End of the vacation interval.
+   * @param firstDay
+   *   First day off.
+   * @param lastDay
+   *   Last day off.
    */
-  def createVacationOverride(startDate: DateTime, endDate: DateTime): ValidatedNec[String, VacationOverride] =
+  def createVacationOverride(firstDay: LocalDate, lastDay: LocalDate): ValidatedNec[String, VacationOverride] =
     Validated.condNec(
-      !endDate.isBefore(startDate),
-      VacationOverride(startDate to endDate),
+      !lastDay.isBefore(firstDay),
+      VacationOverride(firstDay, lastDay),
       "The vacation end date must be on or after the start date",
     )

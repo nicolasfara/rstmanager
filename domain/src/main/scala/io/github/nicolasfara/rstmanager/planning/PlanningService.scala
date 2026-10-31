@@ -49,18 +49,26 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router { case Command.ComputePlan(request, orders, employees) =>
     // `App.state` always reads the state the command arrived on, so every decision after the first
-    // is taken on the state returned by the previous one.
-    App.state.decide(_.request(request)).flatMap { inProgress =>
-      SchedulingService.computeSchedule(request, orders, employees) match
-        case Left(errors) => rejectPlan(inProgress, request, errors)
-        case Right(outcome) => completePlan(inProgress, request, outcome)
+    // is taken on the state returned by the previous one. Every event is stamped with the command time.
+    App.read.flatMap { context =>
+      val now = new DateTime(context.command.time.toEpochMilli)
+      App.decide(context.state.request(request)).flatMap { inProgress =>
+        SchedulingService.computeSchedule(request, orders, employees) match
+          case Left(errors) => rejectPlan(inProgress, request, errors, now)
+          case Right(outcome) => completePlan(inProgress, request, outcome, now)
+      }
     }
   }
 
-  private def rejectPlan[F[_]: Monad](planning: Planning, request: PlanningRequest, errors: NonEmptyList[PlanningError]): App[F, Unit] =
-    App.decide(planning.reject(errors)).void >> App.publish(Notification.PlanningRejected(request.id, errors))
+  private def rejectPlan[F[_]: Monad](
+      planning: Planning,
+      request: PlanningRequest,
+      errors: NonEmptyList[PlanningError],
+      now: DateTime,
+  ): App[F, Unit] =
+    App.decide(planning.reject(errors, now)).void >> App.publish(Notification.PlanningRejected(request.id, errors))
 
-  private def completePlan[F[_]: Monad](planning: Planning, request: PlanningRequest, outcome: SchedulingOutcome): App[F, Unit] =
+  private def completePlan[F[_]: Monad](planning: Planning, request: PlanningRequest, outcome: SchedulingOutcome, now: DateTime): App[F, Unit] =
     val delayNotifications =
       outcome.delayedOrders.map(delay => Notification.OrderDelayed(delay.orderId, delay.expectedDeliveryDate, delay.promisedDeliveryDate)) ++
         outcome.delayedManufacturings.map { delay =>
@@ -68,14 +76,17 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
         }
     val unplannedNotifications = outcome.unplannedOrders.map(Notification.OrderUnplanned.apply)
     for
-      afterSlices <- outcome.slices.foldM(planning)((state, slice) => App.decide(state.assignTaskSlice(slice)))
-      afterOrderDelays <- outcome.delayedOrders.foldM(afterSlices)((state, delay) => App.decide(state.delayOrder(delay)))
-      afterManufacturingDelays <- outcome.delayedManufacturings.foldM(afterOrderDelays)((state, delay) => App.decide(state.delayManufacturing(delay)))
-      afterUnplanned <- outcome.unplannedOrders.foldM(afterManufacturingDelays)((state, unplannedOrder) =>
-        App.decide(state.markOrderUnplanned(unplannedOrder)),
+      afterSlices <- outcome.slices.foldM(planning)((state, slice) => App.decide(state.assignTaskSlice(slice, now)))
+      afterOrderDelays <- outcome.delayedOrders.foldM(afterSlices)((state, delay) => App.decide(state.delayOrder(delay, now)))
+      afterManufacturingDelays <- outcome.delayedManufacturings.foldM(afterOrderDelays)((state, delay) =>
+        App.decide(state.delayManufacturing(delay, now)),
       )
-      afterWarnings <- outcome.warnings.foldM(afterUnplanned)((state, warning) => App.decide(state.raiseWarning(warning)))
-      _ <- App.decide(afterWarnings.complete)
+      afterUnplanned <- outcome.unplannedOrders.foldM(afterManufacturingDelays)((state, unplannedOrder) =>
+        App.decide(state.markOrderUnplanned(unplannedOrder, now)),
+      )
+      afterWarnings <- outcome.warnings.foldM(afterUnplanned)((state, warning) => App.decide(state.raiseWarning(warning, now)))
+      _ <- App.decide(afterWarnings.complete(now))
       _ <- App.publish((delayNotifications ++ unplannedNotifications :+ Notification.PlanningCompleted(request.id))*)
     yield ()
+  end completePlan
 end PlanningService

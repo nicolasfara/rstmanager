@@ -45,10 +45,10 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
   private val manufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000004").nn
 
   private def employee(id: EmployeeId): Employee =
-    employee(id, 40, Nil, Contract.FullTime(monday.minusYears(1).nn))
+    employee(id, 40, Nil, Contract.FullTime(monday.toLocalDate.minusYears(1)))
 
   private def employee(id: EmployeeId, overrides: List[HoursOverride]): Employee =
-    employee(id, 40, overrides, Contract.FullTime(monday.minusYears(1).nn))
+    employee(id, 40, overrides, Contract.FullTime(monday.toLocalDate.minusYears(1)))
 
   private def employee(id: EmployeeId, contract: Contract): Employee =
     employee(id, 40, Nil, contract)
@@ -168,7 +168,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     // 125h/week is a valid `WeeklyHours` but more than 24h/day over five days: it used to make the capacity search loop forever.
     val task = pendingTask(UUID.randomUUID().nn, 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
-    val overloaded = employee(employeeA, 125, Nil, Contract.FullTime(monday.minusYears(1).nn))
+    val overloaded = employee(employeeA, 125, Nil, Contract.FullTime(monday.toLocalDate.minusYears(1)))
     val computation = Future(SchedulingService.computeSchedule(request(monday, List(orderId)), List(theOrder), List(overloaded)))
 
     Await.result(computation, 10.seconds) match
@@ -256,11 +256,30 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   it should "skip employee vacation days" in:
     val task = pendingTask(UUID.randomUUID().nn, 8)
-    val vacation = VacationOverride.createVacationOverride(monday, tuesday).toOption.getOrElse(fail("invalid vacation"))
+    val vacation = VacationOverride.createVacationOverride(monday.toLocalDate, monday.toLocalDate).toOption.getOrElse(fail("invalid vacation"))
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA, overrides = List(vacation))))
 
     outcome.slices.map(_.day) shouldEqual List(tuesday)
+
+  it should "treat the last vacation day as a day off" in:
+    val task = pendingTask(UUID.randomUUID().nn, 8)
+    val vacation = VacationOverride.createVacationOverride(monday.toLocalDate, tuesday.toLocalDate).toOption.getOrElse(fail("invalid vacation"))
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA, overrides = List(vacation))))
+
+    outcome.slices.map(_.day) shouldEqual List(wednesday)
+
+  it should "apply a working-day override whatever the time zone it was entered in" in:
+    // Days entered in the UI arrive as UTC midnights, while planning days are midnights in the server zone: only the calendar day matters.
+    val task = pendingTask(UUID.randomUUID().nn, 2)
+    val enteredAsUtcMidnight = DateTime.parse("2026-06-15T00:00:00.000Z").toLocalDate
+    val dayOverride = WorkingDayOverride.createWorkingDayOverride(2, None, enteredAsUtcMidnight).toOption.getOrElse(fail("invalid override"))
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val worker = employee(employeeA, 0, List(dayOverride), Contract.FullTime(monday.toLocalDate.minusYears(1)))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(worker))
+
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual List((monday, 2))
 
   it should "report order and manufacturing delays when work overruns the expected dates" in:
     val task = pendingTask(UUID.randomUUID().nn, 20)
@@ -312,11 +331,21 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, task.id, UnplannedReason.NoFutureCapacity(TaskDuration(8 * 60))))),
     )
 
+  it should "count the end date of a fixed-term contract as a working day" in:
+    val task = pendingTask(UUID.randomUUID().nn, 16)
+    val endsTuesday = Contract.FixedTerm(monday.toLocalDate.minusDays(1), tuesday.toLocalDate)
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA, contract = endsTuesday)))
+
+    outcome.slices.map(_.day) shouldEqual List(monday, tuesday)
+    outcome.unplannedOrders shouldBe empty
+
   it should "plan higher-priority orders and mark later orders unplanned when fixed-term capacity runs out" in:
     val urgentTask = pendingTask(UUID.randomUUID().nn, 16)
     val normalTask = pendingTask(UUID.randomUUID().nn, 8)
     val urgentManufacturingId: ScheduledManufacturingId = UUID.randomUUID().nn
-    val limitedContract = Contract.FixedTerm(monday.minusDays(1).nn, wednesday)
+    // The contract's last day is Tuesday: two 8h days, enough for the urgent order only.
+    val limitedContract = Contract.FixedTerm(monday.toLocalDate.minusDays(1), tuesday.toLocalDate)
     val urgent =
       order(orderId, friday, NonEmptyList.one(manufacturing(urgentManufacturingId, friday, NonEmptyList.one(urgentTask))), OrderPriority.Urgent)
     val normal = order(otherOrderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(normalTask))))
@@ -441,8 +470,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   it should "wait for future contracts and ignore expired contracts" in:
     val task = pendingTask(UUID.randomUUID().nn, 8)
-    val futureContract = Contract.FullTime(wednesday)
-    val expiredContract = Contract.FixedTerm(monday.minusDays(10).nn, monday.minusDays(1).nn)
+    val futureContract = Contract.FullTime(wednesday.toLocalDate)
+    val expiredContract = Contract.FixedTerm(monday.toLocalDate.minusDays(10), monday.toLocalDate.minusDays(1))
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(
       request(monday, List(orderId)),

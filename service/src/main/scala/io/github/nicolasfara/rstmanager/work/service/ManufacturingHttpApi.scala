@@ -130,6 +130,8 @@ object ManufacturingHttpApi:
     case ManufacturingError.ManufacturingAlreadyExists =>
       ApiError.conflict("manufacturing-already-exists", "A manufacturing with this id already exists.", Nil)
     case ManufacturingError.ManufacturingNotFound => ApiError.notFound("Manufacturing", "")
+    case ManufacturingError.ManufacturingIdMismatch =>
+      ApiError.conflict("manufacturing-id-mismatch", "The manufacturing id does not match the addressed manufacturing.", Nil)
 
   given Codec[ManufacturingDependencyDto] = deriveCodec
   given Codec[TaskDefaultEmployeeDto] = deriveCodec

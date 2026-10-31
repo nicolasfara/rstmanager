@@ -23,15 +23,15 @@ enum EmployeeAggregate derives CanEqual:
   case Active(employee: Employee)
   case Deleted(employee: Employee)
 
-  /** Creates the record from the empty state. */
+  /** Creates the record from the empty state, provided the employee satisfies [[Employee.checkInvariants]]. */
   def create(employee: Employee): Decision[EmployeeError, EmployeeEvent, EmployeeAggregate] = this.decide {
-    case Empty => Decision.accept(EmployeeCreated(employee))
+    case Empty => employee.checkInvariants.toDecision *> EmployeeCreated(employee).accept
     case _ => Decision.reject(EmployeeAlreadyExists)
   }.validate(_.mustBeActive)
 
-  /** Replaces the record data when it is active. */
+  /** Replaces the record data when it is active, provided the new data satisfies [[Employee.checkInvariants]]. */
   def update(employee: Employee): Decision[EmployeeError, EmployeeEvent, EmployeeAggregate] = this.decide {
-    case Active(_) => Decision.accept(EmployeeUpdated(employee))
+    case Active(_) => employee.checkInvariants.toDecision *> EmployeeUpdated(employee).accept
     case _ => Decision.reject(EmployeeNotFound)
   }.validate(_.mustBeActive)
 

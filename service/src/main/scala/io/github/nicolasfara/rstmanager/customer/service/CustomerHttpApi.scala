@@ -6,7 +6,7 @@ import io.github.nicolasfara.rstmanager.customer.domain.*
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 
-import cats.data.ValidatedNec
+import cats.data.{ NonEmptyChain, ValidatedNec }
 import cats.effect.IO
 import cats.syntax.all.*
 import io.circe.Codec
@@ -142,6 +142,12 @@ object CustomerHttpApi:
   private def conflict(error: CustomerError): ApiFailure = error match
     case CustomerError.CustomerAlreadyExists => ApiError.conflict("customer-already-exists", "A customer with this id already exists.", Nil)
     case CustomerError.CustomerNotFound => ApiError.notFound("Customer", "")
+    case CustomerError.BusinessNameRequired => ApiError.validation(NonEmptyChain.one("The business name is required for companies"))
+    case CustomerError.TaxCodeDoesNotMatchCustomerType(customerType) =>
+      ApiError.validation(NonEmptyChain.one(customerType match
+        case CustomerType.Individual => "An individual customer needs a valid Italian fiscal code"
+        case CustomerType.Company => "A company customer needs a valid 11-digit VAT number"))
+    case CustomerError.CustomerIdMismatch => ApiError.conflict("customer-id-mismatch", "The customer id does not match the addressed customer.", Nil)
 
   given Codec[CustomerRequest] = deriveCodec
   given Codec[CustomerResponse] = deriveCodec

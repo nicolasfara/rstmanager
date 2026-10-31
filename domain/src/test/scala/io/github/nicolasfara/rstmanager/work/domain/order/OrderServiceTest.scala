@@ -85,6 +85,13 @@ class OrderServiceTest extends AnyFlatSpecLike:
     val message = CommandMessage("message-1", Instant.parse("2026-06-14T12:00:00Z").nn, orderId.toString, command)
     OrderService[Id].execute(RequestContext(message, state))
 
+  private def rejectionOf(
+      result: EdomatonResult[Order, io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent, OrderError, Notification],
+  ): List[OrderError] =
+    result match
+      case EdomatonResult.Rejected(_, reasons) => reasons.toChain.toList
+      case other => fail(s"Expected a rejection, got: $other")
+
   "OrderService" should "create an order through the event-sourced service" in:
     val data = orderData()
     val result = run(Command.Create(data, nextDay), NewOrder)
@@ -338,6 +345,20 @@ class OrderServiceTest extends AnyFlatSpecLike:
         newState.data.setOfManufacturing.toList.map(_.info.id) should contain(secondManufacturingId)
       case other => fail(s"Unexpected result: $other")
 
+  it should "stamp events with the command time instead of reading the clock" in:
+    val commandTime = new DateTime(Instant.parse("2026-06-14T12:00:00Z").nn.toEpochMilli)
+    val data = orderData(NonEmptyList.one(manufacturing(tasks = NonEmptyList.of(task(), task(otherTaskId)))))
+
+    run(Command.Suspend(None), InProgressOrder(data, nextDay)) match
+      case EdomatonResult.Accepted(newState: SuspendedOrder, _, _) => newState.pausedOn.getMillis shouldEqual commandTime.getMillis
+      case other => fail(s"Unexpected result: $other")
+    run(Command.CompleteTask(manufacturingId, taskId, TaskDuration(8)), InProgressOrder(data, nextDay)) match
+      case EdomatonResult.Accepted(_, events, _) =>
+        events.toChain.toList match
+          case List(ManufacturingTaskCompleted(_, _, _, Some(occurredOn))) => occurredOn.getMillis shouldEqual commandTime.getMillis
+          case other => fail(s"Unexpected events: $other")
+      case other => fail(s"Unexpected result: $other")
+
   it should "keep a suspended order suspended when nested manufacturings and tasks are edited" in:
     val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
     val pausedOn = day.plusHours(3).nn
@@ -411,6 +432,64 @@ class OrderServiceTest extends AnyFlatSpecLike:
         case EdomatonResult.Rejected(_, reasons) => reasons.toChain.toList shouldEqual List(OrderMustBeInProgressOrPaused)
         case other => fail(s"Unexpected result: $other")
     }
+
+  it should "reject an order whose manufacturings or tasks share an id" in:
+    val sameManufacturingTwice = orderData(NonEmptyList.of(manufacturing(), manufacturing(manufacturingId, NonEmptyList.one(task(otherTaskId)))))
+    val sameTaskInTwoManufacturings = orderData(NonEmptyList.of(manufacturing(), manufacturing(secondManufacturingId, NonEmptyList.one(task()))))
+
+    rejectionOf(run(Command.Create(sameManufacturingTwice, nextDay), NewOrder)) shouldEqual List(DuplicateManufacturingIds(Set(manufacturingId)))
+    rejectionOf(run(Command.Create(sameTaskInTwoManufacturings, nextDay), NewOrder)) shouldEqual List(DuplicateTaskIds(Set(taskId)))
+
+  it should "reject adding a manufacturing whose id or task ids are already in the order" in:
+    val order = InProgressOrder(orderData(), nextDay)
+
+    rejectionOf(run(Command.AddManufacturing(manufacturing(manufacturingId, NonEmptyList.one(task(otherTaskId)))), order)) shouldEqual
+      List(DuplicateManufacturingIds(Set(manufacturingId)))
+    rejectionOf(run(Command.AddManufacturing(manufacturing(secondManufacturingId, NonEmptyList.one(task()))), order)) shouldEqual
+      List(DuplicateTaskIds(Set(taskId)))
+
+  it should "validate an added task: new id, known prerequisites, no cycle" in:
+    val secondTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010d").nn
+    val unknownTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010e").nn
+    val newTask = InProgressTask(otherTaskId, secondTemplateId, TaskDuration(8), TaskDuration(0))
+    val order = InProgressOrder(orderData(), nextDay)
+    val withDependency = InProgressOrder(
+      orderData(
+        NonEmptyList.one(
+          manufacturing(NonEmptyList.one(task())).withDependencies(
+            ManufacturingDependencies().addTaskDependencies(templateTaskId, Set(secondTemplateId)),
+          ),
+        ),
+      ),
+      nextDay,
+    )
+
+    run(Command.AddManufacturingTask(manufacturingId, newTask, List(templateTaskId)), order) should matchPattern {
+      case EdomatonResult.Accepted(_: InProgressOrder, _, _) =>
+    }
+    rejectionOf(run(Command.AddManufacturingTask(manufacturingId, task(), Nil), order)) shouldEqual List(DuplicateTaskIds(Set(taskId)))
+    rejectionOf(run(Command.AddManufacturingTask(manufacturingId, newTask, List(unknownTemplateId)), order)) shouldEqual
+      List(UnknownTaskInDependencies(manufacturingId, Set(unknownTemplateId)))
+    rejectionOf(run(Command.AddManufacturingTask(manufacturingId, newTask, List(templateTaskId)), withDependency)) should matchPattern {
+      case List(TaskDependencyCycle(_, _)) =>
+    }
+
+  it should "reject removing an unknown manufacturing or the last one" in:
+    val unknownId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-00000000010f").nn
+
+    rejectionOf(run(Command.RemoveManufacturing(unknownId), InProgressOrder(twoManufacturingsData(), nextDay))) shouldEqual
+      List(ManufacturingNotFound(unknownId))
+    rejectionOf(run(Command.RemoveManufacturing(manufacturingId), InProgressOrder(orderData(), nextDay))) shouldEqual
+      List(CannotRemoveLastManufacturing)
+    run(Command.RemoveManufacturing(manufacturingId), InProgressOrder(twoManufacturingsData(), nextDay)) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
+        newState.data.setOfManufacturing.map(_.info.id).toList shouldEqual List(secondManufacturingId)
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject an order sent to another order's stream" in:
+    val message = CommandMessage("message-1", Instant.parse("2026-06-14T12:00:00Z").nn, customerId.toString, Command.Create(orderData(), nextDay))
+
+    rejectionOf(OrderService[Id].execute(RequestContext(message, NewOrder))) shouldEqual List(OrderIdMismatch)
 
   it should "create an order carrying manufacturing dependencies" in:
     val data = twoManufacturingsData()

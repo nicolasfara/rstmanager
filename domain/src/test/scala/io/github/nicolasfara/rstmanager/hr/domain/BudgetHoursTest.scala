@@ -5,6 +5,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class BudgetHoursTest extends AnyFlatSpecLike:
+  private val today: LocalDate = LocalDate.parse("2026-06-15")
   private val defaultHours = 40
 
   private def validOrFail[A](value: cats.data.ValidatedNec[String, A]): A =
@@ -12,12 +13,12 @@ class BudgetHoursTest extends AnyFlatSpecLike:
 
   "BudgetHours.createBudgetHours" should "use the default weekly hours when no override is present" in:
     val budgetHours = validOrFail(BudgetHours.createBudgetHours(defaultHours, Nil))
-    val hours = budgetHours.getWorkingHoursForDay(DateTime.now())
+    val hours = budgetHours.getWorkingHoursForDay(today)
 
     hours shouldEqual DailyHours.applyUnsafe(defaultHours / 5)
 
   it should "return the hours according to the daily override" in:
-    val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
+    val overrideDate = today
     val dailyOverride = validOrFail(WorkingDayOverride.createWorkingDayOverride(4, Some("Special day"), overrideDate))
     val budgetHours = validOrFail(BudgetHours.createBudgetHours(defaultHours, List(dailyOverride)))
 
@@ -25,17 +26,30 @@ class BudgetHoursTest extends AnyFlatSpecLike:
 
     hours shouldEqual DailyHours.applyUnsafe(4)
 
-  it should "return 0 hours for any day within the vacation interval" in:
-    val overrideFrom = DateTime.now().withTimeAtStartOfDay().nn
-    val vacationOverride = validOrFail(VacationOverride.createVacationOverride(overrideFrom, overrideFrom.plusDays(4).nn))
+  it should "return 0 hours on every vacation day, the last one included, and the default the day after" in:
+    val vacationOverride = validOrFail(VacationOverride.createVacationOverride(today, today.plusDays(4)))
     val budgetHours = validOrFail(BudgetHours.createBudgetHours(defaultHours, List(vacationOverride)))
 
-    for dayOffset <- 0 until 4 do
-      val day = overrideFrom.plusDays(dayOffset).nn
-      budgetHours.getWorkingHoursForDay(day) shouldEqual DailyHours.applyUnsafe(0)
+    for dayOffset <- 0 to 4 do budgetHours.getWorkingHoursForDay(today.plusDays(dayOffset)) shouldEqual DailyHours.applyUnsafe(0)
+    budgetHours.getWorkingHoursForDay(today.plusDays(5)) shouldEqual DailyHours.applyUnsafe(defaultHours / 5)
+
+  it should "treat a single-day vacation as one day off" in:
+    val vacationOverride = validOrFail(VacationOverride.createVacationOverride(today, today))
+    val budgetHours = validOrFail(BudgetHours.createBudgetHours(defaultHours, List(vacationOverride)))
+
+    budgetHours.getWorkingHoursForDay(today) shouldEqual DailyHours.applyUnsafe(0)
+
+  it should "let a working-day override win over a vacation covering the same day, whatever the list order" in:
+    val vacationOverride = validOrFail(VacationOverride.createVacationOverride(today, today.plusDays(2)))
+    val dayOverride = validOrFail(WorkingDayOverride.createWorkingDayOverride(3, None, today.plusDays(1)))
+
+    for overrides <- List(List(vacationOverride, dayOverride), List(dayOverride, vacationOverride)) do
+      val budgetHours = validOrFail(BudgetHours.createBudgetHours(defaultHours, overrides))
+      budgetHours.getWorkingHoursForDay(today.plusDays(1)) shouldEqual DailyHours.applyUnsafe(3)
+      budgetHours.getWorkingHoursForDay(today) shouldEqual DailyHours.applyUnsafe(0)
 
   it should "replace a working-day override when a new one is set for the same day" in:
-    val overrideDate = DateTime.now().withTimeAtStartOfDay().nn
+    val overrideDate = today
     val firstOverride = validOrFail(WorkingDayOverride.createWorkingDayOverride(2, Some("Morning only"), overrideDate))
     val secondOverride = validOrFail(WorkingDayOverride.createWorkingDayOverride(6, Some("Recovered hours"), overrideDate))
     val budgetHours = validOrFail(BudgetHours.createBudgetHours(defaultHours, List(firstOverride)))

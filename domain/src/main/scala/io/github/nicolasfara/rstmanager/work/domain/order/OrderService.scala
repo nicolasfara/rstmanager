@@ -4,11 +4,13 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
 import cats.Monad
 import com.github.nscala_time.time.Imports.DateTime
+import edomata.core.Decision
 import io.github.iltotore.iron.*
 
 /** Edomata service for the event-sourced `Order` aggregate. */
@@ -51,57 +53,69 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {
     case Command.Create(data, promisedDeliveryDate) =>
-      App.state.decide(_.create(data, promisedDeliveryDate)).void >> App.publish(Notification.SchedulingRecalculationRequested(data.id))
+      mustTargetOwnStream(data.id) >> App.state.decide(_.create(data, promisedDeliveryDate)).flatMap(publishSchedulingRecalculation)
     case Command.Suspend(reason) =>
-      App.state.decide(_.suspend(reason)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.suspend(reason, now)).flatMap(publishSchedulingRecalculation)
     case Command.Reactivate =>
-      App.state.decide(_.reactivate).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.reactivate(now)).flatMap(publishSchedulingRecalculation)
     case Command.Complete =>
-      App.state.decide(_.complete).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.complete(now)).flatMap(publishSchedulingRecalculation)
     case Command.Deliver =>
-      App.state.decide(_.deliver).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.deliver(now)).flatMap(publishSchedulingRecalculation)
     case Command.Cancel(reason) =>
-      App.state.decide(_.cancel(reason)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.cancel(reason, now)).flatMap(publishSchedulingRecalculation)
     case Command.UpdatePromisedDeliveryDate(newPromisedDeliveryDate) =>
-      App.state.decide(_.updatePromisedDeliveryDate(newPromisedDeliveryDate)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.updatePromisedDeliveryDate(newPromisedDeliveryDate, now)).flatMap(publishSchedulingRecalculation)
     case Command.Reopen =>
-      App.state.decide(_.reopen).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.reopen(now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangePriority(newPriority) =>
-      App.state.decide(_.changePriority(newPriority)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changePriority(newPriority, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeDescription(newDescription) =>
-      App.state.decide(_.changeDescription(newDescription)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeDescription(newDescription, now)).flatMap(publishSchedulingRecalculation)
     case Command.AddManufacturing(manufacturing) =>
-      App.state.decide(_.addManufacturing(manufacturing)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.addManufacturing(manufacturing, now)).flatMap(publishSchedulingRecalculation)
     case Command.RemoveManufacturing(manufacturingId) =>
-      App.state.decide(_.removeManufacturing(manufacturingId)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.removeManufacturing(manufacturingId, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeManufacturingDescription(manufacturingId, newDescription) =>
-      App.state.decide(_.changeManufacturingDescription(manufacturingId, newDescription)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeManufacturingDescription(manufacturingId, newDescription, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeManufacturingCompletionDate(manufacturingId, newCompletionDate) =>
-      App.state.decide(_.changeManufacturingCompletionDate(manufacturingId, newCompletionDate)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeManufacturingCompletionDate(manufacturingId, newCompletionDate, now))
+        .flatMap(publishSchedulingRecalculation)
     case Command.SetPreferredEmployee(manufacturingId, employeeId) =>
-      App.state.decide(_.changeManufacturingPreferredEmployee(manufacturingId, employeeId)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeManufacturingPreferredEmployee(manufacturingId, employeeId, now)).flatMap(publishSchedulingRecalculation)
     case Command.SetTaskPreferredEmployee(manufacturingId, taskId, employeeId) =>
-      App.state.decide(_.changeTaskPreferredEmployee(manufacturingId, taskId, employeeId)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeTaskPreferredEmployee(manufacturingId, taskId, employeeId, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeManufacturingStatus(manufacturingId, newStatus, reason) =>
-      App.state.decide(_.changeManufacturingStatus(manufacturingId, newStatus, reason)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeManufacturingStatus(manufacturingId, newStatus, reason, now)).flatMap(publishSchedulingRecalculation)
     case Command.AddManufacturingTask(manufacturingId, task, dependsOn, preferredEmployeeId) =>
-      App.state.decide(_.addManufacturingTask(manufacturingId, task, dependsOn, preferredEmployeeId)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.addManufacturingTask(manufacturingId, task, dependsOn, preferredEmployeeId, now))
+        .flatMap(publishSchedulingRecalculation)
     case Command.RemoveManufacturingTask(manufacturingId, taskId) =>
-      App.state.decide(_.removeManufacturingTask(manufacturingId, taskId)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.removeManufacturingTask(manufacturingId, taskId, now)).flatMap(publishSchedulingRecalculation)
     case Command.SetTaskProgress(manufacturingId, taskId, completedDuration) =>
-      App.state.decide(_.setTaskProgress(manufacturingId, taskId, completedDuration)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.setTaskProgress(manufacturingId, taskId, completedDuration, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeTaskExpectedHours(manufacturingId, taskId, expectedDuration) =>
-      App.state.decide(_.changeTaskExpectedDuration(manufacturingId, taskId, expectedDuration)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeTaskExpectedDuration(manufacturingId, taskId, expectedDuration, now))
+        .flatMap(publishSchedulingRecalculation)
     case Command.CompleteTask(manufacturingId, taskId, withDuration) =>
-      App.state.decide(_.completeTask(manufacturingId, taskId, withDuration)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.completeTask(manufacturingId, taskId, withDuration, now)).flatMap(publishSchedulingRecalculation)
     case Command.RevertTask(manufacturingId, taskId) =>
-      App.state.decide(_.revertTask(manufacturingId, taskId)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.revertTask(manufacturingId, taskId, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeManufacturingDependencies(dependencies) =>
-      App.state.decide(_.changeManufacturingDependencies(dependencies)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeManufacturingDependencies(dependencies, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeTaskDependencies(manufacturingId, dependencies) =>
-      App.state.decide(_.changeTaskDependencies(manufacturingId, dependencies)).void >> publishSchedulingRecalculation
+      decideAt((order, now) => order.changeTaskDependencies(manufacturingId, dependencies, now)).flatMap(publishSchedulingRecalculation)
   }
 
-  private def publishSchedulingRecalculation[F[_]: Monad]: App[F, Unit] =
-    App.aggregateId.flatMap(id => App.publish(Notification.SchedulingRecalculationRequested(UUID.fromString(id).nn)))
+  /** Decides on the current state at the instant the command was issued, so events never read the clock. */
+  private def decideAt[F[_]: Monad](decision: (Order, DateTime) => Decision[OrderError, OrderEvent, Order]): App[F, Order] =
+    App.read.flatMap(context => App.decide(decision(context.state, new DateTime(context.command.time.toEpochMilli))))
+
+  /** Rejects a command whose order belongs to another stream, so the stream id and the stored order id always agree. */
+  private def mustTargetOwnStream[F[_]: Monad](orderId: OrderId): App[F, Unit] =
+    App.aggregateId.flatMap(streamId => if streamId == orderId.toString then App.unit else App.reject(OrderError.OrderIdMismatch))
+
+  /** Requests a planning recalculation for the order just changed, identified from its own state rather than by parsing the stream id. */
+  private def publishSchedulingRecalculation[F[_]: Monad](order: Order): App[F, Unit] =
+    order.orderData.fold(App.unit)(data => App.publish(Notification.SchedulingRecalculationRequested(data.id)))
 end OrderService

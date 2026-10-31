@@ -34,7 +34,8 @@ type SuspensionReason = DescribedAs[Not[Empty], "The suspension reason, if provi
  *   - `DeliveredOrder`: completed order already delivered.
  *   - `CancelledOrder`: order cancelled before delivery.
  *
- * Commands on the aggregate emit `OrderEvent` values and validate the resulting state.
+ * Commands on the aggregate emit `OrderEvent` values and validate the resulting state. Decisions never read the clock: the instant recorded on the
+ * emitted events (`now`) is supplied by the caller, normally the time of the command being handled.
  */
 enum Order derives CanEqual:
   case NewOrder
@@ -47,12 +48,12 @@ enum Order derives CanEqual:
   /**
    * Creates an order from `NewOrder`.
    *
-   * Fails with `OrderAlreadyCreated` for every other state, and rejects dependency graphs referencing unknown manufacturings/tasks or containing
-   * cycles.
+   * Fails with `OrderAlreadyCreated` for every other state, and rejects duplicate manufacturing or task ids and dependency graphs referencing unknown
+   * manufacturings/tasks or containing cycles.
    */
   def create(data: OrderData, promisedDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] = this.decide {
     case NewOrder =>
-      validateDependencies(data) match
+      validateNewOrder(data) match
         case Left(error) => Decision.reject(error)
         case Right(()) => Decision.accept(OrderCreated(data, promisedDeliveryDate))
     case _ => Decision.reject(OrderAlreadyCreated)
@@ -60,25 +61,25 @@ enum Order derives CanEqual:
     .validate(_.mustBeInProgress)
 
   /** Suspends an in-progress order. */
-  def suspend(reason: Option[String :| SuspensionReason]): Decision[OrderError, OrderEvent, Order] =
-    this.perform(mustBeInProgress.toDecision *> OrderSuspended(DateTime.now(), reason).accept).validate(_.mustBeSuspended)
+  def suspend(reason: Option[String :| SuspensionReason], now: DateTime): Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeInProgress.toDecision *> OrderSuspended(now, reason).accept).validate(_.mustBeSuspended)
 
   /** Reactivates a suspended order. */
-  def reactivate: Decision[OrderError, OrderEvent, Order] =
-    this.perform(mustBeSuspended.toDecision *> OrderReactivated(DateTime.now()).accept).validate(_.mustBeInProgress)
+  def reactivate(now: DateTime): Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeSuspended.toDecision *> OrderReactivated(now).accept).validate(_.mustBeInProgress)
 
   /** Completes an active or suspended order. */
-  def complete: Decision[OrderError, OrderEvent, Order] =
-    this.perform(mustBeInProgressOrSuspended.toDecision *> OrderCompleted(DateTime.now()).accept).validate(_.mustBeCompleted)
+  def complete(now: DateTime): Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeInProgressOrSuspended.toDecision *> OrderCompleted(now).accept).validate(_.mustBeCompleted)
 
   /** Delivers a completed order. */
-  def deliver: Decision[OrderError, OrderEvent, Order] =
-    this.perform(mustBeCompleted.toDecision *> OrderDelivered(DateTime.now()).accept).validate(_.mustBeDelivered)
+  def deliver(now: DateTime): Decision[OrderError, OrderEvent, Order] =
+    this.perform(mustBeCompleted.toDecision *> OrderDelivered(now).accept).validate(_.mustBeDelivered)
 
   /** Cancels an active or suspended order; completed and delivered orders can no longer be cancelled. */
-  def cancel(reason: Option[String :| CancellationReason]): Decision[OrderError, OrderEvent, Order] =
+  def cancel(reason: Option[String :| CancellationReason], now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this.decide {
-      case _: InProgressOrder | _: SuspendedOrder => Decision.accept(OrderCancelled(DateTime.now(), reason))
+      case _: InProgressOrder | _: SuspendedOrder => Decision.accept(OrderCancelled(now, reason))
       case NewOrder => Decision.reject(NoSuchOrder)
       case CancelledOrder(_, _, _) => Decision.reject(OrderAlreadyCancelled)
       case _: CompletedOrder | _: DeliveredOrder => Decision.reject(OrderMustBeInProgressOrPaused)
@@ -86,42 +87,43 @@ enum Order derives CanEqual:
       .validate(_.mustBeCancelled)
 
   /** Changes the work-completion deadline for an active or suspended order. */
-  def updatePromisedDeliveryDate(newPromisedDeliveryDate: DateTime): Decision[OrderError, OrderEvent, Order] =
+  def updatePromisedDeliveryDate(newPromisedDeliveryDate: DateTime, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this.decide {
       case _: InProgressOrder | _: SuspendedOrder =>
-        Decision.accept(OrderPromisedDeliveryDateChanged(newPromisedDeliveryDate, DateTime.now()))
+        Decision.accept(OrderPromisedDeliveryDateChanged(newPromisedDeliveryDate, now))
       case _ =>
         Decision.reject(OrderMustBeInProgressOrPaused)
     }
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Reopens a cancelled or completed order, returning it to the in-progress state. */
-  def reopen: Decision[OrderError, OrderEvent, Order] =
+  def reopen(now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this.decide {
-      case CancelledOrder(_, _, _) | CompletedOrder(_, _) => Decision.accept(OrderReactivated(DateTime.now()))
+      case CancelledOrder(_, _, _) | CompletedOrder(_, _) => Decision.accept(OrderReactivated(now))
       case _ => Decision.reject(OnlyCancelledOrCompletedOrdersCanBeReopened)
     }
       .validate(_.mustBeInProgress)
 
   /** Changes the priority of an active or suspended order. */
-  def changePriority(newPriority: OrderPriority): Decision[OrderError, OrderEvent, Order] =
+  def changePriority(newPriority: OrderPriority, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> OrderPriorityChanged(newPriority, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> OrderPriorityChanged(newPriority, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Sets (or clears) the description of an active or suspended order. */
-  def changeDescription(newDescription: Option[String]): Decision[OrderError, OrderEvent, Order] =
+  def changeDescription(newDescription: Option[String], now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> OrderDescriptionChanged(newDescription, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> OrderDescriptionChanged(newDescription, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Sets (or clears) the preferred employee for a manufacturing inside an active or suspended order. */
   def changeManufacturingPreferredEmployee(
       manufacturingId: ScheduledManufacturingId,
       employeeId: Option[UUID],
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingPreferredEmployeeChanged(manufacturingId, employeeId, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingPreferredEmployeeChanged(manufacturingId, employeeId, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Sets (or clears) the preferred employee of a task inside a manufacturing of an active or suspended order. */
@@ -129,11 +131,12 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
       employeeId: Option[UUID],
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(
         mustBeInProgressOrSuspended.toDecision *>
-          ManufacturingTaskPreferredEmployeeChanged(manufacturingId, taskId, employeeId, DateTime.now()).accept,
+          ManufacturingTaskPreferredEmployeeChanged(manufacturingId, taskId, employeeId, now).accept,
       )
       .validate(_.mustBeInProgressOrSuspended)
 
@@ -141,19 +144,21 @@ enum Order derives CanEqual:
   def changeManufacturingDescription(
       manufacturingId: ScheduledManufacturingId,
       newDescription: Option[String],
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingDescriptionChanged(manufacturingId, newDescription, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingDescriptionChanged(manufacturingId, newDescription, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Changes the work deadline of a manufacturing inside an active or suspended order. */
   def changeManufacturingCompletionDate(
       manufacturingId: ScheduledManufacturingId,
       newCompletionDate: DateTime,
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(
-        mustBeInProgressOrSuspended.toDecision *> ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, DateTime.now()).accept,
+        mustBeInProgressOrSuspended.toDecision *> ManufacturingCompletionDateChanged(manufacturingId, newCompletionDate, now).accept,
       )
       .validate(_.mustBeInProgressOrSuspended)
 
@@ -162,21 +167,24 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       newStatus: ManufacturingStatus,
       reason: Option[String],
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingStatusChanged(manufacturingId, newStatus, reason, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingStatusChanged(manufacturingId, newStatus, reason, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /** Adds a task to a manufacturing inside an active or suspended order. */
+  /** Adds a task to a manufacturing inside an active or suspended order; its id must be new and its prerequisites must exist without a cycle. */
   def addManufacturingTask(
       manufacturingId: ScheduledManufacturingId,
       task: ScheduledTask,
       dependsOn: List[TaskId],
       preferredEmployeeId: Option[UUID],
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(
-        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskAdded(manufacturingId, task, dependsOn, DateTime.now(), preferredEmployeeId).accept,
+        mustBeEditable(validateTaskAddition(_, manufacturingId, task, dependsOn.toSet)).toDecision *>
+          ManufacturingTaskAdded(manufacturingId, task, dependsOn, now, preferredEmployeeId).accept,
       )
       .validate(_.mustBeInProgressOrSuspended)
 
@@ -184,21 +192,22 @@ enum Order derives CanEqual:
   def removeManufacturingTask(
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskRemoved(manufacturingId, taskId, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskRemoved(manufacturingId, taskId, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /** Adds a manufacturing to an active or suspended order. */
-  def addManufacturing(manufacturing: ScheduledManufacturing): Decision[OrderError, OrderEvent, Order] =
+  /** Adds a manufacturing to an active or suspended order; its id and task ids must be new and its task graph valid. */
+  def addManufacturing(manufacturing: ScheduledManufacturing, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingAdded(manufacturing, DateTime.now()).accept)
+      .perform(mustBeEditable(validateManufacturingAddition(_, manufacturing)).toDecision *> ManufacturingAdded(manufacturing, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
-  /** Removes a manufacturing from an active or suspended order. */
-  def removeManufacturing(manufacturingId: ScheduledManufacturingId): Decision[OrderError, OrderEvent, Order] =
+  /** Removes an existing manufacturing from an active or suspended order; the last one cannot be removed. */
+  def removeManufacturing(manufacturingId: ScheduledManufacturingId, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingRemoved(manufacturingId, DateTime.now()).accept)
+      .perform(mustBeEditable(validateManufacturingRemoval(_, manufacturingId)).toDecision *> ManufacturingRemoved(manufacturingId, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Sets the absolute progress (completed minutes) of a task inside one of the order manufacturings. */
@@ -206,6 +215,7 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
       completedDuration: TaskDuration,
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(
@@ -213,7 +223,7 @@ enum Order derives CanEqual:
           manufacturingId,
           taskId,
           completedDuration,
-          Some(DateTime.now()),
+          Some(now),
         ).accept,
       )
       .validate(_.mustBeInProgressOrSuspended)
@@ -223,6 +233,7 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
       expectedDuration: TaskDuration,
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(
@@ -230,7 +241,7 @@ enum Order derives CanEqual:
           manufacturingId,
           taskId,
           expectedDuration,
-          Some(DateTime.now()),
+          Some(now),
         ).accept,
       )
       .validate(_.mustBeInProgressOrSuspended)
@@ -240,32 +251,34 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
       withDuration: TaskDuration,
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
       .perform(
-        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskCompleted(manufacturingId, taskId, withDuration, Some(DateTime.now())).accept,
+        mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskCompleted(manufacturingId, taskId, withDuration, Some(now)).accept,
       )
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Reopens a completed task inside one of the order manufacturings. */
-  def revertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId): Decision[OrderError, OrderEvent, Order] =
+  def revertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskReverted(manufacturingId, taskId, Some(DateTime.now())).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingTaskReverted(manufacturingId, taskId, Some(now)).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Replaces the dependency graph between the manufacturings of an active or suspended order. */
-  def changeManufacturingDependencies(newDependencies: OrderDependencies): Decision[OrderError, OrderEvent, Order] =
+  def changeManufacturingDependencies(newDependencies: OrderDependencies, now: DateTime): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingDependenciesChanged(newDependencies, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> ManufacturingDependenciesChanged(newDependencies, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   /** Replaces the task dependency graph of a manufacturing inside an active or suspended order. */
   def changeTaskDependencies(
       manufacturingId: ScheduledManufacturingId,
       newDependencies: ManufacturingDependencies,
+      now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     this
-      .perform(mustBeInProgressOrSuspended.toDecision *> TaskDependenciesChanged(manufacturingId, newDependencies, DateTime.now()).accept)
+      .perform(mustBeInProgressOrSuspended.toDecision *> TaskDependenciesChanged(manufacturingId, newDependencies, now).accept)
       .validate(_.mustBeInProgressOrSuspended)
 
   private def mustBeDelivered: ValidatedNec[OrderError, DeliveredOrder] = this match
@@ -288,6 +301,19 @@ enum Order derives CanEqual:
     case order: InProgressOrder => order.validNec
     case order: SuspendedOrder => order.validNec
     case _ => OrderMustBeInProgressOrPaused.invalidNec
+
+  /** An editable order whose content also passes `check`. */
+  private def mustBeEditable(check: OrderData => Either[OrderError, Unit]): ValidatedNec[OrderError, InProgressOrder | SuspendedOrder] =
+    mustBeInProgressOrSuspended.andThen(order => check(dataOf(order)).toValidatedNec.as(order))
+
+  /** The order content, for every state but `NewOrder`. */
+  def orderData: Option[OrderData] = this match
+    case NewOrder => None
+    case InProgressOrder(data, _) => Some(data)
+    case SuspendedOrder(data, _, _, _) => Some(data)
+    case CompletedOrder(data, _) => Some(data)
+    case DeliveredOrder(data, _, _) => Some(data)
+    case CancelledOrder(data, _, _) => Some(data)
 
   private def mustBeInProgress: ValidatedNec[OrderError, InProgressOrder] = this match
     case order: InProgressOrder => order.validNec

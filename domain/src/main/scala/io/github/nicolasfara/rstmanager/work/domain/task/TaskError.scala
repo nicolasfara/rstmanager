@@ -7,3 +7,6 @@ enum TaskError derives CanEqual:
 
   /** An update or delete was attempted on an id that does not exist (or was deleted). */
   case TaskNotFound
+
+  /** The task carried in a command does not have the id of the task stream it was sent to. */
+  case TaskIdMismatch

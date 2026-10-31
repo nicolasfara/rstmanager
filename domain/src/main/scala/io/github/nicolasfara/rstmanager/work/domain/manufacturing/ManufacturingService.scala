@@ -15,10 +15,18 @@ object ManufacturingService extends ManufacturingAggregate.Service[Manufacturing
 
   def apply[F[_]: Monad]: App[F, Unit] = App.router {
     case Command.Create(manufacturing) =>
-      App.state.decide(_.create(manufacturing)).void >> App.publish(Notification.ManufacturingChanged(manufacturing.id))
+      mustTargetOwnStream(manufacturing.id) >> App.state.decide(_.create(manufacturing)).void >> App.publish(
+        Notification.ManufacturingChanged(manufacturing.id),
+      )
     case Command.Update(manufacturing) =>
-      App.state.decide(_.update(manufacturing)).void >> App.publish(Notification.ManufacturingChanged(manufacturing.id))
+      mustTargetOwnStream(manufacturing.id) >> App.state.decide(_.update(manufacturing)).void >> App.publish(
+        Notification.ManufacturingChanged(manufacturing.id),
+      )
     case Command.Delete =>
       App.state.decide(_.delete).void
   }
+
+  /** Rejects a command whose manufacturing belongs to another stream, so the stream id and the stored manufacturing id always agree. */
+  private def mustTargetOwnStream[F[_]: Monad](id: ManufacturingId): App[F, Unit] =
+    App.aggregateId.flatMap(streamId => if streamId == id.toString then App.unit else App.reject(ManufacturingError.ManufacturingIdMismatch))
 end ManufacturingService

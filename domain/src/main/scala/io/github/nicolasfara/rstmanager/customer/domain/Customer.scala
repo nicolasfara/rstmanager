@@ -69,6 +69,20 @@ final case class Customer(
 
   /** Returns a copy with updated boat details. */
   def updateBoat(boat: BoatInfo): Customer = this.focus(_.boat).replace(boat)
+
+  /**
+   * Rules every customer must satisfy however it was built (smart constructor, `copy`, update helpers): a company needs a business name, and the
+   * fiscal identifier must be an Italian fiscal code for an individual and a valid VAT number for a company. The aggregate enforces them on every
+   * create and update.
+   */
+  def checkInvariants: ValidatedNec[CustomerError, Customer] =
+    val taxCodeMatchesType = customerType match
+      case CustomerType.Individual => FiscalCode.createFiscalCode(fiscalCode).isValid
+      case CustomerType.Company => VatNumber.createVatNumber(fiscalCode).isValid
+    (
+      Validated.condNec(customerType == CustomerType.Individual || businessName.isDefined, (), CustomerError.BusinessNameRequired),
+      Validated.condNec(taxCodeMatchesType, (), CustomerError.TaxCodeDoesNotMatchCustomerType(customerType)),
+    ).mapN((_, _) => this)
 end Customer
 
 object Customer:

@@ -4,7 +4,7 @@ import java.util.UUID
 
 import cats.data.{ Validated, ValidatedNec }
 import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.*
+import com.github.nscala_time.time.Imports.LocalDate
 import io.github.iltotore.iron.*
 import monocle.syntax.all.*
 
@@ -21,19 +21,13 @@ import monocle.syntax.all.*
  *   Weekly hours budget with optional overrides.
  */
 final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract, budgetHours: BudgetHours):
-  /** Checks whether the employee is active on a given reference date. */
-  def isActiveAt(referenceDate: DateTime): Boolean = contract match
-    case Contract.FullTime(startDate) => !referenceDate.isBefore(startDate)
-    case Contract.PartTime(startDate, _) => !referenceDate.isBefore(startDate)
-    case Contract.FixedTerm(startDate, endDate) => !referenceDate.isBefore(startDate) && endDate.isAfter(referenceDate)
+  /** Checks whether the employee is employed on a given calendar day (contract start and end dates included). */
+  def isActiveAt(day: LocalDate): Boolean = contract.covers(day)
 
-  /** Checks whether the employee is active right now. */
-  def isActive: Boolean = isActiveAt(DateTime.now())
-
-  /** Updates the budget hours if the employee is currently active. */
-  def updateBudgetHours(newBudgetHours: BudgetHours): Either[String, Employee] =
+  /** Updates the budget hours if the employee is active on `referenceDate`. */
+  def updateBudgetHours(newBudgetHours: BudgetHours, referenceDate: LocalDate): Either[String, Employee] =
     Either.cond(
-      isActive,
+      isActiveAt(referenceDate),
       this.focus(_.budgetHours).replace(newBudgetHours),
       "Cannot update budget hours for an inactive employee.",
     )
@@ -50,15 +44,19 @@ final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract
   /** Returns a copy with an updated surname. */
   def updateSurname(surname: String :| Surname): Employee = this.focus(_.info.surname).replace(surname)
 
-  /** Adds an hours override when the employee is active and no conflict exists. */
-  def setHoursOverride(hoursOverride: HoursOverride): Either[String, Employee] = for
-    _ <- Either.cond(isActive, (), "Cannot set hours override for an inactive employee.")
+  /** Adds an hours override when the employee is active on `referenceDate` and no conflict exists. */
+  def setHoursOverride(hoursOverride: HoursOverride, referenceDate: LocalDate): Either[String, Employee] = for
+    _ <- Either.cond(isActiveAt(referenceDate), (), "Cannot set hours override for an inactive employee.")
     _ <- Either.cond(
       !budgetHours.hasConflict(hoursOverride),
       (),
       "An override for the specified day or interval already exists.",
     )
   yield this.focus(_.budgetHours).modify(_.setOverride(hoursOverride))
+
+  /** Rules every employee must satisfy however it was built; the aggregate enforces them on every create and update. */
+  def checkInvariants: ValidatedNec[EmployeeError, Employee] =
+    Validated.condNec(!budgetHours.hasConflictingOverrides, this, EmployeeError.ConflictingHoursOverrides)
 end Employee
 
 object Employee:

@@ -67,3 +67,12 @@ Build con `-Werror -Wunused:all -Yexplicit-nulls -Wsafe-init
   mai polling periodico lato backend.
 - Gli eventi persistiti e i codec JSON sono schema append-only: preserva la
   decodifica retro-compatibile quando evolvi eventi/DTO.
+- Il dominio non legge mai orologio né RNG (`DateTime.now`, `randomUUID`):
+  le decisioni ricevono `now` dal servizio, che usa l'ora del comando
+  (`context.command.time`); il fold (`transition`) usa solo timestamp
+  presenti negli eventi, così il replay è deterministico.
+- I giorni di calendario HR (contratti, override, ferie) sono `LocalDate`
+  con estremi inclusivi; il confronto avviene sul giorno, mai su istanti
+  `DateTime` (che dipendono dal fuso).
+- Le invarianti degli aggregati si verificano nelle decisioni (`decide`),
+  non nel fold: il fold deve accettare ogni evento già persistito.

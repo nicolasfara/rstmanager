@@ -181,11 +181,12 @@ object OrderOperations:
 
   /** Checks a new order: unique manufacturing and task ids, and valid manufacturing and task dependency graphs. */
   def validateNewOrder(data: OrderData): Either[OrderError, Unit] =
-    uniqueIds(data.setOfManufacturing.toList) *> validateDependencies(data)
+    uniqueIds(data.setOfManufacturing.toList) *> data.setOfManufacturing.toList.traverse_(noRepeatedCatalogTasks) *> validateDependencies(data)
 
   /** Checks that a manufacturing can join the order: its id and task ids are new, and its task dependency graph is valid. */
   def validateManufacturingAddition(data: OrderData, manufacturing: ScheduledManufacturing): Either[OrderError, Unit] =
-    uniqueIds(manufacturing :: data.setOfManufacturing.toList) *> validateTaskDependencies(manufacturing, manufacturing.info.dependencies)
+    uniqueIds(manufacturing :: data.setOfManufacturing.toList) *> noRepeatedCatalogTasks(manufacturing) *>
+      validateTaskDependencies(manufacturing, manufacturing.info.dependencies)
 
   /** Checks that a task can join a manufacturing of the order: its id is new, and its prerequisites exist in the manufacturing without a cycle. */
   def validateTaskAddition(
@@ -196,7 +197,7 @@ object OrderOperations:
   ): Either[OrderError, Unit] =
     findManufacturing(data, manufacturingId).flatMap { manufacturing =>
       val withTask = manufacturing.addTask(task, dependsOn, None)
-      uniqueIds(withTask :: data.setOfManufacturing.toList.filterNot(_.info.id == manufacturingId)) *>
+      uniqueIds(withTask :: data.setOfManufacturing.toList.filterNot(_.info.id == manufacturingId)) *> noRepeatedCatalogTasks(withTask) *>
         validateTaskDependencies(withTask, withTask.info.dependencies)
     }
 
@@ -232,6 +233,14 @@ object OrderOperations:
     if duplicateManufacturings.nonEmpty then OrderError.DuplicateManufacturingIds(duplicateManufacturings).asLeft
     else if duplicateTasks.nonEmpty then OrderError.DuplicateTaskIds(duplicateTasks).asLeft
     else ().asRight
+
+  /**
+   * Ensures a manufacturing schedules each catalog task at most once. Task dependencies are keyed by catalog task id (as in the templates and the
+   * order editor), so a repeated catalog task would make them ambiguous; more work on the same task means raising its expected duration.
+   */
+  private def noRepeatedCatalogTasks(manufacturing: ScheduledManufacturing): Either[OrderError, Unit] =
+    val repeated = duplicates(manufacturing.info.tasks.toList.map(_.taskId))
+    Either.cond(repeated.isEmpty, (), OrderError.RepeatedCatalogTasks(manufacturing.info.id, repeated))
 
   private def duplicates[A](values: List[A]): Set[A] =
     values.groupBy(identity).collect { case (value, occurrences) if occurrences.size > 1 => value }.toSet

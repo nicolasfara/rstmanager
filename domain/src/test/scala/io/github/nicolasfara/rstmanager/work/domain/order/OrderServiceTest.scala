@@ -457,6 +457,23 @@ class OrderServiceTest extends AnyFlatSpecLike:
     rejectionOf(run(Command.Create(sameManufacturingTwice, nextDay), NewOrder)) shouldEqual List(DuplicateManufacturingIds(Set(manufacturingId)))
     rejectionOf(run(Command.Create(sameTaskInTwoManufacturings, nextDay), NewOrder)) shouldEqual List(DuplicateTaskIds(Set(taskId)))
 
+  it should "reject scheduling the same catalog task twice in one manufacturing" in:
+    // `task()` and `task(otherTaskId)` are distinct scheduled tasks of the same catalog task (`templateTaskId`).
+    val repeated = orderData(NonEmptyList.one(manufacturing(NonEmptyList.of(task(), task(otherTaskId)))))
+    val repeatedTask = InProgressTask(otherTaskId, templateTaskId, TaskDuration(8), TaskDuration(0))
+
+    rejectionOf(run(Command.Create(repeated, nextDay), NewOrder)) shouldEqual List(RepeatedCatalogTasks(manufacturingId, Set(templateTaskId)))
+    rejectionOf(run(Command.AddManufacturingTask(manufacturingId, repeatedTask, Nil), InProgressOrder(orderData(), nextDay))) shouldEqual
+      List(RepeatedCatalogTasks(manufacturingId, Set(templateTaskId)))
+
+  it should "not block other changes to an order that already repeats a catalog task" in:
+    val legacy = InProgressOrder(orderData(NonEmptyList.one(manufacturing(NonEmptyList.of(task(), task(otherTaskId))))), nextDay)
+    val thirdTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000112").nn
+
+    run(Command.AddManufacturing(manufacturing(secondManufacturingId, NonEmptyList.one(task(thirdTaskId)))), legacy) should matchPattern {
+      case EdomatonResult.Accepted(_: InProgressOrder, _, _) =>
+    }
+
   it should "reject adding a manufacturing whose id or task ids are already in the order" in:
     val order = InProgressOrder(orderData(), nextDay)
 

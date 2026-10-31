@@ -26,4 +26,5 @@ enum OrderError derives CanEqual:
   case DuplicateTaskIds(taskIds: Set[ScheduledTaskId])
   case CannotRemoveLastManufacturing
   case OrderIdMismatch
+  case RepeatedCatalogTasks(manufacturingId: ScheduledManufacturingId, taskIds: Set[TaskId])
 end OrderError

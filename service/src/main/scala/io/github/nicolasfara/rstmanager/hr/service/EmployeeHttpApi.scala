@@ -4,12 +4,13 @@ import java.util.{ Locale, UUID }
 
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.service.auth.Role
+import io.github.nicolasfara.rstmanager.service.codecs.CommonCodecs
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 
 import cats.data.ValidatedNec
 import cats.effect.IO
 import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.DateTime
+import com.github.nscala_time.time.Imports.LocalDate
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
 import io.github.iltotore.iron.*
@@ -77,8 +78,8 @@ object EmployeeHttpApi:
     def fromDomain(hoursOverride: HoursOverride): HoursOverrideDto = hoursOverride match
       case WorkingDayOverride(hours, reason, day) =>
         HoursOverrideDto("working_day", Some(hours.value), reason.map(r => r: String), Some(formatDate(day)), None, None)
-      case VacationOverride(interval) =>
-        HoursOverrideDto("vacation", None, None, None, Some(formatDate(interval.getStart.nn)), Some(formatDate(interval.getEnd.nn)))
+      case VacationOverride(firstDay, lastDay) =>
+        HoursOverrideDto("vacation", None, None, None, Some(formatDate(firstDay)), Some(formatDate(lastDay)))
 
   final case class EmployeeRequest(
       name: String,
@@ -125,12 +126,14 @@ object EmployeeHttpApi:
 
   private def normalizeKind(value: String): String = value.trim.nn.toLowerCase(Locale.ROOT).nn.replace('-', '_').nn
 
-  private def parseDate(value: String, path: String): ValidatedNec[String, DateTime] =
-    Either.catchNonFatal(DateTime.parse(value)).leftMap(_ => s"$path must be an ISO-8601 date-time.").toValidatedNec
+  /** Accepts `YYYY-MM-DD` or an ISO-8601 date-time (as the frontend sends), keeping only its calendar date. */
+  private def parseDate(value: String, path: String): ValidatedNec[String, LocalDate] =
+    CommonCodecs.parseCalendarDay(value).leftMap(_ => s"$path must be an ISO-8601 date.").toValidatedNec
 
   private def required[A](value: Option[A], path: String): ValidatedNec[String, A] = value.toValidNec(s"$path is required.")
 
-  private def formatDate(value: DateTime): String = value.toString
+  /** Calendar days keep the `YYYY-MM-DDT00:00:00.000Z` wire format the API has always returned, so clients are unaffected. */
+  private def formatDate(value: LocalDate): String = s"${value}T00:00:00.000Z"
 
   given Codec[EmployeeContractDto] = deriveCodec
   given Codec[HoursOverrideDto] = deriveCodec

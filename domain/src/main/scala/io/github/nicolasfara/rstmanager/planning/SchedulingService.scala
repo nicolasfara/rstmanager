@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.planning
 
 import scala.annotation.tailrec
 
-import io.github.nicolasfara.rstmanager.hr.domain.{ Contract, DailyHours, Employee, EmployeeId, VacationOverride, WorkingDayOverride }
+import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, Employee, EmployeeId, VacationOverride, WorkingDayOverride }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencyError.CycleDetected
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderDependencyError, OrderId }
@@ -12,7 +12,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTa
 
 import cats.data.NonEmptyList
 import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.DateTime
+import com.github.nscala_time.time.Imports.{ DateTime, LocalDate }
 
 /**
  * Facts produced by one scheduling run.
@@ -103,8 +103,8 @@ object SchedulingService:
   def dailyCapacity(day: DateTime, employees: List[Employee], now: DateTime): Map[EmployeeId, DailyHours] =
     val cap = remainingWorkingHoursToday(day, now)
     employees.view
-      .filter(_.isActiveAt(day))
-      .map(employee => employee.id -> capHours(employee.budgetHours.getWorkingHoursForDay(day), cap))
+      .filter(_.isActiveAt(day.toLocalDate))
+      .map(employee => employee.id -> capHours(employee.budgetHours.getWorkingHoursForDay(day.toLocalDate), cap))
       .filter { case (_, hours) => hours.value > 0 }
       .toMap
 
@@ -113,6 +113,9 @@ object SchedulingService:
   private def startOfDay(day: DateTime): DateTime = day.withTimeAtStartOfDay().nn
 
   private def nextDay(day: DateTime): DateTime = startOfDay(day.plusDays(1).nn)
+
+  /** Start of the calendar day `date` in the time zone of `reference`, i.e. the zone the planning request works in. */
+  private def atStartOfDay(date: LocalDate, reference: DateTime): DateTime = date.toDateTimeAtStartOfDay(reference.getZone)
 
   private val workdayStartMinute = 9 * 60
   private val lunchBreakStartMinute = 13 * 60
@@ -426,16 +429,16 @@ object SchedulingService:
         else nextCapacityDay(nextDay(day), employees, now)
 
   private def nextCapacityDayForEmployee(from: DateTime, employee: Employee): Option[DateTime] =
-    val firstCandidate = maxDate(startOfDay(from), startOfDay(contractStart(employee)))
+    val firstCandidate = maxDate(startOfDay(from), atStartOfDay(employee.contract.startsOn, from))
     if defaultDailyHours(employee) > 0 then nextDefaultCapacityDay(firstCandidate, employee)
     else nextPositiveOverrideDay(firstCandidate, employee)
 
   @tailrec
   private def nextDefaultCapacityDay(candidate: DateTime, employee: Employee): Option[DateTime] =
     if isBeforeContractStart(candidate, employee) then nextDefaultCapacityDay(nextDay(candidate), employee)
-    else if isAtOrAfterContractEnd(candidate, employee) then None
+    else if isAfterContractEnd(candidate, employee) then None
     else if !isWorkingDay(candidate) then nextDefaultCapacityDay(nextDay(candidate), employee)
-    else if employee.budgetHours.getWorkingHoursForDay(candidate).value > 0 then Some(candidate)
+    else if employee.budgetHours.getWorkingHoursForDay(candidate.toLocalDate).value > 0 then Some(candidate)
     else
       vacationEndCovering(candidate, employee) match
         case Some(jumpTo) => nextDefaultCapacityDay(jumpTo, employee)
@@ -444,36 +447,27 @@ object SchedulingService:
   private def nextPositiveOverrideDay(from: DateTime, employee: Employee): Option[DateTime] =
     employee.budgetHours.overrides.collect {
       case WorkingDayOverride(hours, _, day) if hours.value > 0 =>
-        startOfDay(day)
+        atStartOfDay(day, from)
     }.filter { day =>
       !day.isBefore(from) &&
       isWorkingDay(day) &&
       !isBeforeContractStart(day, employee) &&
-      !isAtOrAfterContractEnd(day, employee) &&
-      employee.budgetHours.getWorkingHoursForDay(day).value > 0
+      !isAfterContractEnd(day, employee) &&
+      employee.budgetHours.getWorkingHoursForDay(day.toLocalDate).value > 0
     }.reduceOption(minDate)
 
+  /** The day after the vacation covering `day` (the first day the employee may be back), when one does. */
   private def vacationEndCovering(day: DateTime, employee: Employee): Option[DateTime] =
     employee.budgetHours.overrides.collect {
-      case VacationOverride(interval) if interval.contains(day) =>
-        val endDay = startOfDay(interval.getEnd.nn)
-        if endDay.isAfter(day) then endDay else nextDay(day)
+      case vacation: VacationOverride if vacation.covers(day.toLocalDate) => atStartOfDay(vacation.lastDay.plusDays(1), day)
     }.reduceOption(minDate)
 
-  private def contractStart(employee: Employee): DateTime = employee.contract match
-    case Contract.FullTime(startDate) => startDate
-    case Contract.FixedTerm(startDate, _) => startDate
-    case Contract.PartTime(startDate, _) => startDate
-
-  private def contractEnd(employee: Employee): Option[DateTime] = employee.contract match
-    case Contract.FixedTerm(_, endDate) => Some(endDate)
-    case Contract.FullTime(_) | Contract.PartTime(_, _) => None
-
   private def isBeforeContractStart(day: DateTime, employee: Employee): Boolean =
-    day.isBefore(contractStart(employee))
+    day.toLocalDate.isBefore(employee.contract.startsOn)
 
-  private def isAtOrAfterContractEnd(day: DateTime, employee: Employee): Boolean =
-    contractEnd(employee).exists(endDate => !endDate.isAfter(day))
+  /** Whether `day` is past the last day of a fixed-term contract (the end date itself is still a working day). */
+  private def isAfterContractEnd(day: DateTime, employee: Employee): Boolean =
+    employee.contract.endsOn.exists(endDate => day.toLocalDate.isAfter(endDate))
 
   private def defaultDailyHours(employee: Employee): Int = employee.budgetHours.defaultDailyHours.value
 

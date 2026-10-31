@@ -19,7 +19,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 
 import cats.data.{ NonEmptyChain, NonEmptyList }
 import cats.effect.{ IO, IOApp, Resource }
-import com.github.nscala_time.time.Imports.DateTime
+import com.github.nscala_time.time.Imports.{ DateTime, LocalDate }
 import edomata.backend.Backend
 import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
@@ -146,7 +146,7 @@ object DemoScenario:
     Employee(
       UUID.randomUUID().nn,
       EmployeeInfo(name.refineUnsafe[Name], surname.refineUnsafe[Surname]),
-      Contract.FullTime(DateTime.now().minusYears(1).nn),
+      Contract.FullTime(LocalDate.now().minusYears(1)),
       BudgetHours(WeeklyHours.applyUnsafe(weeklyHours), Nil),
     )
 end DemoScenario

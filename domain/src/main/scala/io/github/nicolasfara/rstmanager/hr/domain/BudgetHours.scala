@@ -1,14 +1,14 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
 import cats.data.ValidatedNec
-import com.github.nscala_time.time.Imports.*
+import com.github.nscala_time.time.Imports.LocalDate
 import io.github.iltotore.iron.cats.*
 import monocle.syntax.all.*
 
 /**
  * Budgeted availability for an employee.
  *
- * The budget is defined by a weekly default and optional day or interval overrides.
+ * The budget is defined by a weekly default and optional day or vacation overrides, all keyed by calendar day.
  *
  * @param default
  *   Default weekly working hours.
@@ -16,19 +16,18 @@ import monocle.syntax.all.*
  *   Exceptions applied on top of the weekly default.
  */
 final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride]):
-  given CanEqual[DateTime, DateTime] = CanEqual.derived
-  private val zeroDailyHours: DailyHours = DailyHours.applyUnsafe(0)
-
   /**
-   * Returns the working hours available on a specific day.
+   * Returns the working hours available on a specific calendar day.
    *
-   * Day-specific overrides take precedence over vacation intervals and over the derived default.
+   * A working-day override for that day takes precedence over a vacation covering it, which takes precedence over the derived default.
    */
-  def getWorkingHoursForDay(day: DateTime): DailyHours =
-    overrides.collectFirst {
-      case WorkingDayOverride(hours, _, dayOfWeek) if dayOfWeek == day => hours
-      case VacationOverride(interval) if interval.contains(day) => zeroDailyHours
-    }.getOrElse(defaultDailyHours)
+  def getWorkingHoursForDay(day: LocalDate): DailyHours =
+    val dayOverride = overrides.collectFirst { case WorkingDayOverride(hours, _, overrideDay) if overrideDay.isEqual(day) => hours }
+    def onVacation = overrides.exists {
+      case vacation: VacationOverride => vacation.covers(day)
+      case _: WorkingDayOverride => false
+    }
+    dayOverride.getOrElse(if onVacation then DailyHours(0) else defaultDailyHours)
 
   /**
    * Daily hours derived from the weekly default over a five-day week, capped at the 24 hours a day can hold.
@@ -50,24 +49,24 @@ final case class BudgetHours(default: WeeklyHours, overrides: List[HoursOverride
         this
           .focus(_.overrides)
           .modify(_.filter {
-            case WorkingDayOverride(_, _, day) => day != newDay
-            case _ => true
+            case WorkingDayOverride(_, _, day) => !day.isEqual(newDay)
+            case _: VacationOverride => true
           } :+ hoursOverride)
-      case _ =>
+      case _: VacationOverride =>
         addOverride(hoursOverride)
 
-  /** Checks whether a new override conflicts with existing overrides. */
+  /** Checks whether a new override conflicts with existing overrides (overlapping vacations, or a working day inside a vacation). */
   def hasConflict(hoursOverride: HoursOverride): Boolean =
     hoursOverride match
-      case VacationOverride(interval) =>
+      case vacation: VacationOverride =>
         overrides.exists {
-          case VacationOverride(existingInterval) => existingInterval.overlaps(interval)
-          case WorkingDayOverride(_, _, day) => interval.contains(day)
+          case existing: VacationOverride => existing.overlaps(vacation)
+          case WorkingDayOverride(_, _, day) => vacation.covers(day)
         }
       case WorkingDayOverride(_, _, day) =>
         overrides.exists {
-          case VacationOverride(interval) => interval.contains(day)
-          case _ => false
+          case vacation: VacationOverride => vacation.covers(day)
+          case _: WorkingDayOverride => false
         }
 end BudgetHours
 

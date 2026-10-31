@@ -66,7 +66,7 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
     Employee(
       id,
       EmployeeInfo("Mario".refineUnsafe[Name], "Rossi".refineUnsafe[Surname]),
-      Contract.FullTime(monday.minusYears(1).nn),
+      Contract.FullTime(monday.toLocalDate.minusYears(1)),
       BudgetHours(WeeklyHours.applyUnsafe(40), Nil),
     )
 

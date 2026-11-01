@@ -45,6 +45,31 @@ To deploy the full stack on [Railway](https://railway.com) (managed Postgres +
 three services behind a single public frontend domain), see
 [`docs/DEPLOY-railway.md`](docs/DEPLOY-railway.md).
 
+### Pre-deploy journal check
+
+Before deploying a release, check that it can read back everything production has stored: every journal row is decoded and replayed into
+its aggregate, and every pending outbox row is decoded. The check only reads, and takes the same `RSTMANAGER_DB_*` variables as the
+service. Run it from the release about to be deployed, against production or a restored copy of it:
+
+```bash
+RSTMANAGER_DB_HOST=… RSTMANAGER_DB_NAME=… RSTMANAGER_DB_USER=… RSTMANAGER_DB_PASSWORD=… \
+  sbt "service/runMain io.github.nicolasfara.rstmanager.service.journalcheck.JournalCheck"
+# or, from the built image:
+docker run --rm -e RSTMANAGER_DB_HOST=… [-e …] --entrypoint java <service image> \
+  -cp /app/rstmanager-service.jar io.github.nicolasfara.rstmanager.service.journalcheck.JournalCheck
+```
+
+It prints one line per table and the rows it cannot read, and exits with status 1 if there are any (sbt itself does not forward the
+status: use the image or `java` for scripts).
+
+### Evolving persisted events
+
+Journal rows are stored as `{"version": N, "event": {"<Case>": {...}}}` and read through one `EventSchema` per journal
+(`service/.../codecs/*EventSchema.scala`), which upcasts older versions on every read. Changing the stored shape of an event (renaming a
+case or field, changing a unit or format, adding a field that is not optional) means bumping the schema's `currentVersion`, adding the
+upcaster from the previous version, and adding golden fixtures under `service/src/test/resources/golden/` (existing fixtures are never
+edited): the golden tests fail until then.
+
 ## Application with Docker Compose
 
 The full stack can be started with Compose: Postgres, the Scala backend API, and the Scala.js/Vite frontend served by nginx:

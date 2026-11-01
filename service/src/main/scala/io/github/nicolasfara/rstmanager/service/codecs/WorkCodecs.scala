@@ -20,7 +20,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskDuration, TaskId, TaskService }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId, TaskService }
 import io.github.nicolasfara.rstmanager.work.domain.task.events.TaskEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
@@ -107,11 +107,15 @@ object WorkCodecs:
     },
     deriveEncoder,
   )
-  given Codec[OrderEvent] = deriveCodec
+
+  /** Current-version data of the order journal; it is persisted through [[OrderEventSchema]]. */
+  val orderEventData: Codec.AsObject[OrderEvent] = deriveCodec
+  given Codec[OrderEvent] = EventSchema.codec(OrderEventSchema)
+
   given orderNotificationCodec: Codec[OrderService.Notification] = deriveCodec
 
-  given Codec[Task] = deriveCodec
-  given Codec[TaskEvent] = deriveCodec
+  /** Versioned journal codec: see [[TaskEventSchema]] for the stored versions and their upcasters. */
+  given Codec[TaskEvent] = EventSchema.codec(TaskEventSchema)
   given taskNotificationCodec: Codec[TaskService.Notification] = deriveCodec
 
   /** Events persisted before per-task default employees / hours overrides existed lack those fields: decode each as the empty map. */
@@ -139,6 +143,10 @@ object WorkCodecs:
     },
     deriveEncoder,
   )
-  given Codec[ManufacturingEvent] = deriveCodec
+
+  /** Current-version data of the manufacturing catalog journal; it is persisted through [[ManufacturingEventSchema]]. */
+  val manufacturingEventData: Codec.AsObject[ManufacturingEvent] = deriveCodec
+  given Codec[ManufacturingEvent] = EventSchema.codec(ManufacturingEventSchema)
+
   given manufacturingNotificationCodec: Codec[ManufacturingService.Notification] = deriveCodec
 end WorkCodecs

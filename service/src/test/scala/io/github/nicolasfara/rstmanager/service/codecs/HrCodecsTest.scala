@@ -44,7 +44,13 @@ class HrCodecsTest extends AnyFlatSpecLike:
     val json = event.asJson
 
     decode[EmployeeEvent](json.noSpaces) shouldEqual Right(event)
-    json.hcursor.downField("EmployeeCreated").downField("employee").downField("contract").downField("FixedTerm").get[String]("endDate") shouldEqual
+    json.hcursor
+      .downField("event")
+      .downField("EmployeeCreated")
+      .downField("employee")
+      .downField("contract")
+      .downField("FixedTerm")
+      .get[String]("endDate") shouldEqual
       Right("2026-12-31")
 
   it should "read a legacy date-time in the offset it was written with, whatever the server time zone" in:

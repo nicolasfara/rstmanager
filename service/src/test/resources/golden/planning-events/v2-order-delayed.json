@@ -1,0 +1,1 @@
+{"version":2,"event":{"OrderDelayedByPlanning":{"delay":{"orderId":"00000000-0000-0000-0000-000000000501","expectedDeliveryDate":"2026-07-31T00:00:00.000Z","promisedDeliveryDate":"2026-08-03T00:00:00.000Z"},"delayedOn":"2026-08-03T07:15:42.318Z"}}}

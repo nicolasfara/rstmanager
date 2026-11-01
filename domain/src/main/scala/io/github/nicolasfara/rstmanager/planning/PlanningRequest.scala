@@ -8,8 +8,18 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask
 
 import com.github.nscala_time.time.Imports.DateTime
 
-/** Unique identifier for a planning request. */
-type PlanningRequestId = UUID
+/** Unique identifier of a planning request: a distinct type, so it cannot be mixed up with the other identifiers. */
+opaque type PlanningRequestId = UUID
+
+object PlanningRequestId:
+  /** Wraps an existing UUID. */
+  def apply(value: UUID): PlanningRequestId = value
+
+  extension (id: PlanningRequestId)
+    /** The underlying UUID, for persistence and the API. */
+    def value: UUID = id
+
+  given CanEqual[PlanningRequestId, PlanningRequestId] = CanEqual.derived
 
 /**
  * Reason why planning was requested.

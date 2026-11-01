@@ -6,10 +6,14 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.Employee
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ScheduledManufacturing,
+  ScheduledManufacturingId,
+  ScheduledManufacturingInfo,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderData, OrderId, OrderNumber, OrderPriority }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskDuration }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
 
@@ -78,7 +82,8 @@ object OrderSimulationService:
     val simulatedOrderId = simulatedOrder.data.id
     val totalMinutes = simulatedOrder.data.setOfManufacturing.toList.map(_.remainingDuration.value).sum
     val openOrderIds = openOrders.collect { case order: InProgressOrder => order.data.id }
-    val request = PlanningRequest(syntheticId("request"), now, PlanningTrigger.DailyPlanning, now, openOrderIds :+ simulatedOrderId)
+    val request =
+      PlanningRequest(PlanningRequestId(syntheticId("request")), now, PlanningTrigger.DailyPlanning, now, openOrderIds :+ simulatedOrderId)
 
     val outcome = SchedulingService.computeSchedule(request, openOrders :+ simulatedOrder, employees)
     outcome.unplannedOrders.find(_.orderId.equals(simulatedOrderId)) match
@@ -111,9 +116,9 @@ object OrderSimulationService:
         selection.zipWithIndex.map { case ((template, tasks), index) => fromTemplate(index, template, tasks, deadline) }
     InProgressOrder(
       OrderData(
-        syntheticId("order"): OrderId,
+        OrderId(syntheticId("order")),
         "SIMULAZIONE".refineUnsafe[OrderNumber],
-        syntheticId("customer"): CustomerId,
+        CustomerId(syntheticId("customer")),
         now,
         deadline,
         OrderPriority.Normal,
@@ -125,10 +130,10 @@ object OrderSimulationService:
   private def durationOnlyManufacturing(duration: TaskDuration, deadline: DateTime): ScheduledManufacturing =
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
-        syntheticId("manufacturing/0"),
+        ScheduledManufacturingId(syntheticId("manufacturing/0")),
         "SIM".refineUnsafe[ManufacturingCode],
         deadline,
-        NonEmptyList.one(PendingTask(syntheticId("task/0/0"): ScheduledTaskId, syntheticId("task-template"), duration)),
+        NonEmptyList.one(PendingTask(ScheduledTaskId(syntheticId("task/0/0")), TaskId(syntheticId("task-template")), duration)),
         ManufacturingDependencies(),
       ),
     )
@@ -137,14 +142,14 @@ object OrderSimulationService:
   private def fromTemplate(index: Int, template: Manufacturing, tasks: NonEmptyList[Task], deadline: DateTime): ScheduledManufacturing =
     val scheduledTasks: NonEmptyList[ScheduledTask] =
       tasks.zipWithIndex.map { (task, taskIndex) =>
-        PendingTask(syntheticId(s"task/$index/$taskIndex"): ScheduledTaskId, task.id, template.durationForTask(task.id, task.requiredDuration))
+        PendingTask(ScheduledTaskId(syntheticId(s"task/$index/$taskIndex")), task.id, template.durationForTask(task.id, task.requiredDuration))
       }
     val preferredEmployees = scheduledTasks.toList.flatMap { scheduled =>
       template.defaultEmployees.get(scheduled.taskId).map(scheduled.id -> _)
     }.toMap
     ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
-        syntheticId(s"manufacturing/$index"),
+        ScheduledManufacturingId(syntheticId(s"manufacturing/$index")),
         template.code,
         deadline,
         scheduledTasks,

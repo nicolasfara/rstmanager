@@ -40,7 +40,7 @@ object TaskApp:
 
   def create(store: Store, task: Task): IO[Either[TaskError, Unit]] =
     dispatch(store, task.id, TaskService.Command.Create(task)).flatTap {
-      case Right(_) => RegistryBackend.register(store.registry, task.id)
+      case Right(_) => RegistryBackend.register(store.registry, task.id.value)
       case Left(_) => IO.unit
     }
 
@@ -49,7 +49,7 @@ object TaskApp:
 
   def delete(store: Store, id: TaskId): IO[Either[TaskError, Unit]] =
     dispatch(store, id, TaskService.Command.Delete).flatTap {
-      case Right(_) => RegistryBackend.deregister(store.registry, id)
+      case Right(_) => RegistryBackend.deregister(store.registry, id.value)
       case Left(_) => IO.unit
     }
 
@@ -62,7 +62,7 @@ object TaskApp:
   def exists(store: Store, id: TaskId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Task]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(get(store, _))).map(_.flatten)
+    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, TaskId(id)))).map(_.flatten)
 
   private def dispatch(store: Store, id: TaskId, command: TaskService.Command): IO[Either[TaskError, Unit]] =
     val service = store.entity.compile(TaskService[IO])

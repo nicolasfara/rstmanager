@@ -3,9 +3,9 @@ package io.github.nicolasfara.rstmanager.planning.service
 import java.time.OffsetDateTime
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.hr.domain.EmployeeService
+import io.github.nicolasfara.rstmanager.hr.domain.{ EmployeeId, EmployeeService }
 import io.github.nicolasfara.rstmanager.planning.PlanningTrigger
-import io.github.nicolasfara.rstmanager.work.domain.order.OrderService
+import io.github.nicolasfara.rstmanager.work.domain.order.{ OrderId, OrderService }
 
 import edomata.backend.OutboxItem
 import edomata.core.MessageMetadata
@@ -13,8 +13,8 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class PlanningDependencyConsumerTest extends AnyFlatSpecLike:
-  private val orderId: UUID = UUID.fromString("00000000-0000-0000-0000-000000000021").nn
-  private val employeeId: UUID = UUID.fromString("00000000-0000-0000-0000-000000000022").nn
+  private val orderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000021").nn)
+  private val employeeId: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000022").nn)
   private val time: OffsetDateTime = OffsetDateTime.parse("2026-06-15T10:15:30Z").nn
 
   "PlanningDependencyConsumer" should "derive a stable order recalculation cause from an outbox item" in:

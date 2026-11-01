@@ -22,7 +22,7 @@ class EmployeeTest extends AnyFlatSpecLike:
       weeklyHours: Int,
       overrides: List[HoursOverride],
   ): ValidatedNec[String, Employee] =
-    Employee.createEmployee(UUID.randomUUID().nn, name, surname, contract, weeklyHours, overrides)
+    Employee.createEmployee(EmployeeId(UUID.randomUUID().nn), name, surname, contract, weeklyHours, overrides)
 
   "Contract.createFixedTerm" should "reject an end date before the start date" in:
     Contract.createFixedTerm(today, today.minusDays(1)).isValid shouldBe false
@@ -32,7 +32,7 @@ class EmployeeTest extends AnyFlatSpecLike:
 
   "Employee.createEmployee" should "accumulate nested validation errors" in:
     val contract = Contract.createFullTime(today - 1.month)
-    val result = Employee.createEmployee(UUID.randomUUID().nn, "", "Doe", contract, -1, Nil)
+    val result = Employee.createEmployee(EmployeeId(UUID.randomUUID().nn), "", "Doe", contract, -1, Nil)
 
     result.isValid shouldBe false
     result.swap.foreach(_.length shouldEqual 2L)

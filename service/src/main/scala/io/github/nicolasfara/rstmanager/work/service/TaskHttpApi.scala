@@ -2,9 +2,10 @@ package io.github.nicolasfara.rstmanager.work.service
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
-import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskError }
+import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskError, TaskId }
 
 import cats.data.ValidatedNec
 import cats.effect.IO
@@ -21,7 +22,8 @@ object TaskHttpApi:
   import ApiError.ApiFailure
 
   final case class TaskRequest(name: String, description: Option[String], requiredMinutes: Int, defaultEmployeeId: Option[UUID] = None):
-    def toDomain(id: UUID): ValidatedNec[String, Task] = Task.createTask(id, name, description, requiredMinutes, defaultEmployeeId)
+    def toDomain(id: UUID): ValidatedNec[String, Task] =
+      Task.createTask(TaskId(id), name, description, requiredMinutes, defaultEmployeeId.map(EmployeeId(_)))
 
   object TaskRequest:
     val example: TaskRequest = TaskRequest("Cutting", Some("Cut raw material to size"), 480, None)
@@ -30,7 +32,7 @@ object TaskHttpApi:
 
   object TaskResponse:
     def fromDomain(task: Task): TaskResponse =
-      TaskResponse(task.id, task.name, task.taskDescription, task.requiredDuration.value, task.defaultEmployeeId)
+      TaskResponse(task.id.value, task.name, task.taskDescription, task.requiredDuration.value, task.defaultEmployeeId.map(_.value))
 
   private def conflict(error: TaskError): ApiFailure = error match
     case TaskError.TaskAlreadyExists => ApiError.conflict("task-already-exists", "A task with this id already exists.", Nil)
@@ -95,7 +97,7 @@ object TaskHttpApi:
     TaskApp.list(store).attempt.map(_.bimap(ApiError.internal, _.map(TaskResponse.fromDomain)))
 
   private def readLogic(store: TaskApp.Store)(id: UUID): IO[Either[ApiFailure, TaskResponse]] =
-    TaskApp.get(store, id).attempt.map {
+    TaskApp.get(store, TaskId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Some(task)) => TaskResponse.fromDomain(task).asRight
       case Right(None) => ApiError.notFound("Task", id.toString).asLeft
@@ -113,12 +115,12 @@ object TaskHttpApi:
         }
 
   private def deleteLogic(store: TaskApp.Store, manufacturings: ManufacturingApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
-    ManufacturingApp.findByTaskId(manufacturings, id).flatMap {
+    ManufacturingApp.findByTaskId(manufacturings, TaskId(id)).flatMap {
       case usedBy if usedBy.nonEmpty =>
         val details = usedBy.map(manufacturing => s"${manufacturing.code} - ${manufacturing.name}")
         IO.pure(ApiError.conflict("task-in-use", "Il task è usato da una o più lavorazioni a catalogo.", details).asLeft)
       case _ =>
-        TaskApp.delete(store, id).attempt.map {
+        TaskApp.delete(store, TaskId(id)).attempt.map {
           case Left(error) => ApiError.internal(error).asLeft
           case Right(Left(TaskError.TaskNotFound)) => ApiError.notFound("Task", id.toString).asLeft
           case Right(Left(error)) => conflict(error).asLeft

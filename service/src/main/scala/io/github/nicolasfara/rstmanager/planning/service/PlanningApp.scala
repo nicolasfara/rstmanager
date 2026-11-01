@@ -11,11 +11,16 @@ import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.PlanningService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ScheduledManufacturing,
+  ScheduledManufacturingId,
+  ScheduledManufacturingInfo,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.{ NonEmptyChain, NonEmptyList }
 import cats.effect.{ IO, IOApp, Resource }
@@ -99,22 +104,22 @@ object DemoScenario:
 
   def create: Scenario =
     val today = DateTime.now().withTimeAtStartOfDay().nn
-    val orderId: OrderId = UUID.randomUUID().nn
+    val orderId = OrderId(UUID.randomUUID().nn)
 
-    val cutting: TaskId = UUID.randomUUID().nn
-    val assembly: TaskId = UUID.randomUUID().nn
-    val finishing: TaskId = UUID.randomUUID().nn
+    val cutting = TaskId(UUID.randomUUID().nn)
+    val assembly = TaskId(UUID.randomUUID().nn)
+    val finishing = TaskId(UUID.randomUUID().nn)
     val dependencies = ManufacturingDependencies()
       .addTaskDependencies(assembly, Set(cutting))
       .addTaskDependencies(finishing, Set(assembly))
     val tasks = NonEmptyList.of(
-      PendingTask(UUID.randomUUID().nn, cutting, TaskDuration(16 * 60)),
-      PendingTask(UUID.randomUUID().nn, assembly, TaskDuration(24 * 60)),
-      PendingTask(UUID.randomUUID().nn, finishing, TaskDuration(8 * 60)),
+      PendingTask(ScheduledTaskId(UUID.randomUUID().nn), cutting, TaskDuration(16 * 60)),
+      PendingTask(ScheduledTaskId(UUID.randomUUID().nn), assembly, TaskDuration(24 * 60)),
+      PendingTask(ScheduledTaskId(UUID.randomUUID().nn), finishing, TaskDuration(8 * 60)),
     )
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
-        UUID.randomUUID().nn,
+        ScheduledManufacturingId(UUID.randomUUID().nn),
         "MFG-2026-001".refineUnsafe[ManufacturingCode],
         today.plusDays(7).nn,
         tasks,
@@ -125,7 +130,7 @@ object DemoScenario:
       OrderData(
         orderId,
         "ORD-2026-001".refineUnsafe[OrderNumber],
-        UUID.randomUUID().nn: CustomerId,
+        CustomerId(UUID.randomUUID().nn),
         today.minusDays(3).nn,
         today.plusDays(10).nn,
         OrderPriority.Urgent,
@@ -138,13 +143,13 @@ object DemoScenario:
       employee("Anna", "Bianchi", weeklyHours = 40),
       employee("Luca", "Verdi", weeklyHours = 24),
     )
-    val request = PlanningRequest(UUID.randomUUID().nn, today, PlanningTrigger.DailyPlanning, today, List(orderId))
+    val request = PlanningRequest(PlanningRequestId(UUID.randomUUID().nn), today, PlanningTrigger.DailyPlanning, today, List(orderId))
     Scenario(request, List(order), employees)
   end create
 
   private def employee(name: String, surname: String, weeklyHours: Int): Employee =
     Employee(
-      UUID.randomUUID().nn,
+      EmployeeId(UUID.randomUUID().nn),
       EmployeeInfo(name.refineUnsafe[Name], surname.refineUnsafe[Surname]),
       Contract.FullTime(LocalDate.now().minusYears(1)),
       BudgetHours(WeeklyHours.applyUnsafe(weeklyHours), Nil),

@@ -42,7 +42,7 @@ object CustomerHttpApi:
     def toDomain(id: UUID): ValidatedNec[String, Customer] =
       customerTypeToDomain(customerType).andThen { parsedType =>
         Customer.createCustomer(
-          id,
+          CustomerId(id),
           name,
           surname,
           email,
@@ -111,7 +111,7 @@ object CustomerHttpApi:
   object CustomerResponse:
     def fromDomain(customer: Customer): CustomerResponse =
       CustomerResponse(
-        customer.id,
+        customer.id.value,
         customer.contactInfo.name,
         customer.contactInfo.surname,
         customer.contactInfo.email,
@@ -207,7 +207,7 @@ object CustomerHttpApi:
     CustomerApp.list(store).attempt.map(_.bimap(ApiError.internal, _.map(CustomerResponse.fromDomain)))
 
   private def readLogic(store: CustomerApp.Store)(id: UUID): IO[Either[ApiFailure, CustomerResponse]] =
-    CustomerApp.get(store, id).attempt.map {
+    CustomerApp.get(store, CustomerId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Some(customer)) => CustomerResponse.fromDomain(customer).asRight
       case Right(None) => ApiError.notFound("Customer", id.toString).asLeft
@@ -225,7 +225,7 @@ object CustomerHttpApi:
         }
 
   private def deleteLogic(store: CustomerApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
-    CustomerApp.delete(store, id).attempt.map {
+    CustomerApp.delete(store, CustomerId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Left(CustomerError.CustomerNotFound)) => ApiError.notFound("Customer", id.toString).asLeft
       case Right(Left(error)) => conflict(error).asLeft

@@ -2,9 +2,9 @@ package io.github.nicolasfara.rstmanager.planning.service
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.hr.domain.Employee
+import io.github.nicolasfara.rstmanager.hr.domain.{ Employee, EmployeeId }
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
-import io.github.nicolasfara.rstmanager.work.domain.order.Order
+import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderId }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 import io.github.nicolasfara.rstmanager.work.service.OrderApp
 
@@ -47,14 +47,14 @@ object PlanningEntityGateway:
           case Some(ids) => loadSelectedEmployees(employees, ids)
 
   private def loadSelectedOpenOrders(store: OrderApp.Store, ids: List[UUID]): IO[Either[LoadError, List[InProgressOrder]]] =
-    ids.distinct.traverse(id => OrderApp.get(store, id).map(id -> _)).map { loaded =>
+    ids.distinct.traverse(id => OrderApp.get(store, OrderId(id)).map(id -> _)).map { loaded =>
       val invalid = loaded.collect { case (id, order) if !order.exists(isOpen) => id }
       if invalid.nonEmpty then LoadError.UnknownOrders(invalid).asLeft
       else loaded.flatMap { case (_, order) => order.collect { case open: InProgressOrder => open } }.asRight
     }
 
   private def loadSelectedEmployees(store: EmployeeApp.Store, ids: List[UUID]): IO[Either[LoadError, List[Employee]]] =
-    ids.distinct.traverse(id => EmployeeApp.get(store, id).map(id -> _)).map { loaded =>
+    ids.distinct.traverse(id => EmployeeApp.get(store, EmployeeId(id)).map(id -> _)).map { loaded =>
       val missing = loaded.collect { case (id, None) => id }
       if missing.nonEmpty then LoadError.UnknownEmployees(missing).asLeft
       else loaded.collect { case (_, Some(employee)) => employee }.asRight

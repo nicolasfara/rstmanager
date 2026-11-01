@@ -12,9 +12,17 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import monocle.syntax.all.*
 
-/** Unique identifier for a scheduled task instance. */
-type ScheduledTaskId = UUID
+/** Unique identifier of a task scheduled inside an order manufacturing: a distinct type, so it cannot be mixed up with the other identifiers. */
+opaque type ScheduledTaskId = UUID
+
 object ScheduledTaskId:
+  /** Wraps an existing UUID. */
+  def apply(value: UUID): ScheduledTaskId = value
+
+  extension (id: ScheduledTaskId)
+    /** The underlying UUID, for persistence and the API. */
+    def value: UUID = id
+
   given CanEqual[ScheduledTaskId, ScheduledTaskId] = CanEqual.derived
 
 /**
@@ -57,10 +65,13 @@ enum ScheduledTask(val id: ScheduledTaskId, val taskId: TaskId, val expectedDura
     case CompletedTask(_, _, _, completedDuration, _) => completedDuration
     case PendingTask(_, _, _) => TaskDuration(0)
 
-  /** Reopens a completed task so progress can continue. */
+  /**
+   * Reopens a completed task so progress can continue, keeping both its estimate and the work already done: whatever is left of the estimate is
+   * planned again (nothing when the task overran it, until its expected duration is raised).
+   */
   def revertToInProgress: Either[ScheduledTaskError, ScheduledTask] = this match
-    case CompletedTask(id, taskId, _, completedDuration, _) =>
-      InProgressTask(id, taskId, completedDuration, completedDuration).asRight[ScheduledTaskError]
+    case CompletedTask(id, taskId, expectedDuration, completedDuration, _) =>
+      InProgressTask(id, taskId, expectedDuration, completedDuration).asRight[ScheduledTaskError]
     case InProgressTask(_, _, _, _) => ScheduledTaskError.TaskAlreadyInProgress.asLeft
     case PendingTask(_, _, _) => ScheduledTaskError.TaskMustBeInProgress.asLeft
 
@@ -123,7 +134,7 @@ end ScheduledTask
 
 object ScheduledTask:
   /** Creates a pending scheduled task from raw input values (`expectedMinutes` in total minutes). */
-  def createScheduledTask(id: UUID, taskId: TaskId, expectedMinutes: Int): ValidatedNec[String, PendingTask] =
+  def createScheduledTask(id: ScheduledTaskId, taskId: TaskId, expectedMinutes: Int): ValidatedNec[String, PendingTask] =
     (
       Validated.valid(id),
       Validated.valid(taskId),

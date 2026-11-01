@@ -1,7 +1,5 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
-import java.util.UUID
-
 import cats.data.{ Validated, ValidatedNec }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.LocalDate
@@ -77,7 +75,7 @@ object Employee:
    *   Initial hours overrides.
    */
   def createEmployee(
-      id: UUID,
+      id: EmployeeId,
       name: String,
       surname: String,
       contract: Contract,

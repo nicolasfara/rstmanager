@@ -2,11 +2,12 @@ package io.github.nicolasfara.rstmanager.work.service
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingDependencies, ManufacturingError }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingDependencies, ManufacturingError, ManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies.*
-import io.github.nicolasfara.rstmanager.work.domain.task.Task
+import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskId }
 import io.github.nicolasfara.rstmanager.work.service.TaskHttpApi.TaskResponse
 
 import cats.data.ValidatedNec
@@ -64,17 +65,17 @@ object ManufacturingHttpApi:
   ):
     def toDomain(id: UUID): ValidatedNec[String, Manufacturing] =
       val dependencyGraph = dependencies.foldLeft(ManufacturingDependencies()) { (current, dependency) =>
-        current.addTaskDependencies(dependency.taskId, dependency.dependsOn.toSet)
+        current.addTaskDependencies(TaskId(dependency.taskId), dependency.dependsOn.map(TaskId(_)).toSet)
       }
       Manufacturing.createManufacturing(
-        id,
+        ManufacturingId(id),
         code,
         name,
         description,
-        taskIds,
+        taskIds.map(TaskId(_)),
         dependencyGraph,
-        defaultEmployees.getOrElse(Nil).map(entry => entry.taskId -> entry.employeeId).toMap,
-        taskDurations.getOrElse(Nil).map(entry => entry.taskId -> entry.minutes).toMap,
+        defaultEmployees.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> EmployeeId(entry.employeeId)).toMap,
+        taskDurations.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> entry.minutes).toMap,
       )
   end ManufacturingRequest
 
@@ -112,19 +113,26 @@ object ManufacturingHttpApi:
       // Effective per-task minutes, applying the manufacturing's override where present, falling back to the task-catalog duration.
       val minutesByTask = tasks.map(task => task.id -> manufacturing.durationForTask(task.id, task.requiredDuration).value).toMap
       ManufacturingResponse(
-        manufacturing.id,
+        manufacturing.id.value,
         manufacturing.code,
         manufacturing.name,
         manufacturing.description,
-        manufacturing.taskIds.toList,
+        manufacturing.taskIds.toList.map(_.value),
         taskResponses,
-        manufacturing.dependencies.toEdgePairs.groupMap(_._1)(_._2).toList.map((taskId, dependsOn) => ManufacturingDependencyDto(taskId, dependsOn)),
+        manufacturing.dependencies.toEdgePairs
+          .groupMap(_._1)(_._2)
+          .toList
+          .map((taskId, dependsOn) => ManufacturingDependencyDto(taskId.value, dependsOn.map(_.value))),
         manufacturing.taskIds.toList.flatMap(minutesByTask.get).sum,
-        manufacturing.taskIds.toList.flatMap(taskId => manufacturing.defaultEmployees.get(taskId).map(TaskDefaultEmployeeDto(taskId, _))),
         manufacturing.taskIds.toList.flatMap(taskId =>
-          manufacturing.taskDurations.get(taskId).map(duration => TaskDurationOverrideDto(taskId, duration.value)),
+          manufacturing.defaultEmployees.get(taskId).map(employeeId => TaskDefaultEmployeeDto(taskId.value, employeeId.value)),
+        ),
+        manufacturing.taskIds.toList.flatMap(taskId =>
+          manufacturing.taskDurations.get(taskId).map(duration => TaskDurationOverrideDto(taskId.value, duration.value)),
         ),
       )
+    end fromDomain
+  end ManufacturingResponse
 
   private def conflict(error: ManufacturingError): ApiFailure = error match
     case ManufacturingError.ManufacturingAlreadyExists =>
@@ -214,7 +222,7 @@ object ManufacturingHttpApi:
     }
 
   private def readLogic(store: ManufacturingApp.Store, tasks: TaskApp.Store)(id: UUID): IO[Either[ApiFailure, ManufacturingResponse]] =
-    ManufacturingApp.get(store, id).attempt.flatMap {
+    ManufacturingApp.get(store, ManufacturingId(id)).attempt.flatMap {
       case Left(error) => IO.pure(ApiError.internal(error).asLeft)
       case Right(Some(manufacturing)) => hydrate(tasks, manufacturing)
       case Right(None) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
@@ -239,7 +247,7 @@ object ManufacturingHttpApi:
         }
 
   private def deleteLogic(store: ManufacturingApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
-    ManufacturingApp.delete(store, id).attempt.map {
+    ManufacturingApp.delete(store, ManufacturingId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Left(ManufacturingError.ManufacturingNotFound)) => ApiError.notFound("Manufacturing", id.toString).asLeft
       case Right(Left(error)) => conflict(error).asLeft
@@ -254,7 +262,7 @@ object ManufacturingHttpApi:
       else ManufacturingResponse.fromDomain(manufacturing, pairs.collect { case (_, Some(task)) => task }).asRight
     }
 
-  private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[UUID]): IO[Option[ApiFailure]] =
+  private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[TaskId]): IO[Option[ApiFailure]] =
     taskIds.distinct.filterA(taskId => TaskApp.exists(tasks, taskId).map(!_)).map { missing =>
       if missing.nonEmpty then Some(ApiError.notFound("Task", missing.mkString(", "))) else None
     }

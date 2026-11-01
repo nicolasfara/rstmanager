@@ -4,7 +4,6 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
 
 import cats.data.NonEmptyList
@@ -13,8 +12,18 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import monocle.syntax.all.*
 
-/** Unique identifier for an order. */
-type OrderId = UUID
+/** Unique identifier of an order: a distinct type, so it cannot be mixed up with the other identifiers. */
+opaque type OrderId = UUID
+
+object OrderId:
+  /** Wraps an existing UUID. */
+  def apply(value: UUID): OrderId = value
+
+  extension (id: OrderId)
+    /** The underlying UUID, for persistence and the API. */
+    def value: UUID = id
+
+  given CanEqual[OrderId, OrderId] = CanEqual.derived
 
 /** Refined constraint for a non-empty order number. */
 type OrderNumber = DescribedAs[Not[Empty], "The order number cannot be empty"]

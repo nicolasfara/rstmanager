@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.order.events
 
-import java.util.UUID
-
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderDependencies, OrderPriority, SuspensionReason }
@@ -61,13 +60,13 @@ enum OrderEvent derives CanEqual:
   case ManufacturingCompletionDateChanged(manufacturingId: ScheduledManufacturingId, newCompletionDate: DateTime, changedOn: DateTime)
 
   /** The preferred employee for a manufacturing has been set or cleared. */
-  case ManufacturingPreferredEmployeeChanged(manufacturingId: ScheduledManufacturingId, employeeId: Option[UUID], changedOn: DateTime)
+  case ManufacturingPreferredEmployeeChanged(manufacturingId: ScheduledManufacturingId, employeeId: Option[EmployeeId], changedOn: DateTime)
 
   /** The preferred employee of a task within a manufacturing has been set or cleared. */
   case ManufacturingTaskPreferredEmployeeChanged(
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      employeeId: Option[UUID],
+      employeeId: Option[EmployeeId],
       changedOn: DateTime,
   )
 
@@ -85,7 +84,7 @@ enum OrderEvent derives CanEqual:
       task: ScheduledTask,
       dependsOn: List[TaskId],
       addedOn: DateTime,
-      preferredEmployeeId: Option[UUID] = None,
+      preferredEmployeeId: Option[EmployeeId] = None,
   )
 
   /** A task has been removed from a manufacturing. */

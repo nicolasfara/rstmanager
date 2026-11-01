@@ -5,6 +5,9 @@ import java.util.{ Locale, UUID }
 import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
 import io.github.nicolasfara.rstmanager.service.http.ApiError
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.ValidatedNec
 import cats.syntax.all.*
@@ -56,8 +59,8 @@ object PlanningApiDtos:
       orderIds: Option[List[UUID]],
       employeeIds: Option[List[UUID]],
   ):
-    def toPlanningRequest(openOrderIds: List[UUID]): PlanningRequest =
-      PlanningRequest(id, startOn, trigger, requestedOn, openOrderIds)
+    def toPlanningRequest(openOrderIds: List[OrderId]): PlanningRequest =
+      PlanningRequest(PlanningRequestId(id), startOn, trigger, requestedOn, openOrderIds)
 
   final case class PlanningAttemptResponse(commandId: String, planning: PlanningStateDto)
 
@@ -135,11 +138,11 @@ object PlanningApiDtos:
   object PlanningRequestDto:
     def fromDomain(request: PlanningRequest): PlanningRequestDto =
       PlanningRequestDto(
-        request.id,
+        request.id.value,
         formatDate(request.startOn),
         PlanningTriggerDto.fromDomain(request.trigger),
         formatDate(request.requestedOn),
-        request.openOrderIds,
+        request.openOrderIds.map(_.value),
       )
 
   final case class PlanningTriggerDto(kind: String, orderId: Option[UUID], manufacturingId: Option[UUID], taskId: Option[UUID]):
@@ -147,17 +150,17 @@ object PlanningApiDtos:
       normalizeKind(kind) match
         case "daily_planning" | "dailyplanning" => PlanningTrigger.DailyPlanning.validNec
         case "order_changed" | "orderchanged" =>
-          required(orderId, s"$path.orderId").map(PlanningTrigger.OrderChanged.apply)
+          required(orderId, s"$path.orderId").map(id => PlanningTrigger.OrderChanged(OrderId(id)))
         case "manufacturing_changed" | "manufacturingchanged" =>
           (
-            required(orderId, s"$path.orderId"),
-            required(manufacturingId, s"$path.manufacturingId"),
+            required(orderId, s"$path.orderId").map(OrderId(_)),
+            required(manufacturingId, s"$path.manufacturingId").map(ScheduledManufacturingId(_)),
           ).mapN(PlanningTrigger.ManufacturingChanged.apply)
         case "task_changed" | "taskchanged" =>
           (
-            required(orderId, s"$path.orderId"),
-            required(manufacturingId, s"$path.manufacturingId"),
-            required(taskId, s"$path.taskId"),
+            required(orderId, s"$path.orderId").map(OrderId(_)),
+            required(manufacturingId, s"$path.manufacturingId").map(ScheduledManufacturingId(_)),
+            required(taskId, s"$path.taskId").map(ScheduledTaskId(_)),
           ).mapN(PlanningTrigger.TaskChanged.apply)
         case "workforce_capacity_changed" | "workforcecapacitychanged" => PlanningTrigger.WorkforceCapacityChanged.validNec
         case "manual_recovery" | "manualrecovery" => PlanningTrigger.ManualRecovery.validNec
@@ -169,11 +172,11 @@ object PlanningApiDtos:
     def fromDomain(trigger: PlanningTrigger): PlanningTriggerDto =
       trigger match
         case PlanningTrigger.DailyPlanning => PlanningTriggerDto("daily_planning", None, None, None)
-        case PlanningTrigger.OrderChanged(orderId) => PlanningTriggerDto("order_changed", Some(orderId), None, None)
+        case PlanningTrigger.OrderChanged(orderId) => PlanningTriggerDto("order_changed", Some(orderId.value), None, None)
         case PlanningTrigger.ManufacturingChanged(orderId, manufacturingId) =>
-          PlanningTriggerDto("manufacturing_changed", Some(orderId), Some(manufacturingId), None)
+          PlanningTriggerDto("manufacturing_changed", Some(orderId.value), Some(manufacturingId.value), None)
         case PlanningTrigger.TaskChanged(orderId, manufacturingId, taskId) =>
-          PlanningTriggerDto("task_changed", Some(orderId), Some(manufacturingId), Some(taskId))
+          PlanningTriggerDto("task_changed", Some(orderId.value), Some(manufacturingId.value), Some(taskId.value))
         case PlanningTrigger.WorkforceCapacityChanged => PlanningTriggerDto("workforce_capacity_changed", None, None, None)
         case PlanningTrigger.ManualRecovery => PlanningTriggerDto("manual_recovery", None, None, None)
 
@@ -221,9 +224,9 @@ object PlanningApiDtos:
   object ScheduledTaskSliceDto:
     def fromDomain(slice: ScheduledTaskSlice): ScheduledTaskSliceDto =
       ScheduledTaskSliceDto(
-        slice.orderId,
-        slice.manufacturingId,
-        slice.taskId,
+        slice.orderId.value,
+        slice.manufacturingId.value,
+        slice.taskId.value,
         formatDate(slice.day),
         CandidateEmployeeDto.fromDomain(slice.candidateEmployee),
         slice.remainingDurationAfterSlice.value,
@@ -233,13 +236,13 @@ object PlanningApiDtos:
 
   object CandidateEmployeeDto:
     def fromDomain(candidate: CandidateEmployee): CandidateEmployeeDto =
-      CandidateEmployeeDto(candidate.employeeId, candidate.availableHours.value, candidate.assignedDuration.value)
+      CandidateEmployeeDto(candidate.employeeId.value, candidate.availableHours.value, candidate.assignedDuration.value)
 
   final case class DelayedOrderDto(orderId: UUID, expectedDeliveryDate: String, promisedDeliveryDate: String)
 
   object DelayedOrderDto:
     def fromDomain(delay: DelayedOrder): DelayedOrderDto =
-      DelayedOrderDto(delay.orderId, formatDate(delay.deadline), formatDate(delay.plannedCompletion))
+      DelayedOrderDto(delay.orderId.value, formatDate(delay.deadline), formatDate(delay.plannedCompletion))
 
   final case class DelayedManufacturingDto(
       orderId: UUID,
@@ -251,8 +254,8 @@ object PlanningApiDtos:
   object DelayedManufacturingDto:
     def fromDomain(delay: DelayedManufacturing): DelayedManufacturingDto =
       DelayedManufacturingDto(
-        delay.orderId,
-        delay.manufacturingId,
+        delay.orderId.value,
+        delay.manufacturingId.value,
         formatDate(delay.expectedCompletionDate),
         formatDate(delay.computedCompletionDate),
       )
@@ -261,13 +264,13 @@ object PlanningApiDtos:
 
   object UnplannedOrderDto:
     def fromDomain(unplannedOrder: UnplannedOrder): UnplannedOrderDto =
-      UnplannedOrderDto(unplannedOrder.orderId, unplannedOrder.blockedTasks.toList.map(UnplannedTaskDto.fromDomain))
+      UnplannedOrderDto(unplannedOrder.orderId.value, unplannedOrder.blockedTasks.toList.map(UnplannedTaskDto.fromDomain))
 
   final case class UnplannedTaskDto(manufacturingId: UUID, taskId: UUID, reason: UnplannedReasonDto)
 
   object UnplannedTaskDto:
     def fromDomain(unplannedTask: UnplannedTask): UnplannedTaskDto =
-      UnplannedTaskDto(unplannedTask.manufacturingId, unplannedTask.taskId, UnplannedReasonDto.fromDomain(unplannedTask.reason))
+      UnplannedTaskDto(unplannedTask.manufacturingId.value, unplannedTask.taskId.value, UnplannedReasonDto.fromDomain(unplannedTask.reason))
 
   final case class UnplannedReasonDto(
       code: String,
@@ -289,11 +292,40 @@ object PlanningApiDtos:
             None,
           )
         case UnplannedReason.DependencyCycle(cycle) =>
-          UnplannedReasonDto("dependency_cycle", "The manufacturing dependency graph contains a cycle.", None, cycle.toList.sortBy(_.toString), None)
+          UnplannedReasonDto(
+            "dependency_cycle",
+            "The manufacturing dependency graph contains a cycle.",
+            None,
+            cycle.toList.map(_.value).sortBy(_.toString),
+            None,
+          )
+        case UnplannedReason.MissingManufacturingDependency(dependency) =>
+          UnplannedReasonDto(
+            "missing_manufacturing_dependency",
+            s"Manufacturing dependency $dependency is not part of the order.",
+            None,
+            Nil,
+            Some(dependency.value),
+          )
+        case UnplannedReason.ManufacturingDependencyCycle(cycle) =>
+          UnplannedReasonDto(
+            "manufacturing_dependency_cycle",
+            "The order's manufacturing dependency graph contains a cycle.",
+            None,
+            cycle.toList.map(_.value).sortBy(_.toString),
+            None,
+          )
         case UnplannedReason.MissingDependency(dependency) =>
-          UnplannedReasonDto("missing_dependency", s"Task dependency $dependency is not present in the manufacturing.", None, Nil, Some(dependency))
+          UnplannedReasonDto(
+            "missing_dependency",
+            s"Task dependency $dependency is not present in the manufacturing.",
+            None,
+            Nil,
+            Some(dependency.value),
+          )
         case UnplannedReason.BlockedByDependency(dependency) =>
-          UnplannedReasonDto("blocked_by_dependency", s"The task is blocked by unplanned dependency $dependency.", None, Nil, Some(dependency))
+          UnplannedReasonDto("blocked_by_dependency", s"The task is blocked by unplanned dependency $dependency.", None, Nil, Some(dependency.value))
+  end UnplannedReasonDto
 
   final case class PlanningWarningDto(message: String)
 

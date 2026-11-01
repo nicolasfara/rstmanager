@@ -4,6 +4,7 @@ import java.time.Instant
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
@@ -27,13 +28,13 @@ import org.scalatest.matchers.should.Matchers.*
 class OrderServiceTest extends AnyFlatSpecLike:
   private val day: DateTime = DateTime.parse("2026-06-15")
   private val nextDay: DateTime = day.plusDays(1).nn
-  private val orderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
-  private val customerId: CustomerId = UUID.fromString("00000000-0000-0000-0000-000000000102").nn
-  private val manufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000103").nn
-  private val taskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000104").nn
-  private val templateTaskId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000105").nn
-  private val otherTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000107").nn
-  private val secondManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000108").nn
+  private val orderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000101").nn)
+  private val customerId: CustomerId = CustomerId(UUID.fromString("00000000-0000-0000-0000-000000000102").nn)
+  private val manufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000103").nn)
+  private val taskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000104").nn)
+  private val templateTaskId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000105").nn)
+  private val otherTaskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000107").nn)
+  private val secondManufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000108").nn)
 
   private def orderData(): OrderData =
     orderData(NonEmptyList.one(manufacturing()))
@@ -167,7 +168,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "set and clear a task's preferred employee" in:
-    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
+    val employeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000109").nn)
     val data = orderData()
     val afterSet = run(Command.SetTaskPreferredEmployee(manufacturingId, taskId, Some(employeeId)), InProgressOrder(data, nextDay))
 
@@ -190,8 +191,8 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "reject setting the preferred employee of an unknown task" in:
-    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
-    val unknownTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-00000000010a").nn
+    val employeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000109").nn)
+    val unknownTaskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-00000000010a").nn)
     val result = run(Command.SetTaskPreferredEmployee(manufacturingId, unknownTaskId, Some(employeeId)), InProgressOrder(orderData(), nextDay))
 
     result match
@@ -217,7 +218,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "surface nested aggregate errors" in:
-    val unknownManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000106").nn
+    val unknownManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000106").nn)
     val data = orderData()
     val result = run(Command.CompleteTask(unknownManufacturingId, taskId, TaskDuration(8)), InProgressOrder(data, nextDay))
 
@@ -240,7 +241,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "reject a manufacturing dependency graph referencing unknown manufacturings" in:
-    val unknownId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
+    val unknownId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000109").nn)
     val data = twoManufacturingsData()
     val dependencies = OrderDependencies.empty.addManufacturingDependencies(secondManufacturingId, Set(unknownId))
     val result = run(Command.ChangeManufacturingDependencies(dependencies), InProgressOrder(data, nextDay))
@@ -263,7 +264,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "replace the task dependency graph of a manufacturing" in:
-    val secondTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010a").nn
+    val secondTemplateId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-00000000010a").nn)
     val secondTask = InProgressTask(otherTaskId, secondTemplateId, TaskDuration(8), TaskDuration(0))
     val data = orderData(NonEmptyList.one(manufacturing(NonEmptyList.of(task(), secondTask))))
     val dependencies = ManufacturingDependencies().addTaskDependencies(secondTemplateId, Set(templateTaskId))
@@ -279,7 +280,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "reject task dependencies referencing tasks outside the manufacturing" in:
-    val unknownTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010b").nn
+    val unknownTemplateId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-00000000010b").nn)
     val data = orderData()
     val dependencies = ManufacturingDependencies().addTaskDependencies(templateTaskId, Set(unknownTemplateId))
     val result = run(Command.ChangeTaskDependencies(manufacturingId, dependencies), InProgressOrder(data, nextDay))
@@ -290,7 +291,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "reject creating an order whose manufacturing dependency graph is invalid" in:
-    val unknownId = UUID.fromString("00000000-0000-0000-0000-00000000010c").nn
+    val unknownId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-00000000010c").nn)
     val data = twoManufacturingsData()
       .withDependencies(OrderDependencies.empty.addManufacturingDependencies(manufacturingId, Set(unknownId)))
     val result = run(Command.Create(data, nextDay), NewOrder)
@@ -360,7 +361,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Unexpected result: $other")
 
   it should "keep a suspended order suspended when nested manufacturings and tasks are edited" in:
-    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000109").nn
+    val employeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000109").nn)
     val pausedOn = day.plusHours(3).nn
     val reason = Some("Waiting for materials".refineUnsafe[SuspensionReason])
     val suspended =
@@ -427,12 +428,12 @@ class OrderServiceTest extends AnyFlatSpecLike:
 
   it should "replay a stored nested event that no longer applies without failing, leaving the content unchanged" in:
     val order = InProgressOrder(orderData(), nextDay)
-    val unknownTaskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000110").nn
+    val unknownTaskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000110").nn)
 
     Order.transition(ManufacturingTaskCompleted(manufacturingId, unknownTaskId, TaskDuration(8), None))(order).toOption shouldEqual Some(order)
 
   it should "replay a stored dependency graph as recorded, without re-validating it under the current rules" in:
-    val secondTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000111").nn
+    val secondTemplateId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000111").nn)
     val cyclic = ManufacturingDependencies()
       .addTaskDependencies(templateTaskId, Set(secondTemplateId))
       .addTaskDependencies(secondTemplateId, Set(templateTaskId))
@@ -457,6 +458,23 @@ class OrderServiceTest extends AnyFlatSpecLike:
     rejectionOf(run(Command.Create(sameManufacturingTwice, nextDay), NewOrder)) shouldEqual List(DuplicateManufacturingIds(Set(manufacturingId)))
     rejectionOf(run(Command.Create(sameTaskInTwoManufacturings, nextDay), NewOrder)) shouldEqual List(DuplicateTaskIds(Set(taskId)))
 
+  it should "reject scheduling the same catalog task twice in one manufacturing" in:
+    // `task()` and `task(otherTaskId)` are distinct scheduled tasks of the same catalog task (`templateTaskId`).
+    val repeated = orderData(NonEmptyList.one(manufacturing(NonEmptyList.of(task(), task(otherTaskId)))))
+    val repeatedTask = InProgressTask(otherTaskId, templateTaskId, TaskDuration(8), TaskDuration(0))
+
+    rejectionOf(run(Command.Create(repeated, nextDay), NewOrder)) shouldEqual List(RepeatedCatalogTasks(manufacturingId, Set(templateTaskId)))
+    rejectionOf(run(Command.AddManufacturingTask(manufacturingId, repeatedTask, Nil), InProgressOrder(orderData(), nextDay))) shouldEqual
+      List(RepeatedCatalogTasks(manufacturingId, Set(templateTaskId)))
+
+  it should "not block other changes to an order that already repeats a catalog task" in:
+    val legacy = InProgressOrder(orderData(NonEmptyList.one(manufacturing(NonEmptyList.of(task(), task(otherTaskId))))), nextDay)
+    val thirdTaskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000112").nn)
+
+    run(Command.AddManufacturing(manufacturing(secondManufacturingId, NonEmptyList.one(task(thirdTaskId)))), legacy) should matchPattern {
+      case EdomatonResult.Accepted(_: InProgressOrder, _, _) =>
+    }
+
   it should "reject adding a manufacturing whose id or task ids are already in the order" in:
     val order = InProgressOrder(orderData(), nextDay)
 
@@ -466,8 +484,8 @@ class OrderServiceTest extends AnyFlatSpecLike:
       List(DuplicateTaskIds(Set(taskId)))
 
   it should "validate an added task: new id, known prerequisites, no cycle" in:
-    val secondTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010d").nn
-    val unknownTemplateId: TaskId = UUID.fromString("00000000-0000-0000-0000-00000000010e").nn
+    val secondTemplateId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-00000000010d").nn)
+    val unknownTemplateId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-00000000010e").nn)
     val newTask = InProgressTask(otherTaskId, secondTemplateId, TaskDuration(8), TaskDuration(0))
     val order = InProgressOrder(orderData(), nextDay)
     val withDependency = InProgressOrder(
@@ -492,7 +510,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
     }
 
   it should "reject removing an unknown manufacturing or the last one" in:
-    val unknownId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-00000000010f").nn
+    val unknownId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-00000000010f").nn)
 
     rejectionOf(run(Command.RemoveManufacturing(unknownId), InProgressOrder(twoManufacturingsData(), nextDay))) shouldEqual
       List(ManufacturingNotFound(unknownId))

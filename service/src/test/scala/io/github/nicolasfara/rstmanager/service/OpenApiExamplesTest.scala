@@ -9,7 +9,6 @@ import io.github.nicolasfara.rstmanager.hr.service.EmployeeHttpApi.EmployeeReque
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.PlanningAttemptRequest
 import io.github.nicolasfara.rstmanager.planning.service.PlanningEndpoints
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingHttpApi, OrderHttpApi, TaskHttpApi }
 import io.github.nicolasfara.rstmanager.work.service.ManufacturingHttpApi.ManufacturingRequest
 import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{
@@ -30,7 +29,7 @@ import sttp.tapir.docs.openapi.OpenAPIDocsInterpreter
 
 class OpenApiExamplesTest extends AnyFlatSpecLike:
   private val id: UUID = UUID.fromString("00000000-0000-0000-0000-000000000999").nn
-  private val generatedManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000998").nn
+  private val generatedManufacturingId: UUID = UUID.fromString("00000000-0000-0000-0000-000000000998").nn
   private val now: DateTime = DateTime.parse("2026-06-14T09:30:00.000Z")
 
   private def validOrFail[A](value: ValidatedNec[String, A]): A =
@@ -39,7 +38,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
   "OpenAPI request examples" should "be accepted by edge DTO validation" in:
     validOrFail(PlanningAttemptRequest.example.toDomain(now, id))
     val (orderData, _) = validOrFail(OrderRequest.example.toDomain(id, () => generatedManufacturingId))
-    orderData.setOfManufacturing.head.info.id shouldBe generatedManufacturingId
+    orderData.setOfManufacturing.head.info.id shouldBe ScheduledManufacturingId(generatedManufacturingId)
     validOrFail(OrderUpdateRequest.example.toCommands)
     validOrFail(ManufacturingUpdateRequest.example.toCommands(generatedManufacturingId))
     validOrFail(TransitionRequest.example.toCommand)

@@ -2,13 +2,13 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
 
 import cats.data.NonEmptyList
 import cats.syntax.all.*
@@ -27,19 +27,23 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // ---------------------------------------------------------------------------
 
   private val genUUID: Gen[UUID] = Gen.delay(UUID.randomUUID().nn)
+  private val genScheduledTaskId: Gen[ScheduledTaskId] = genUUID.map(ScheduledTaskId(_))
+  private val genTaskId: Gen[TaskId] = genUUID.map(TaskId(_))
+  private val genScheduledManufacturingId: Gen[ScheduledManufacturingId] = genUUID.map(ScheduledManufacturingId(_))
+  private val genEmployeeId: Gen[EmployeeId] = genUUID.map(EmployeeId(_))
   private val genHours: Gen[TaskDuration] = Gen.posNum[Int].map(TaskDuration.applyUnsafe)
 
   private val genPendingTask: Gen[PendingTask] =
     for
-      id <- genUUID
-      taskId <- genUUID
+      id <- genScheduledTaskId
+      taskId <- genTaskId
       hours <- genHours
     yield PendingTask(id, taskId, hours)
 
   private val genInProgressTask: Gen[InProgressTask] =
     for
-      id <- genUUID
-      taskId <- genUUID
+      id <- genScheduledTaskId
+      taskId <- genTaskId
       expectedDuration <- genHours
       completedDuration <- genHours
     yield InProgressTask(id, taskId, expectedDuration, completedDuration)
@@ -50,7 +54,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   private val fixedCode: String :| ManufacturingCode = "MFG-TEST".refineUnsafe[ManufacturingCode]
 
   private def genInfo(tasks: NonEmptyList[ScheduledTask]): Gen[ScheduledManufacturingInfo] =
-    genUUID.map(ScheduledManufacturingInfo(_, fixedCode, DateTime.now(), tasks, ManufacturingDependencies()))
+    genScheduledManufacturingId.map(ScheduledManufacturingInfo(_, fixedCode, DateTime.now(), tasks, ManufacturingDependencies()))
 
   private val genNonEmptyTaskList: Gen[NonEmptyList[ScheduledTask]] =
     Gen.nonEmptyListOf(genScheduledTask).map(NonEmptyList.fromListUnsafe)
@@ -118,7 +122,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // ---------------------------------------------------------------------------
 
   "removeTask" should "return TaskIdNotFound for an ID that does not exist" in:
-    forAll(genNotStarted, genUUID): (mfg, unknownId) =>
+    forAll(genNotStarted, genScheduledTaskId): (mfg, unknownId) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.removeTask(unknownId) shouldEqual Left(TaskIdNotFound(unknownId))
 
@@ -150,7 +154,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       roundtrip.foreach(_.info.tasks.size shouldEqual mfg.info.tasks.size)
 
   it should "record the preferred employee of the new task when provided" in:
-    forAll(genNotStarted, genPendingTask, genUUID): (mfg, task, employeeId) =>
+    forAll(genNotStarted, genPendingTask, genEmployeeId): (mfg, task, employeeId) =>
       mfg.addTask(task, Set.empty, Some(employeeId)).info.taskPreferredEmployees.get(task.id) shouldEqual Some(employeeId)
 
   it should "not record any preferred employee when none is provided" in:
@@ -158,7 +162,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       mfg.addTask(task, Set.empty, None).info.taskPreferredEmployees.contains(task.id) shouldEqual false
 
   "removeTask" should "drop the removed task's preferred employee" in:
-    forAll(genNotStarted, genPendingTask, genUUID): (mfg, task, employeeId) =>
+    forAll(genNotStarted, genPendingTask, genEmployeeId): (mfg, task, employeeId) =>
       val removed = mfg.addTask(task, Set.empty, Some(employeeId)).removeTask(task.id)
       removed.isRight shouldEqual true
       removed.foreach(_.info.taskPreferredEmployees.contains(task.id) shouldEqual false)
@@ -168,7 +172,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // ---------------------------------------------------------------------------
 
   "withTaskPreferredEmployee" should "set and then clear the preference of an existing task" in:
-    forAll(genNotStarted, genUUID): (mfg, employeeId) =>
+    forAll(genNotStarted, genEmployeeId): (mfg, employeeId) =>
       val targetId = mfg.info.tasks.head.id
       val set = mfg.withTaskPreferredEmployee(targetId, Some(employeeId))
       set.isRight shouldEqual true
@@ -180,7 +184,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       }
 
   it should "return TaskIdNotFound for an unknown task" in:
-    forAll(genNotStarted, genUUID, genUUID): (mfg, unknownId, employeeId) =>
+    forAll(genNotStarted, genScheduledTaskId, genEmployeeId): (mfg, unknownId, employeeId) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.withTaskPreferredEmployee(unknownId, Some(employeeId)) shouldEqual Left(TaskIdNotFound(unknownId))
 
@@ -189,7 +193,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // ---------------------------------------------------------------------------
 
   "advanceTask" should "return TaskIdNotFound for an unknown ID" in:
-    forAll(genNotStarted, genUUID, genHours): (mfg, unknownId, hours) =>
+    forAll(genNotStarted, genScheduledTaskId, genHours): (mfg, unknownId, hours) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.advanceTask(unknownId, hours, at) shouldEqual Left(TaskIdNotFound(unknownId))
 
@@ -207,7 +211,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       mfg.advanceTask(taskId, hours, at).foreach(_ shouldBe a[InProgressManufacturing])
 
   "rollbackTask" should "return TaskIdNotFound for an unknown ID" in:
-    forAll(genNotStarted, genUUID, genHours): (mfg, unknownId, hours) =>
+    forAll(genNotStarted, genScheduledTaskId, genHours): (mfg, unknownId, hours) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.rollbackTask(unknownId, hours, at) shouldEqual Left(TaskIdNotFound(unknownId))
 
@@ -223,7 +227,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // ---------------------------------------------------------------------------
 
   "completeTask" should "return TaskIdNotFound for an unknown ID" in:
-    forAll(genNotStarted, genUUID, genHours): (mfg, unknownId, hours) =>
+    forAll(genNotStarted, genScheduledTaskId, genHours): (mfg, unknownId, hours) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.completeTask(unknownId, hours, at) shouldEqual Left(TaskIdNotFound(unknownId))
 
@@ -250,7 +254,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   // ---------------------------------------------------------------------------
 
   "revertTaskToInProgress" should "return TaskIdNotFound for an unknown ID" in:
-    forAll(genNotStarted, genUUID): (mfg, unknownId) =>
+    forAll(genNotStarted, genScheduledTaskId): (mfg, unknownId) =>
       whenever(!mfg.info.tasks.exists(_.id == unknownId)):
         mfg.revertTaskToInProgress(unknownId, at) shouldEqual Left(TaskIdNotFound(unknownId))
 

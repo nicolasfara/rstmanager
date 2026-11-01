@@ -3,11 +3,12 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 import java.time.Instant
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingAggregate.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingService.Command
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent.*
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 
 import cats.Id
 import edomata.core.{ CommandMessage, EdomatonResult, RequestContext }
@@ -17,10 +18,10 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class ManufacturingTest extends AnyFlatSpecLike:
-  private val manufacturingId: ManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000501").nn
-  private val cutting = UUID.fromString("00000000-0000-0000-0000-000000000301").nn
-  private val assembly = UUID.fromString("00000000-0000-0000-0000-000000000302").nn
-  private val finishing = UUID.fromString("00000000-0000-0000-0000-000000000303").nn
+  private val manufacturingId: ManufacturingId = ManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000501").nn)
+  private val cutting = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000301").nn)
+  private val assembly = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000302").nn)
+  private val finishing = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000303").nn)
 
   private val dependencies = ManufacturingDependencies().addTaskDependencies(assembly, Set(cutting))
 
@@ -91,7 +92,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
       .isValid shouldEqual false
 
   it should "accept default employees referencing tasks of the composition" in:
-    val employee = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+    val employee = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000101").nn)
     val result = Manufacturing.createManufacturing(
       manufacturingId,
       "MFG-TEST",
@@ -107,7 +108,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
     result.foreach(_.defaultEmployees shouldEqual Map(cutting -> employee))
 
   it should "reject default employees referencing tasks outside the composition" in:
-    val employee = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+    val employee = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000101").nn)
 
     Manufacturing
       .createManufacturing(

@@ -13,7 +13,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class CustomerServiceTest extends AnyFlatSpecLike:
-  private val customerId: CustomerId = UUID.fromString("00000000-0000-0000-0000-0000000000c1").nn
+  private val customerId: CustomerId = CustomerId(UUID.fromString("00000000-0000-0000-0000-0000000000c1").nn)
 
   private def customerOf(customerType: CustomerType, fiscalCode: String, businessName: Option[String]): Customer =
     Customer
@@ -76,7 +76,7 @@ class CustomerServiceTest extends AnyFlatSpecLike:
       List(CustomerError.TaxCodeDoesNotMatchCustomerType(CustomerType.Individual))
 
   it should "reject a customer sent to another customer's stream" in:
-    val otherStream: CustomerId = UUID.fromString("00000000-0000-0000-0000-0000000000c2").nn
+    val otherStream: CustomerId = CustomerId(UUID.fromString("00000000-0000-0000-0000-0000000000c2").nn)
     rejection(run(Command.Create(individual), CustomerAggregate.Empty, otherStream)) shouldEqual List(CustomerError.CustomerIdMismatch)
   it should "publish the deleted customer's id, like every catalog aggregate" in:
     run(Command.Delete, CustomerAggregate.Active(individual)) match

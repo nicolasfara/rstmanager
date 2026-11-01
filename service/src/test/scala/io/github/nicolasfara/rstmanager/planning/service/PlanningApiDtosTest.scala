@@ -4,6 +4,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.planning.PlanningTrigger
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.*
+import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
 
 import cats.data.ValidatedNec
 import com.github.nscala_time.time.Imports.DateTime
@@ -30,7 +31,7 @@ class PlanningApiDtosTest extends AnyFlatSpecLike:
     )
 
     val input = validOrFail(request.toDomain(now, generatedId))
-    val planningRequest = input.toPlanningRequest(List(orderId))
+    val planningRequest = input.toPlanningRequest(List(OrderId(orderId)))
 
     input.orderIds shouldBe None
     input.employeeIds shouldBe None
@@ -52,5 +53,5 @@ class PlanningApiDtosTest extends AnyFlatSpecLike:
 
     input.orderIds shouldEqual Some(List(orderId))
     input.employeeIds shouldEqual Some(List(employeeId))
-    input.toPlanningRequest(List(orderId)).trigger shouldEqual PlanningTrigger.WorkforceCapacityChanged
+    input.toPlanningRequest(List(OrderId(orderId))).trigger shouldEqual PlanningTrigger.WorkforceCapacityChanged
 end PlanningApiDtosTest

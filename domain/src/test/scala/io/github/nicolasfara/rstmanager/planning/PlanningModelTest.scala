@@ -28,10 +28,10 @@ class PlanningModelTest extends AnyFlatSpecLike:
 
   private val day: DateTime = DateTime.parse("2026-06-15")
   private val nextDay: DateTime = day.plusDays(1).nn
-  private val employeeId: EmployeeId = UUID.fromString("00000000-0000-0000-0000-000000000001").nn
-  private val orderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000002").nn
-  private val manufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000003").nn
-  private val taskId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000004").nn
+  private val employeeId: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000001").nn)
+  private val orderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000002").nn)
+  private val manufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000003").nn)
+  private val taskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000004").nn)
 
   private def candidate: CandidateEmployee = candidateWithHours(8, 4)
 
@@ -52,7 +52,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
   private def planningResult: PlanningResult =
     validOrFail(PlanningResult.create(List(dailySchedule), Nil, Nil, Nil, Nil))
 
-  private def request: PlanningRequest = requestWithId(UUID.fromString("00000000-0000-0000-0000-000000000005").nn)
+  private def request: PlanningRequest = requestWithId(PlanningRequestId(UUID.fromString("00000000-0000-0000-0000-000000000005").nn))
 
   private def requestWithId(requestId: PlanningRequestId): PlanningRequest =
     PlanningRequest(requestId, day, PlanningTrigger.DailyPlanning, day, List(orderId))
@@ -72,7 +72,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
     OrderData(
       id,
       s"ORD-$id".refineUnsafe[OrderNumber],
-      UUID.randomUUID().nn: CustomerId,
+      CustomerId(UUID.randomUUID().nn),
       creationDate,
       deliveryDate,
       priority,
@@ -85,7 +85,7 @@ class PlanningModelTest extends AnyFlatSpecLike:
         manufacturingId,
         "MFG-TEST".refineUnsafe[ManufacturingCode],
         nextDay,
-        NonEmptyList.one(PendingTask(UUID.randomUUID().nn, UUID.randomUUID().nn: TaskId, TaskDuration(8))),
+        NonEmptyList.one(PendingTask(ScheduledTaskId(UUID.randomUUID().nn), TaskId(UUID.randomUUID().nn), TaskDuration(8))),
         ManufacturingDependencies(),
       ),
     )
@@ -197,11 +197,11 @@ class PlanningModelTest extends AnyFlatSpecLike:
     rejected shouldBe a[RejectedPlanning]
 
   "PlanningPriorityPolicy" should "sort open orders by priority, delivery date, creation date, then id" in:
-    val normalEarlyId = UUID.fromString("00000000-0000-0000-0000-000000000011").nn
-    val urgentLaterId = UUID.fromString("00000000-0000-0000-0000-000000000012").nn
-    val urgentEarlierId = UUID.fromString("00000000-0000-0000-0000-000000000013").nn
-    val normalSameDateOlderId = UUID.fromString("00000000-0000-0000-0000-000000000014").nn
-    val normalSameDateNewerId = UUID.fromString("00000000-0000-0000-0000-000000000015").nn
+    val normalEarlyId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000011").nn)
+    val urgentLaterId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000012").nn)
+    val urgentEarlierId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000013").nn)
+    val normalSameDateOlderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000014").nn)
+    val normalSameDateNewerId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000015").nn)
 
     val normalEarly = InProgressOrder(orderData(normalEarlyId, OrderPriority.Normal, day, day), day)
     val urgentLater = InProgressOrder(orderData(urgentLaterId, OrderPriority.Urgent, day, nextDay), nextDay)

@@ -1,7 +1,5 @@
 package io.github.nicolasfara.rstmanager.customer.domain
 
-import java.util.UUID
-
 import cats.data.{ Validated, ValidatedNec }
 import cats.syntax.all.*
 import io.github.iltotore.iron.*
@@ -130,7 +128,7 @@ object Customer:
    *   Raw port where the boat is moored.
    */
   def createCustomer(
-      id: UUID,
+      id: CustomerId,
       name: String,
       surname: String,
       email: String,

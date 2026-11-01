@@ -11,7 +11,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks
 class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   private final case class ValidCustomerInput(
-      id: UUID,
+      id: CustomerId,
       name: String,
       surname: String,
       email: String,
@@ -62,7 +62,7 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     }
   private val genValidCustomerInput: Gen[ValidCustomerInput] =
     for
-      id <- genUUID
+      id <- genUUID.map(CustomerId(_))
       name <- genNonEmptyString
       surname <- genNonEmptyString
       email <- genEmail
@@ -252,7 +252,7 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
       VatNumber.createVatNumber(vatNumber).isValid shouldEqual true
 
   it should "accumulate errors coming from nested validation" in:
-    forAll(genUUID): id =>
+    forAll(genUUID.map(CustomerId(_))): id =>
       val result = Customer.createCustomer(
         id = id,
         name = "",
@@ -279,7 +279,7 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   "updateEmail" should "replace only the nested email field" in:
     val customer = Customer(
-      id = UUID.randomUUID().nn,
+      id = CustomerId(UUID.randomUUID().nn),
       contactInfo = ContactInfo(
         name = "John".refineUnsafe[Name],
         surname = "Doe".refineUnsafe[Surname],

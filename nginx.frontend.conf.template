@@ -39,10 +39,21 @@ server {
 
   location = /api {
     proxy_pass http://$rstmanager_api;
+    error_page 502 503 504 = @api_unavailable;
   }
 
   location /api/ {
     proxy_pass http://$rstmanager_api;
+    error_page 502 503 504 = @api_unavailable;
+  }
+
+  # Only nginx's own gateway errors land here (no proxy_intercept_errors), i.e.
+  # the backend is starting or restarting: answer with an ApiError body the SPA
+  # can render, instead of nginx's HTML error page.
+  location @api_unavailable {
+    default_type application/json;
+    add_header Retry-After 5 always;
+    return 503 '{"code":"service-unavailable","message":"Il servizio si sta avviando, riprova tra qualche secondo","details":[]}';
   }
 
   location = /auth {

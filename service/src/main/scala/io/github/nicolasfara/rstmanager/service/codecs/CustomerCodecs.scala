@@ -19,5 +19,9 @@ object CustomerCodecs:
   given Codec[CustomerType] = deriveCodec
   given Codec[BoatInfo] = deriveCodec
   given Codec[Customer] = ConfiguredCodec.derived
-  given Codec[CustomerEvent] = deriveCodec
+
+  /** Current-version data of the customer journal; it is persisted through [[CustomerEventSchema]]. */
+  val customerEventData: Codec.AsObject[CustomerEvent] = deriveCodec
+  given Codec[CustomerEvent] = EventSchema.codec(CustomerEventSchema)
+
   given Codec[CustomerService.Notification] = deriveCodec

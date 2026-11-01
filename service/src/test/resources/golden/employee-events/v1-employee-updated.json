@@ -1,0 +1,1 @@
+{"version":1,"event":{"EmployeeUpdated":{"employee":{"id":"00000000-0000-0000-0000-000000000102","info":{"name":"Luca","surname":"Bianchi"},"contract":{"PartTime":{"startDate":"2026-03-01","weeklyHours":20}},"budgetHours":{"default":20,"overrides":[]}}}}}

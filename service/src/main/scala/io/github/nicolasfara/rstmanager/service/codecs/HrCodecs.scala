@@ -50,6 +50,10 @@ object HrCodecs:
 
   given Codec[BudgetHours] = deriveCodec
   given Codec[Employee] = deriveCodec
-  given Codec[EmployeeEvent] = deriveCodec
+
+  /** Current-version data of the employee journal; it is persisted through [[EmployeeEventSchema]]. */
+  val employeeEventData: Codec.AsObject[EmployeeEvent] = deriveCodec
+  given Codec[EmployeeEvent] = EventSchema.codec(EmployeeEventSchema)
+
   given Codec[EmployeeService.Notification] = deriveCodec
 end HrCodecs

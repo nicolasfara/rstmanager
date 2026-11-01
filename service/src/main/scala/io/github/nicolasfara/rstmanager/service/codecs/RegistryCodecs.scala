@@ -7,5 +7,8 @@ import io.circe.generic.semiauto.deriveCodec
 
 /** Circe codecs for the durable entity registry, used to persist [[EntityRegistryEvent]] in the journal. */
 object RegistryCodecs:
-  given Codec[EntityRegistryEvent] = deriveCodec
+  /** Current-version data of the registry journals; they are persisted through [[RegistryEventSchema]]. */
+  val registryEventData: Codec.AsObject[EntityRegistryEvent] = deriveCodec
+  given Codec[EntityRegistryEvent] = EventSchema.codec(RegistryEventSchema)
+
   given Codec[EntityRegistryService.Notification] = deriveCodec

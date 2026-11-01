@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.planning.service
 
 import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
-import io.github.nicolasfara.rstmanager.service.codecs.CommonCodecs
+import io.github.nicolasfara.rstmanager.service.codecs.{ CommonCodecs, EventSchema }
 
 import io.circe.{ Codec, Decoder, Encoder, Json }
 import io.circe.generic.semiauto.deriveCodec
@@ -34,7 +34,10 @@ object PlanningCodecs:
   given Codec[PlanningWarning] = deriveCodec
   given Codec[PlanningResult] = deriveCodec
   given Codec[PlanningError] = deriveCodec
-  given Codec[PlanningEvent] = deriveCodec
+
+  /** Current-version data of the planning journal; it is persisted through [[PlanningEventSchema]]. */
+  val planningEventData: Codec.AsObject[PlanningEvent] = deriveCodec
+  given Codec[PlanningEvent] = EventSchema.codec(PlanningEventSchema)
 
   private val derivedNotificationCodec: Codec[PlanningService.Notification] = deriveCodec
 

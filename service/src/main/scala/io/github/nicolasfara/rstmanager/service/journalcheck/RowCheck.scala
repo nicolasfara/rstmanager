@@ -22,9 +22,9 @@ trait RowCheck:
 
 object RowCheck:
   /**
-   * Replays a journal the way the backend loads an aggregate: every row is decoded with the journal codec and folded, in version order, into
-   * the state of its stream. A stream stops folding at its first failure, as the backend cannot load it past that point, but its later rows
-   * are still decoded.
+   * Replays a journal the way the backend loads an aggregate: every row is decoded with the journal codec and folded, in version order, into the
+   * state of its stream. A stream stops folding at its first failure, as the backend cannot load it past that point, but its later rows are still
+   * decoded.
    */
   def journal[S, E, R](model: DomainModel[S, E, R], decoder: Decoder[E]): RowCheck = new RowCheck:
     def run[F[_]](rows: Stream[F, StoredRow]): Stream[F, RowReport] =

@@ -10,10 +10,10 @@ final case class EventEnvelope(tag: String, version: Int, data: JsonObject)
 /**
  * The persisted schema of an event family: what a release writes to the journal, and how it reads back every version ever written.
  *
- * Rows are stored as `{"version": 2, "event": {"<Tag>": data}}`. Rows written before versions existed are the bare `{"<Tag>": data}`.
- * Stored rows are never rewritten: every read upcasts the row, one version at a time, to [[currentVersion]] before decoding it. Hence:
- *   - changing what [[write]] produces requires bumping [[currentVersion]] and adding the upcaster from the previous version, plus golden
- *     fixtures of the new shape (the golden tests fail until then);
+ * Rows are stored as `{"version": 2, "event": {"<Tag>": data}}`. Rows written before versions existed are the bare `{"<Tag>": data}`. Stored rows are
+ * never rewritten: every read upcasts the row, one version at a time, to [[currentVersion]] before decoding it. Hence:
+ *   - changing what [[write]] produces requires bumping [[currentVersion]] and adding the upcaster from the previous version, plus golden fixtures of
+ *     the new shape (the golden tests fail until then);
  *   - a renamed case or field is an upcaster step renaming it, and a changed meaning is a new case;
  *   - a refinement constraint is never tightened without an upcaster that repairs the stored values it would reject.
  */
@@ -37,8 +37,8 @@ end EventSchema
 /**
  * An [[EventSchema]] whose current-version encoding is the circe-derived one of `E`.
  *
- * The data shape then follows the Scala types and the codecs of their fields rather than being pinned by hand: the golden fixtures of every
- * case are what catch a changed shape.
+ * The data shape then follows the Scala types and the codecs of their fields rather than being pinned by hand: the golden fixtures of every case are
+ * what catch a changed shape.
  */
 abstract class DerivedEventSchema[E](using codec: Codec.AsObject[E]) extends EventSchema[E]:
   def write(event: E): JsonObject = codec.encodeObject(event)
@@ -84,7 +84,12 @@ object EventSchema:
     val version = envelope.version
     if version == schema.currentVersion then Right(envelope)
     else if version > schema.currentVersion then
-      Left(DecodingFailure(s"Event ${envelope.tag} v$version was written by a newer release (this one reads up to v${schema.currentVersion})", cursor.history))
+      Left(
+        DecodingFailure(
+          s"Event ${envelope.tag} v$version was written by a newer release (this one reads up to v${schema.currentVersion})",
+          cursor.history,
+        ),
+      )
     else
       schema.upcasters.get(version).map(_(envelope)) match
         case None => Left(DecodingFailure(s"No upcaster from v$version for event ${envelope.tag}", cursor.history))

@@ -9,8 +9,8 @@ import io.circe.{ Decoder, JsonObject }
  * Persisted schema of the [[PlanningEvent]] journal (`planning_journal`).
  *
  * Versions:
- *   - v1: task efforts are in whole hours: `assignedHours` / `remainingHoursAfterSlice` in the slices, `requiredHours` in
- *     `NoFutureCapacity` and `InvalidEmployeeAssignment`.
+ *   - v1: task efforts are in whole hours: `assignedHours` / `remainingHoursAfterSlice` in the slices, `requiredHours` in `NoFutureCapacity` and
+ *     `InvalidEmployeeAssignment`.
  *   - v2: they are `assignedDuration` / `remainingDurationAfterSlice` / `requiredDuration`, in minutes. `availableHours` stays in hours.
  *
  * The pre-deployment shape (a planning `window`, no `unplannedOrders`) is not supported and fails to decode.

@@ -13,20 +13,21 @@ object Upcasts:
     json.arrayOrObject(false, _.exists(hasKey(_, keys)), hasKey(_, keys))
 
   /**
-   * The step from `version` to `version + 1` that rewrites the data, at any depth, by renaming each key of `renames` to its value and
-   * turning its whole-hours integer into minutes: the switch from hour to minute task estimates.
+   * The step from `version` to `version + 1` that rewrites the data, at any depth, by renaming each key of `renames` to its value and turning its
+   * whole-hours integer into minutes: the switch from hour to minute task estimates.
    */
   def hoursToMinutes(version: Int, renames: Map[String, String])(envelope: EventEnvelope): Decoder.Result[EventEnvelope] =
     hoursToMinutes(renames, envelope.data).map(data => envelope.copy(version = version + 1, data = data))
 
   private def hoursToMinutes(renames: Map[String, String], data: JsonObject): Decoder.Result[JsonObject] =
-    data.toList
-      .traverse { (key, value) =>
-        renames.get(key) match
-          case Some(renamed) =>
-            value.as[Int].bimap(failure => DecodingFailure(s"$key is not a whole number of hours: ${failure.message}", Nil), h => renamed -> Json.fromInt(h * 60))
-          case None => hoursToMinutes(renames, value).map(key -> _)
-      }
+    data.toList.traverse { (key, value) =>
+      renames.get(key) match
+        case Some(renamed) =>
+          value
+            .as[Int]
+            .bimap(failure => DecodingFailure(s"$key is not a whole number of hours: ${failure.message}", Nil), h => renamed -> Json.fromInt(h * 60))
+        case None => hoursToMinutes(renames, value).map(key -> _)
+    }
       .map(JsonObject.fromIterable)
 
   private def hoursToMinutes(renames: Map[String, String], json: Json): Decoder.Result[Json] =

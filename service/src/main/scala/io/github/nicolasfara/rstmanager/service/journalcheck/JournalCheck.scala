@@ -33,19 +33,31 @@ import skunk.implicits.*
 final case class CheckedNamespace(name: String, journal: RowCheck, outbox: RowCheck)
 
 /**
- * Pre-deploy check: reads every journal row and every pending outbox row of a database with the codecs and aggregates of this release, and
- * exits with an error if any of them could not be read back, or could not be replayed into its aggregate. Run it with the release about to be
- * deployed, against production or a copy of it (`RSTMANAGER_DB_*`, as for the service): it only reads.
+ * Pre-deploy check: reads every journal row and every pending outbox row of a database with the codecs and aggregates of this release, and exits with
+ * an error if any of them could not be read back, or could not be replayed into its aggregate. Run it with the release about to be deployed, against
+ * production or a copy of it (`RSTMANAGER_DB_*`, as for the service): it only reads.
  */
 object JournalCheck extends IOApp:
   private val failuresShownPerTable = 20
 
   val namespaces: List[CheckedNamespace] =
     def registry(name: String) =
-      CheckedNamespace(name, RowCheck.journal(EntityRegistry, Decoder[EntityRegistryEvent]), RowCheck.outbox(Decoder[EntityRegistryService.Notification]))
+      CheckedNamespace(
+        name,
+        RowCheck.journal(EntityRegistry, Decoder[EntityRegistryEvent]),
+        RowCheck.outbox(Decoder[EntityRegistryService.Notification]),
+      )
     List(
-      CheckedNamespace("customers", RowCheck.journal(CustomerAggregate, Decoder[CustomerEvent]), RowCheck.outbox(Decoder[CustomerService.Notification])),
-      CheckedNamespace("employees", RowCheck.journal(EmployeeAggregate, Decoder[EmployeeEvent]), RowCheck.outbox(Decoder[EmployeeService.Notification])),
+      CheckedNamespace(
+        "customers",
+        RowCheck.journal(CustomerAggregate, Decoder[CustomerEvent]),
+        RowCheck.outbox(Decoder[CustomerService.Notification]),
+      ),
+      CheckedNamespace(
+        "employees",
+        RowCheck.journal(EmployeeAggregate, Decoder[EmployeeEvent]),
+        RowCheck.outbox(Decoder[EmployeeService.Notification]),
+      ),
       CheckedNamespace("tasks", RowCheck.journal(TaskAggregate, Decoder[TaskEvent]), RowCheck.outbox(Decoder[TaskService.Notification])),
       CheckedNamespace(
         "manufacturings",

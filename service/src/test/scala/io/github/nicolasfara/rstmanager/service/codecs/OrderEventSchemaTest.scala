@@ -37,8 +37,8 @@ class OrderEventSchemaTest extends JournalGoldenSuite[OrderEvent]("order-events"
   )
 
   /**
-   * Pre-version rows: in hours (v1, from the first release with its placeholder manufacturing code to the last one before minutes) and in
-   * minutes before `occurredOn` existed (v2).
+   * Pre-version rows: in hours (v1, from the first release with its placeholder manufacturing code to the last one before minutes) and in minutes
+   * before `occurredOn` existed (v2).
    */
   def legacy: List[(String, String)] = List(
     "legacy-v1-order-created-first-release" -> "v2-order-created-minimal",

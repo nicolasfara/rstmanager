@@ -19,7 +19,8 @@ class RowCheckTest extends AnyFlatSpecLike:
     RowCheck.journal(TaskAggregate, Decoder[TaskEvent]).run(Stream.emits(rows)).toList.headOption.getOrElse(fail("No report"))
 
   "A journal check" should "replay every stream, whatever version its rows were written with" in:
-    val report = replay(row("a", 1, "legacy-v1-task-created"), row("a", 2, "v2-task-updated"), row("b", 1, "v2-task-created"), row("b", 2, "v2-task-deleted"))
+    val report =
+      replay(row("a", 1, "legacy-v1-task-created"), row("a", 2, "v2-task-updated"), row("b", 1, "v2-task-created"), row("b", 2, "v2-task-deleted"))
 
     report shouldEqual RowReport(rows = 4, streams = 2, failures = Vector.empty)
     report.ok shouldBe true

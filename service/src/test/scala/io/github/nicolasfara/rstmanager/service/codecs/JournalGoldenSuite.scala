@@ -19,8 +19,7 @@ import org.scalatest.matchers.should.Matchers.*
  *
  * Fixtures are never edited or removed: on a version bump the current ones stay as legacy fixtures and new current ones are added.
  */
-abstract class JournalGoldenSuite[E](directory: String, schema: EventSchema[E], cases: Set[String])(using codec: Codec[E])
-    extends AnyFlatSpecLike:
+abstract class JournalGoldenSuite[E](directory: String, schema: EventSchema[E], cases: Set[String])(using codec: Codec[E]) extends AnyFlatSpecLike:
   /** Fixtures in the shape written by this release. */
   def current: List[String]
 

@@ -2,11 +2,12 @@ package io.gitbub.nicolasfara.rstmanager.api
 
 import java.util.UUID
 
+import scala.concurrent.{ Future, Promise }
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
 import scala.language.implicitConversions
 import scala.scalajs.js
 import scala.scalajs.js.Thenable.Implicits.*
+import scala.scalajs.js.timers.setTimeout
 import scala.util.{ Failure, Success }
 
 import io.circe.{ Decoder, Encoder }
@@ -58,6 +59,28 @@ object ApiClient:
       dom.fetch(baseUrl + path, init).flatMap(response => response.text().map(text => (response.status, text)))
     }
 
+  /** Backoff for GETs hitting a backend that is (re)starting behind the proxy: ~15s in total, the spinner stays up meanwhile. */
+  private val transientRetryDelaysMs = List(500, 1000, 2000, 4000, 8000)
+
+  /** Gateway statuses the proxy emits when the backend is unreachable; the request never got a real answer, so a GET is safe to repeat. */
+  private def isTransient(status: Int): Boolean = status == 502 || status == 503 || status == 504
+
+  private def delay(ms: Int): Future[Unit] =
+    val promise = Promise[Unit]()
+    setTimeout(ms.toDouble)(promise.success(()))
+    promise.future
+
+  private def fetchWithRetry(path: String, delays: List[Int]): Future[(Int, String)] =
+    val attempt = authedFetch(dom.HttpMethod.GET, path, None)
+    delays match
+      case Nil => attempt
+      case next :: rest =>
+        attempt.transformWith {
+          case Success((status, _)) if isTransient(status) => delay(next).flatMap(_ => fetchWithRetry(path, rest))
+          case Failure(_) => delay(next).flatMap(_ => fetchWithRetry(path, rest))
+          case done => Future.fromTry(done)
+        }
+
   private def rawSend(method: dom.HttpMethod, path: String, body: Option[String]): Future[(Int, String)] =
     // String comparison sidesteps the missing CanEqual instance on dom.HttpMethod under -language:strictEquality.
     if method.toString == "GET" then
@@ -67,7 +90,7 @@ object ApiClient:
           inFlight.get(path) match
             case Some(existing) => existing
             case None =>
-              val resultF = authedFetch(method, path, body)
+              val resultF = fetchWithRetry(path, transientRetryDelaysMs)
               inFlight(path) = resultF
               resultF.onComplete {
                 case Success((status, text)) =>

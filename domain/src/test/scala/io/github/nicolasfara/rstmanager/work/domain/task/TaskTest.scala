@@ -2,6 +2,8 @@ package io.github.nicolasfara.rstmanager.work.domain.task
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+
 import org.scalacheck.Gen
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
@@ -14,7 +16,8 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   // ---------------------------------------------------------------------------
 
   private val genUUID: Gen[UUID] = Gen.delay(UUID.randomUUID().nn)
-  private val genOptionEmployee: Gen[Option[UUID]] = Gen.option(genUUID)
+  private val genTaskId: Gen[TaskId] = genUUID.map(TaskId(_))
+  private val genOptionEmployee: Gen[Option[EmployeeId]] = Gen.option(genUUID.map(EmployeeId(_)))
   private val genNonEmptyString: Gen[String] = Gen.alphaNumStr.suchThat(_.nonEmpty)
   private val genNonNegativeInt: Gen[Int] = Gen.chooseNum(0, Int.MaxValue)
   private val genNegativeInt: Gen[Int] = Gen.chooseNum(Int.MinValue, -1)
@@ -24,11 +27,11 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   // ---------------------------------------------------------------------------
 
   "Task.createTask" should "succeed for any non-empty name, valid optional description, and non-negative hours" in:
-    forAll(genUUID, genNonEmptyString, Gen.option(genNonEmptyString), genNonNegativeInt, genOptionEmployee): (id, name, desc, hours, employee) =>
+    forAll(genTaskId, genNonEmptyString, Gen.option(genNonEmptyString), genNonNegativeInt, genOptionEmployee): (id, name, desc, hours, employee) =>
       Task.createTask(id, name, desc, hours, employee).isValid shouldEqual true
 
   it should "preserve all field values when creation succeeds" in:
-    forAll(genUUID, genNonEmptyString, Gen.option(genNonEmptyString), genNonNegativeInt, genOptionEmployee): (id, name, desc, hours, employee) =>
+    forAll(genTaskId, genNonEmptyString, Gen.option(genNonEmptyString), genNonNegativeInt, genOptionEmployee): (id, name, desc, hours, employee) =>
       Task
         .createTask(id, name, desc, hours, employee)
         .foreach: task =>
@@ -39,7 +42,7 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           task.defaultEmployeeId shouldEqual employee
 
   it should "allow zero as a valid requiredHours value" in:
-    forAll(genUUID, genNonEmptyString): (id, name) =>
+    forAll(genTaskId, genNonEmptyString): (id, name) =>
       Task.createTask(id, name, None, 0, None).isValid shouldEqual true
 
   // ---------------------------------------------------------------------------
@@ -47,19 +50,19 @@ class TaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   // ---------------------------------------------------------------------------
 
   it should "fail when name is empty" in:
-    forAll(genUUID, genNonNegativeInt): (id, hours) =>
+    forAll(genTaskId, genNonNegativeInt): (id, hours) =>
       Task.createTask(id, "", None, hours, None).isValid shouldEqual false
 
   it should "fail when requiredHours is negative" in:
-    forAll(genUUID, genNonEmptyString, genNegativeInt): (id, name, hours) =>
+    forAll(genTaskId, genNonEmptyString, genNegativeInt): (id, name, hours) =>
       Task.createTask(id, name, None, hours, None).isValid shouldEqual false
 
   it should "fail when the description is provided but empty" in:
-    forAll(genUUID, genNonEmptyString, genNonNegativeInt): (id, name, hours) =>
+    forAll(genTaskId, genNonEmptyString, genNonNegativeInt): (id, name, hours) =>
       Task.createTask(id, name, Some(""), hours, None).isValid shouldEqual false
 
   it should "accumulate multiple errors when both name and hours are invalid" in:
-    forAll(genUUID, genNegativeInt): (id, hours) =>
+    forAll(genTaskId, genNegativeInt): (id, hours) =>
       val errors = Task.createTask(id, "", None, hours, None)
       errors.isValid shouldEqual false
       errors.swap.foreach(_.length shouldEqual 2L)

@@ -14,7 +14,7 @@ import org.scalatest.matchers.should.Matchers.*
 class CustomerCodecsTest extends AnyFlatSpecLike:
   private def customer(): Customer =
     Customer(
-      id = UUID.fromString("00000000-0000-0000-0000-000000000801").nn,
+      id = CustomerId(UUID.fromString("00000000-0000-0000-0000-000000000801").nn),
       contactInfo = ContactInfo(
         name = "Giulia".refineUnsafe[Name],
         surname = "Bianchi".refineUnsafe[Surname],
@@ -51,7 +51,7 @@ class CustomerCodecsTest extends AnyFlatSpecLike:
   "CustomerEvent codec" should "round-trip a creation event with a VAT-number company" in:
     val company = Customer
       .createCustomer(
-        UUID.fromString("00000000-0000-0000-0000-000000000802").nn,
+        CustomerId(UUID.fromString("00000000-0000-0000-0000-000000000802").nn),
         "Marco",
         "Rossi",
         "marco.rossi@example.com",

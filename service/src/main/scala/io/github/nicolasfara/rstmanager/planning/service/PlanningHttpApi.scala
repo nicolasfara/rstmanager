@@ -9,6 +9,7 @@ import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.given
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.service.http.ApiError.ApiFailure
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, TaskApp }
 
@@ -140,7 +141,7 @@ object PlanningRoutes:
       tasks: TaskApp.Store,
       ids: NonEmptyList[UUID],
   ): IO[Either[ApiFailure, SimulationDemand]] =
-    ids.traverse(id => ManufacturingApp.get(manufacturings, id).map(id -> _)).flatMap { loaded =>
+    ids.traverse(id => ManufacturingApp.get(manufacturings, ManufacturingId(id)).map(id -> _)).flatMap { loaded =>
       val missing = loaded.toList.collect { case (id, None) => id }.distinct
       if missing.nonEmpty then
         IO.pure(

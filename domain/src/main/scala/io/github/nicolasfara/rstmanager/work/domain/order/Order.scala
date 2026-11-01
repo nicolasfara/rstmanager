@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import java.util.UUID
-
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderError.*
@@ -119,7 +118,7 @@ enum Order derives CanEqual:
   /** Sets (or clears) the preferred employee for a manufacturing inside an active or suspended order. */
   def changeManufacturingPreferredEmployee(
       manufacturingId: ScheduledManufacturingId,
-      employeeId: Option[UUID],
+      employeeId: Option[EmployeeId],
       now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     edit(ManufacturingPreferredEmployeeChanged(manufacturingId, employeeId, now))
@@ -128,7 +127,7 @@ enum Order derives CanEqual:
   def changeTaskPreferredEmployee(
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      employeeId: Option[UUID],
+      employeeId: Option[EmployeeId],
       now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     edit(ManufacturingTaskPreferredEmployeeChanged(manufacturingId, taskId, employeeId, now))
@@ -163,7 +162,7 @@ enum Order derives CanEqual:
       manufacturingId: ScheduledManufacturingId,
       task: ScheduledTask,
       dependsOn: List[TaskId],
-      preferredEmployeeId: Option[UUID],
+      preferredEmployeeId: Option[EmployeeId],
       now: DateTime,
   ): Decision[OrderError, OrderEvent, Order] =
     editChecked(validateTaskAddition(_, manufacturingId, task, dependsOn.toSet))(

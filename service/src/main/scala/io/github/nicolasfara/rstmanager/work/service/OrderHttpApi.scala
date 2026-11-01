@@ -3,10 +3,14 @@ package io.github.nicolasfara.rstmanager.work.service
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.service.CustomerApp
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
-import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderError, OrderService }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
+import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderError, OrderId, OrderService }
+import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.effect.IO
 import cats.syntax.all.*
@@ -224,7 +228,7 @@ object OrderHttpApi:
     OrderApp.list(store).attempt.map(_.bimap(ApiError.internal, _.flatMap(OrderResponse.fromDomain(_).toList)))
 
   private def readLogic(store: OrderApp.Store)(id: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    OrderApp.get(store, id).attempt.map {
+    OrderApp.get(store, OrderId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Some(order)) => OrderResponse.fromDomain(order).toRight(ApiError.notFound("Order", id.toString))
       case Right(None) => ApiError.notFound("Order", id.toString).asLeft
@@ -262,7 +266,7 @@ object OrderHttpApi:
     }
 
   private def removeManufacturingLogic(store: OrderApp.Store)(id: UUID, manufacturingId: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    runCommands(store, id, List(OrderService.Command.RemoveManufacturing(manufacturingId)))
+    runCommands(store, id, List(OrderService.Command.RemoveManufacturing(ScheduledManufacturingId(manufacturingId))))
 
   private def updateManufacturingLogic(
       store: OrderApp.Store,
@@ -289,7 +293,7 @@ object OrderHttpApi:
       store: OrderApp.Store,
       tasks: TaskApp.Store,
   )(id: UUID, manufacturingId: UUID, request: AddTaskRequest): IO[Either[ApiFailure, OrderResponse]] =
-    validateTaskIds(tasks, request.taskId :: request.dependsOn).flatMap {
+    validateTaskIds(tasks, (request.taskId :: request.dependsOn).map(TaskId(_))).flatMap {
       case Some(failure) => IO.pure(failure.asLeft)
       case None =>
         IO(UUID.randomUUID().nn).flatMap { taskInstanceId =>
@@ -300,10 +304,10 @@ object OrderHttpApi:
     }
 
   private def removeTaskLogic(store: OrderApp.Store)(id: UUID, manufacturingId: UUID, taskId: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    runCommands(store, id, List(OrderService.Command.RemoveManufacturingTask(manufacturingId, taskId)))
+    runCommands(store, id, List(OrderService.Command.RemoveManufacturingTask(ScheduledManufacturingId(manufacturingId), ScheduledTaskId(taskId))))
 
   /** Verifies every referenced catalog task id exists, returning a not-found failure listing the missing ones. */
-  private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[UUID]): IO[Option[ApiFailure]] =
+  private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[TaskId]): IO[Option[ApiFailure]] =
     taskIds.distinct.filterA(taskId => TaskApp.exists(tasks, taskId).map(!_)).map { missing =>
       if missing.nonEmpty then Some(ApiError.notFound("Task", missing.mkString(", "))) else None
     }
@@ -332,7 +336,7 @@ object OrderHttpApi:
     employeeId match
       case None => body
       case Some(empId) =>
-        EmployeeApp.exists(employees, empId).flatMap {
+        EmployeeApp.exists(employees, EmployeeId(empId)).flatMap {
           case false => IO.pure(ApiError.notFound("Employee", empId.toString).asLeft)
           case true => body
         }
@@ -341,7 +345,7 @@ object OrderHttpApi:
     reason.traverse(_.refineValidatedNec[CancellationReason]).toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
       case Right(cancellationReason) =>
-        OrderApp.delete(store, id, cancellationReason).attempt.map {
+        OrderApp.delete(store, OrderId(id), cancellationReason).attempt.map {
           case Left(error) => ApiError.internal(error).asLeft
           case Right(Left(OrderError.NoSuchOrder)) => ApiError.notFound("Order", id.toString).asLeft
           case Right(Left(error)) => conflict(error).asLeft
@@ -358,7 +362,7 @@ object OrderHttpApi:
       acc.flatMap {
         case Left(failure) => IO.pure(failure.asLeft)
         case Right(()) =>
-          OrderApp.command(store, id, command).attempt.map {
+          OrderApp.command(store, OrderId(id), command).attempt.map {
             case Left(error) => ApiError.internal(error).asLeft
             case Right(Left(error)) => conflict(error).asLeft
             case Right(Right(())) => ().asRight
@@ -372,7 +376,7 @@ object OrderHttpApi:
   end runCommands
 
   private def respondWith(store: OrderApp.Store, id: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    OrderApp.get(store, id).attempt.map {
+    OrderApp.get(store, OrderId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Some(order)) => OrderResponse.fromDomain(order).toRight(ApiError.notFound("Order", id.toString))
       case Right(None) => ApiError.notFound("Order", id.toString).asLeft

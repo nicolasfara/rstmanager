@@ -40,7 +40,7 @@ object CustomerApp:
 
   def create(store: Store, customer: Customer): IO[Either[CustomerError, Unit]] =
     dispatch(store, customer.id, CustomerService.Command.Create(customer)).flatTap {
-      case Right(_) => RegistryBackend.register(store.registry, customer.id)
+      case Right(_) => RegistryBackend.register(store.registry, customer.id.value)
       case Left(_) => IO.unit
     }
 
@@ -49,7 +49,7 @@ object CustomerApp:
 
   def delete(store: Store, id: CustomerId): IO[Either[CustomerError, Unit]] =
     dispatch(store, id, CustomerService.Command.Delete).flatTap {
-      case Right(_) => RegistryBackend.deregister(store.registry, id)
+      case Right(_) => RegistryBackend.deregister(store.registry, id.value)
       case Left(_) => IO.unit
     }
 
@@ -62,7 +62,7 @@ object CustomerApp:
   def exists(store: Store, id: CustomerId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Customer]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(get(store, _))).map(_.flatten)
+    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, CustomerId(id)))).map(_.flatten)
 
   private def dispatch(store: Store, id: CustomerId, command: CustomerService.Command): IO[Either[CustomerError, Unit]] =
     val service = store.entity.compile(CustomerService[IO])

@@ -3,8 +3,9 @@ package io.github.nicolasfara.rstmanager.service.codecs
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies, ManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
   ScheduledManufacturingId,
@@ -23,8 +24,8 @@ import org.scalatest.matchers.should.Matchers.*
 
 class WorkCodecsTest extends AnyFlatSpecLike:
   private val day: DateTime = DateTime.parse("2026-06-15")
-  private val firstManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000701").nn
-  private val secondManufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000702").nn
+  private val firstManufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000701").nn)
+  private val secondManufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000702").nn)
 
   private def manufacturing(id: ScheduledManufacturingId): ScheduledManufacturing =
     ScheduledManufacturing.NotStartedManufacturing(
@@ -33,7 +34,7 @@ class WorkCodecsTest extends AnyFlatSpecLike:
         "MFG-TEST".refineUnsafe[ManufacturingCode],
         day,
         NonEmptyList.one(
-          ScheduledTask.PendingTask(UUID.randomUUID().nn: ScheduledTaskId, UUID.randomUUID().nn: TaskId, TaskDuration(8)),
+          ScheduledTask.PendingTask(ScheduledTaskId(UUID.randomUUID().nn), TaskId(UUID.randomUUID().nn), TaskDuration(8)),
         ),
         ManufacturingDependencies(),
       ),
@@ -41,9 +42,9 @@ class WorkCodecsTest extends AnyFlatSpecLike:
 
   private def orderData(): OrderData =
     OrderData(
-      UUID.fromString("00000000-0000-0000-0000-000000000703").nn,
+      OrderId(UUID.fromString("00000000-0000-0000-0000-000000000703").nn),
       "ORD-703".refineUnsafe[OrderNumber],
-      UUID.fromString("00000000-0000-0000-0000-000000000704").nn: CustomerId,
+      CustomerId(UUID.fromString("00000000-0000-0000-0000-000000000704").nn),
       day,
       day.plusDays(5).nn,
       OrderPriority.Normal,
@@ -67,8 +68,8 @@ class WorkCodecsTest extends AnyFlatSpecLike:
     decoded.setOfManufacturing.map(_.info.id).toList shouldEqual List(firstManufacturingId, secondManufacturingId)
 
   "ScheduledManufacturingInfo codec" should "round-trip per-task preferred employees" in:
-    val taskInstanceId: ScheduledTaskId = UUID.fromString("00000000-0000-0000-0000-000000000705").nn
-    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+    val taskInstanceId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000705").nn)
+    val employeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000101").nn)
     val info = manufacturing(firstManufacturingId).info.copy(taskPreferredEmployees = Map(taskInstanceId -> employeeId))
     val decoded = info.asJson.as[ScheduledManufacturingInfo].fold(err => fail(s"Decoding failed: $err"), identity)
 
@@ -82,11 +83,11 @@ class WorkCodecsTest extends AnyFlatSpecLike:
     decoded.id shouldEqual firstManufacturingId
 
   "Manufacturing codec" should "decode catalog templates persisted before default employees existed" in:
-    val taskId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000301").nn
-    val employeeId = UUID.fromString("00000000-0000-0000-0000-000000000101").nn
+    val taskId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000301").nn)
+    val employeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000101").nn)
     val template = Manufacturing
       .createManufacturing(
-        UUID.fromString("00000000-0000-0000-0000-000000000706").nn,
+        ManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000706").nn),
         "MFG-TEST",
         "Serramento standard",
         None,

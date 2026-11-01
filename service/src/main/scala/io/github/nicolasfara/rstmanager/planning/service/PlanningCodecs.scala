@@ -1,12 +1,9 @@
 package io.github.nicolasfara.rstmanager.planning.service
 
-import io.github.nicolasfara.rstmanager.hr.domain.DailyHours
 import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
+import io.github.nicolasfara.rstmanager.service.codecs.CommonCodecs
 
-import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.DateTime
 import io.circe.{ Codec, Decoder, Encoder, Json }
 import io.circe.generic.semiauto.deriveCodec
 import io.circe.syntax.*
@@ -14,18 +11,11 @@ import io.circe.syntax.*
 /**
  * Circe codecs used to persist planning events and notifications in the edomata journal and outbox.
  *
- * Dates are serialized as ISO-8601 strings and refined hour types as plain integers re-validated on read. The remaining codecs are derived from the
- * planning model case classes and enums.
+ * Dates, refined hour types and identifiers use the shared [[CommonCodecs]] (re-exported, so importing `PlanningCodecs.given` is enough). The
+ * remaining codecs are derived from the planning model case classes and enums.
  */
 object PlanningCodecs:
-  given Codec[DateTime] = Codec.from(
-    Decoder.decodeString.emap(raw => Either.catchNonFatal(DateTime.parse(raw)).leftMap(_ => s"Invalid ISO-8601 date-time: $raw")),
-    Encoder.encodeString.contramap(_.toString),
-  )
-
-  given Codec[TaskDuration] = Codec.from(Decoder.decodeInt.emap(TaskDuration.either), Encoder.encodeInt.contramap(_.value))
-
-  given Codec[DailyHours] = Codec.from(Decoder.decodeInt.emap(DailyHours.either), Encoder.encodeInt.contramap(_.value))
+  export CommonCodecs.given
 
   given Codec[PlanningTrigger] = deriveCodec
   given Codec[PlanningRequest] = deriveCodec

@@ -24,7 +24,7 @@ class HrCodecsTest extends AnyFlatSpecLike:
   private def day(iso: String): LocalDate = LocalDate.parse(iso)
 
   private val employee = Employee(
-    UUID.fromString("00000000-0000-0000-0000-0000000000e1").nn,
+    EmployeeId(UUID.fromString("00000000-0000-0000-0000-0000000000e1").nn),
     EmployeeInfo("Mario".refineUnsafe[Name], "Rossi".refineUnsafe[Surname]),
     Contract.FixedTerm(day("2026-01-01"), day("2026-12-31")),
     BudgetHours(

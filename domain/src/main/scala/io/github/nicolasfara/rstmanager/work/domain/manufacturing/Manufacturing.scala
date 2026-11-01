@@ -12,8 +12,18 @@ import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.any.DescribedAs
 
-/** Unique identifier for a catalog manufacturing. */
-type ManufacturingId = UUID
+/** Unique identifier of a catalog manufacturing template: a distinct type, so it cannot be mixed up with the other identifiers. */
+opaque type ManufacturingId = UUID
+
+object ManufacturingId:
+  /** Wraps an existing UUID. */
+  def apply(value: UUID): ManufacturingId = value
+
+  extension (id: ManufacturingId)
+    /** The underlying UUID, for persistence and the API. */
+    def value: UUID = id
+
+  given CanEqual[ManufacturingId, ManufacturingId] = CanEqual.derived
 
 /** Refined constraint for a non-empty manufacturing code. */
 type ManufacturingCode = DescribedAs[Not[Empty], "The manufacturing code cannot be empty"]
@@ -61,7 +71,7 @@ final case class Manufacturing(
 object Manufacturing:
   /** Creates a catalog manufacturing from raw values and validated task dependency edges. */
   def createManufacturing(
-      id: UUID,
+      id: ManufacturingId,
       code: String,
       name: String,
       description: Option[String],

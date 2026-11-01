@@ -49,17 +49,17 @@ object OrderApp:
    * meantime the dangling id is harmless because [[list]] drops ids without a valid aggregate.
    */
   def create(store: Store, data: OrderData, promisedDeliveryDate: DateTime): IO[Either[OrderError, Unit]] =
-    RegistryBackend.register(store.registry, data.id) *>
+    RegistryBackend.register(store.registry, data.id.value) *>
       dispatch(store, data.id, OrderService.Command.Create(data, promisedDeliveryDate)).flatTap {
         case Right(_) => IO.unit
-        case Left(_) => RegistryBackend.deregister(store.registry, data.id)
+        case Left(_) => RegistryBackend.deregister(store.registry, data.id.value)
       }
 
   /** Dispatches any order lifecycle command (suspend, complete, deliver, change priority, …). */
   def command(store: Store, id: OrderId, command: OrderService.Command): IO[Either[OrderError, Unit]] =
     dispatch(store, id, command).flatTap {
       // Orders cancelled before the index kept cancelled ids were deregistered; re-registering on reopen (idempotent) heals them.
-      case Right(_) if command == OrderService.Command.Reopen => RegistryBackend.register(store.registry, id)
+      case Right(_) if command == OrderService.Command.Reopen => RegistryBackend.register(store.registry, id.value)
       case _ => IO.unit
     }
 
@@ -80,7 +80,7 @@ object OrderApp:
   def exists(store: Store, id: OrderId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Order]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(get(store, _))).map(_.flatten)
+    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, OrderId(id)))).map(_.flatten)
 
   private def dispatch(store: Store, id: OrderId, command: OrderService.Command): IO[Either[OrderError, Unit]] =
     val service = store.entity.compile(OrderService[IO])

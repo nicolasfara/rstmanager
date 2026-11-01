@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import java.util.UUID
-
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingDependencies, ManufacturingDependencyError }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
@@ -10,7 +9,6 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturingError,
   ScheduledManufacturingId,
 }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId.given
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
@@ -115,7 +113,7 @@ object OrderOperations:
   def changeManufacturingPreferredEmployee(
       order: ActiveOrder,
       manufacturingId: ScheduledManufacturingId,
-      employeeId: Option[UUID],
+      employeeId: Option[EmployeeId],
   ): Either[OrderError, ActiveOrder] =
     updateManufacturing(order, manufacturingId)(_.withPreferredEmployee(employeeId).asRight)
 
@@ -124,7 +122,7 @@ object OrderOperations:
       order: ActiveOrder,
       manufacturingId: ScheduledManufacturingId,
       taskId: ScheduledTaskId,
-      employeeId: Option[UUID],
+      employeeId: Option[EmployeeId],
   ): Either[OrderError, ActiveOrder] =
     updateManufacturing(order, manufacturingId)(_.withTaskPreferredEmployee(taskId, employeeId))
 
@@ -150,7 +148,7 @@ object OrderOperations:
       manufacturingId: ScheduledManufacturingId,
       task: ScheduledTask,
       dependsOn: Set[TaskId],
-      preferredEmployee: Option[UUID],
+      preferredEmployee: Option[EmployeeId],
   ): Either[OrderError, ActiveOrder] =
     updateManufacturing(order, manufacturingId)(_.addTask(task, dependsOn, preferredEmployee).asRight)
 

@@ -12,9 +12,17 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import monocle.syntax.all.*
 
-/** Unique identifier for a scheduled task instance. */
-type ScheduledTaskId = UUID
+/** Unique identifier of a task scheduled inside an order manufacturing: a distinct type, so it cannot be mixed up with the other identifiers. */
+opaque type ScheduledTaskId = UUID
+
 object ScheduledTaskId:
+  /** Wraps an existing UUID. */
+  def apply(value: UUID): ScheduledTaskId = value
+
+  extension (id: ScheduledTaskId)
+    /** The underlying UUID, for persistence and the API. */
+    def value: UUID = id
+
   given CanEqual[ScheduledTaskId, ScheduledTaskId] = CanEqual.derived
 
 /**
@@ -126,7 +134,7 @@ end ScheduledTask
 
 object ScheduledTask:
   /** Creates a pending scheduled task from raw input values (`expectedMinutes` in total minutes). */
-  def createScheduledTask(id: UUID, taskId: TaskId, expectedMinutes: Int): ValidatedNec[String, PendingTask] =
+  def createScheduledTask(id: ScheduledTaskId, taskId: TaskId, expectedMinutes: Int): ValidatedNec[String, PendingTask] =
     (
       Validated.valid(id),
       Validated.valid(taskId),

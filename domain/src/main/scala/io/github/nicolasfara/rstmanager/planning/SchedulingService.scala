@@ -180,7 +180,7 @@ object SchedulingService:
         .toList
         .sortBy(_.toString)
         .map { missingDependency =>
-          UnplannedTask(manufacturing.info.id, manufacturing.info.tasks.head.id, UnplannedReason.MissingDependency(missingDependency))
+          UnplannedTask(manufacturing.info.id, manufacturing.info.tasks.head.id, UnplannedReason.MissingManufacturingDependency(missingDependency))
         }
     }
 
@@ -193,13 +193,21 @@ object SchedulingService:
             val cycleTasks = manufacturings
               .filter(manufacturing => cycleIds.contains(manufacturing.info.id))
               .flatMap { manufacturing =>
-                manufacturing.info.tasks.toList.map(task => UnplannedTask(manufacturing.info.id, task.id, UnplannedReason.DependencyCycle(cycleIds)))
+                manufacturing.info.tasks.toList.map { task =>
+                  UnplannedTask(manufacturing.info.id, task.id, UnplannedReason.ManufacturingDependencyCycle(cycleIds))
+                }
               }
             NonEmptyList
               .fromList(cycleTasks)
               .getOrElse(
                 NonEmptyList
-                  .one(UnplannedTask(manufacturings.head.info.id, manufacturings.head.info.tasks.head.id, UnplannedReason.DependencyCycle(cycleIds))),
+                  .one(
+                    UnplannedTask(
+                      manufacturings.head.info.id,
+                      manufacturings.head.info.tasks.head.id,
+                      UnplannedReason.ManufacturingDependencyCycle(cycleIds),
+                    ),
+                  ),
               )
               .asLeft
 

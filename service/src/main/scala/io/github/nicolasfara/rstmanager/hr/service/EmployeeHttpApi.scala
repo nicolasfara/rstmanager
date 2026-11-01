@@ -93,7 +93,7 @@ object EmployeeHttpApi:
         contract.toDomain("contract"),
         overrides.zipWithIndex.traverse { case (dto, index) => dto.toDomain(s"overrides[$index]") },
       ).mapN((_, _)).andThen { case (employmentContract, hoursOverrides) =>
-        Employee.createEmployee(id, name, surname, employmentContract, budgetWeeklyHours, hoursOverrides)
+        Employee.createEmployee(EmployeeId(id), name, surname, employmentContract, budgetWeeklyHours, hoursOverrides)
       }
 
   object EmployeeRequest:
@@ -112,7 +112,7 @@ object EmployeeHttpApi:
   object EmployeeResponse:
     def fromDomain(employee: Employee): EmployeeResponse =
       EmployeeResponse(
-        employee.id,
+        employee.id.value,
         employee.info.name,
         employee.info.surname,
         EmployeeContractDto.fromDomain(employee.contract),
@@ -202,7 +202,7 @@ object EmployeeHttpApi:
     EmployeeApp.list(store).attempt.map(_.bimap(ApiError.internal, _.map(EmployeeResponse.fromDomain)))
 
   private def readLogic(store: EmployeeApp.Store)(id: UUID): IO[Either[ApiFailure, EmployeeResponse]] =
-    EmployeeApp.get(store, id).attempt.map {
+    EmployeeApp.get(store, EmployeeId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Some(employee)) => EmployeeResponse.fromDomain(employee).asRight
       case Right(None) => ApiError.notFound("Employee", id.toString).asLeft
@@ -220,7 +220,7 @@ object EmployeeHttpApi:
         }
 
   private def deleteLogic(store: EmployeeApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
-    EmployeeApp.delete(store, id).attempt.map {
+    EmployeeApp.delete(store, EmployeeId(id)).attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
       case Right(Left(EmployeeError.EmployeeNotFound)) => ApiError.notFound("Employee", id.toString).asLeft
       case Right(Left(error)) => conflict(error).asLeft

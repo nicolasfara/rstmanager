@@ -11,8 +11,18 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.cats.*
 import io.github.iltotore.iron.constraint.all.*
 
-/** Unique identifier for a task. */
-type TaskId = UUID
+/** Unique identifier of a catalog task: a distinct type, so it cannot be mixed up with the other identifiers. */
+opaque type TaskId = UUID
+
+object TaskId:
+  /** Wraps an existing UUID. */
+  def apply(value: UUID): TaskId = value
+
+  extension (id: TaskId)
+    /** The underlying UUID, for persistence and the API. */
+    def value: UUID = id
+
+  given CanEqual[TaskId, TaskId] = CanEqual.derived
 
 /** Refined constraint for a non-empty task name. */
 type TaskName = DescribedAs[Not[Empty], "The task name cannot be empty"]
@@ -70,7 +80,7 @@ object Task:
    *   Optional default employee proposed for this task.
    */
   def createTask(
-      id: UUID,
+      id: TaskId,
       name: String,
       description: Option[String],
       requiredMinutes: Int,

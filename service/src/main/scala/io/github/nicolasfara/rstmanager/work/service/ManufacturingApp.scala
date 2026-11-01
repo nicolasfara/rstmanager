@@ -41,7 +41,7 @@ object ManufacturingApp:
 
   def create(store: Store, manufacturing: Manufacturing): IO[Either[ManufacturingError, Unit]] =
     dispatch(store, manufacturing.id, ManufacturingService.Command.Create(manufacturing)).flatTap {
-      case Right(_) => RegistryBackend.register(store.registry, manufacturing.id)
+      case Right(_) => RegistryBackend.register(store.registry, manufacturing.id.value)
       case Left(_) => IO.unit
     }
 
@@ -50,7 +50,7 @@ object ManufacturingApp:
 
   def delete(store: Store, id: ManufacturingId): IO[Either[ManufacturingError, Unit]] =
     dispatch(store, id, ManufacturingService.Command.Delete).flatTap {
-      case Right(_) => RegistryBackend.deregister(store.registry, id)
+      case Right(_) => RegistryBackend.deregister(store.registry, id.value)
       case Left(_) => IO.unit
     }
 
@@ -63,7 +63,7 @@ object ManufacturingApp:
   def exists(store: Store, id: ManufacturingId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Manufacturing]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(get(store, _))).map(_.flatten)
+    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, ManufacturingId(id)))).map(_.flatten)
 
   def findByTaskId(store: Store, taskId: TaskId): IO[List[Manufacturing]] =
     list(store).map(_.filter(_.taskIds.exists(_.equals(taskId))))

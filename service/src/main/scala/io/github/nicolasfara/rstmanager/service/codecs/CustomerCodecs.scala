@@ -11,6 +11,8 @@ import io.github.iltotore.iron.circe.given
 /** Circe codecs for the customer aggregate graph, used to persist [[CustomerEvent]] in the journal. */
 object CustomerCodecs:
   // Defaults let events persisted before the master-data extension (business name, PEC, notes, boat) decode correctly.
+  import CommonCodecs.given
+
   private given Configuration = Configuration.default.withDefaults
   given Codec[ContactInfo] = deriveCodec
   given Codec[Address] = deriveCodec

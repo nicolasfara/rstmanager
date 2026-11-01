@@ -48,10 +48,10 @@ object EmployeeApp:
    * again; in the meantime the dangling id is harmless because [[list]] drops ids without a valid aggregate.
    */
   def create(store: Store, employee: Employee): IO[Either[EmployeeError, Unit]] =
-    RegistryBackend.register(store.registry, employee.id) *>
+    RegistryBackend.register(store.registry, employee.id.value) *>
       dispatch(store, employee.id, EmployeeService.Command.Create(employee)).flatTap {
         case Right(_) => IO.unit
-        case Left(_) => RegistryBackend.deregister(store.registry, employee.id)
+        case Left(_) => RegistryBackend.deregister(store.registry, employee.id.value)
       }
 
   def update(store: Store, employee: Employee): IO[Either[EmployeeError, Unit]] =
@@ -59,7 +59,7 @@ object EmployeeApp:
 
   def delete(store: Store, id: EmployeeId): IO[Either[EmployeeError, Unit]] =
     dispatch(store, id, EmployeeService.Command.Delete).flatTap {
-      case Right(_) => RegistryBackend.deregister(store.registry, id)
+      case Right(_) => RegistryBackend.deregister(store.registry, id.value)
       case Left(_) => IO.unit
     }
 
@@ -72,7 +72,7 @@ object EmployeeApp:
   def exists(store: Store, id: EmployeeId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Employee]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(get(store, _))).map(_.flatten)
+    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, EmployeeId(id)))).map(_.flatten)
 
   private def dispatch(store: Store, id: EmployeeId, command: EmployeeService.Command): IO[Either[EmployeeError, Unit]] =
     val service = store.entity.compile(EmployeeService[IO])

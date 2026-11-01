@@ -1,14 +1,11 @@
 package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 
-import java.util.UUID
-
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskError, ScheduledTaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
-import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId.given
 
 import cats.data.*
 import cats.syntax.all.*
@@ -73,7 +70,7 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
     withInfo(info.copy(completionDate = completionDate))
 
   /** Sets (or clears) the preferred employee for this manufacturing. */
-  def withPreferredEmployee(employeeId: Option[UUID]): ScheduledManufacturing =
+  def withPreferredEmployee(employeeId: Option[EmployeeId]): ScheduledManufacturing =
     withInfo(info.copy(preferredEmployeeId = employeeId))
 
   /** Sets (or clears) the preferred employee of one scheduled task, failing when the task does not exist. */

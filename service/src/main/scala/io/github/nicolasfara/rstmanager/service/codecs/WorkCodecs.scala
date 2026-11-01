@@ -1,7 +1,5 @@
 package io.github.nicolasfara.rstmanager.service.codecs
 
-import java.util.UUID
-
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
@@ -9,6 +7,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
   ManufacturingCode,
   ManufacturingDependencies,
   ManufacturingDescription,
+  ManufacturingId,
   ManufacturingName,
   ManufacturingService,
 }
@@ -63,7 +62,7 @@ object WorkCodecs:
         tasks <- cursor.get[NonEmptyList[ScheduledTask]]("tasks")
         dependencies <- cursor.get[ManufacturingDependencies]("dependencies")
         description <- cursor.get[Option[String]]("description")
-        preferredEmployeeId <- cursor.get[Option[UUID]]("preferredEmployeeId")
+        preferredEmployeeId <- cursor.get[Option[EmployeeId]]("preferredEmployeeId")
         taskPreferredEmployees <- cursor.get[Option[Map[ScheduledTaskId, EmployeeId]]]("taskPreferredEmployees")
       yield ScheduledManufacturingInfo(
         id,
@@ -119,7 +118,7 @@ object WorkCodecs:
   given Codec[Manufacturing] = Codec.from(
     Decoder.instance { cursor =>
       for
-        id <- cursor.get[UUID]("id")
+        id <- cursor.get[ManufacturingId]("id")
         code <- cursor.get[String :| ManufacturingCode]("code")
         name <- cursor.get[String :| ManufacturingName]("name")
         description <- cursor.get[Option[String :| ManufacturingDescription]]("description")

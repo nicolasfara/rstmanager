@@ -161,6 +161,12 @@ enum UnplannedReason derives CanEqual:
   /** The task cannot start because one of its prerequisites is itself unplanned. */
   case BlockedByDependency(dependency: TaskId)
 
+  /** The manufacturing depends on another manufacturing that is not part of the order. */
+  case MissingManufacturingDependency(dependency: ScheduledManufacturingId)
+
+  /** The order's manufacturing dependency graph contains a cycle involving the listed manufacturings. */
+  case ManufacturingDependencyCycle(cycle: Set[ScheduledManufacturingId])
+
 /**
  * One task-level planning failure inside an unplanned order.
  *

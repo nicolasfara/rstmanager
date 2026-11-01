@@ -39,11 +39,11 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
   private val wednesday: DateTime = monday.plusDays(2).nn
   private val friday: DateTime = monday.plusDays(4).nn
 
-  private val employeeA: EmployeeId = UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn
-  private val employeeB: EmployeeId = UUID.fromString("00000000-0000-0000-0000-0000000000b2").nn
-  private val orderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000002").nn
-  private val otherOrderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000003").nn
-  private val manufacturingId: ScheduledManufacturingId = UUID.fromString("00000000-0000-0000-0000-000000000004").nn
+  private val employeeA: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn)
+  private val employeeB: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-0000000000b2").nn)
+  private val orderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000002").nn)
+  private val otherOrderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000003").nn)
+  private val manufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000004").nn)
 
   private def employee(id: EmployeeId): Employee =
     employee(id, 40, Nil, Contract.FullTime(monday.toLocalDate.minusYears(1)))
@@ -69,10 +69,10 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   // Scenarios are expressed in whole hours; the domain stores minutes, so the hour figure is scaled by 60.
   private def pendingTask(templateId: TaskId, hours: Int): PendingTask =
-    PendingTask(UUID.randomUUID().nn: ScheduledTaskId, templateId, TaskDuration.applyUnsafe(hours * 60))
+    PendingTask(ScheduledTaskId(UUID.randomUUID().nn), templateId, TaskDuration.applyUnsafe(hours * 60))
 
   private def pendingTaskMinutes(templateId: TaskId, minutes: Int): PendingTask =
-    PendingTask(UUID.randomUUID().nn: ScheduledTaskId, templateId, TaskDuration.applyUnsafe(minutes))
+    PendingTask(ScheduledTaskId(UUID.randomUUID().nn), templateId, TaskDuration.applyUnsafe(minutes))
 
   private def manufacturing(
       id: ScheduledManufacturingId,
@@ -123,7 +123,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       OrderData(
         id,
         s"ORD-$id".refineUnsafe[OrderNumber],
-        UUID.randomUUID().nn: CustomerId,
+        CustomerId(UUID.randomUUID().nn),
         monday.minusDays(7).nn,
         deliveryDate,
         priority,
@@ -137,7 +137,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   private def requestAt(start: DateTime, requestedOn: DateTime, orderIds: List[OrderId]): PlanningRequest =
     PlanningRequest(
-      UUID.fromString("00000000-0000-0000-0000-000000000005").nn,
+      PlanningRequestId(UUID.fromString("00000000-0000-0000-0000-000000000005").nn),
       start,
       PlanningTrigger.DailyPlanning,
       requestedOn,
@@ -152,7 +152,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     SchedulingService.computeSchedule(planningRequest, orders, employees)
 
   "SchedulingService" should "schedule a task on a single day when the daily capacity suffices" in:
-    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
@@ -165,7 +165,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   it should "terminate and use the employee when the weekly budget exceeds what fits in a working week" in:
     // 125h/week is a valid `WeeklyHours` but more than 24h/day over five days: it used to make the capacity search loop forever.
-    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val overloaded = employee(employeeA, 125, Nil, Contract.FullTime(monday.toLocalDate.minusYears(1)))
     val computation = Future(SchedulingService.computeSchedule(request(monday, List(orderId)), List(theOrder), List(overloaded)))
@@ -174,7 +174,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       List((monday, 6))
 
   it should "split a task over consecutive days when it exceeds the daily capacity" in:
-    val task = pendingTask(UUID.randomUUID().nn, 20)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 20)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
@@ -184,7 +184,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       List((monday, 8, 12), (tuesday, 8, 4), (wednesday, 4, 0))
 
   it should "cap today's capacity to the hours remaining when planning is requested late in the day" in:
-    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val requestedAt5pm = requestAt(monday, monday.withTime(17, 0, 0, 0).nn, List(orderId))
     val outcome = scheduleOrFail(requestedAt5pm, List(theOrder), List(employee(employeeA)))
@@ -196,7 +196,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   it should "split a task with minute-level precision across days" in:
     // At 17:00 only 1h (60 min) of today's capacity is left; a 95-minute task spills 35 minutes onto the next day.
-    val task = pendingTaskMinutes(UUID.randomUUID().nn, 95)
+    val task = pendingTaskMinutes(TaskId(UUID.randomUUID().nn), 95)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val requestedAt5pm = requestAt(monday, monday.withTime(17, 0, 0, 0).nn, List(orderId))
     val outcome = scheduleOrFail(requestedAt5pm, List(theOrder), List(employee(employeeA)))
@@ -205,7 +205,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       List((monday, 60, 35), (tuesday, 35, 0))
 
   it should "not count the lunch break as time remaining when planning is requested during it" in:
-    val task = pendingTask(UUID.randomUUID().nn, 4)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 4)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val requestedDuringLunch = requestAt(monday, monday.withTime(13, 30, 0, 0).nn, List(orderId))
     val outcome = scheduleOrFail(requestedDuringLunch, List(theOrder), List(employee(employeeA)))
@@ -213,7 +213,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual List((monday, 4))
 
   it should "move to the next production day when planning is requested after the workday ends" in:
-    val task = pendingTask(UUID.randomUUID().nn, 4)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 4)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val requestedAt7pm = requestAt(monday, monday.withTime(19, 0, 0, 0).nn, List(orderId))
     val outcome = scheduleOrFail(requestedAt7pm, List(theOrder), List(employee(employeeA)))
@@ -221,7 +221,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(_.day) shouldEqual List(tuesday)
 
   it should "split a task over multiple employees on the same day" in:
-    val task = pendingTask(UUID.randomUUID().nn, 12)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 12)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA), employee(employeeB)))
 
@@ -230,8 +230,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(_.candidateEmployee.employeeId).toSet shouldEqual Set(employeeA, employeeB)
 
   it should "schedule a dependent task starting the day after its prerequisite completes" in:
-    val prerequisiteTemplate: TaskId = UUID.randomUUID().nn
-    val dependentTemplate: TaskId = UUID.randomUUID().nn
+    val prerequisiteTemplate: TaskId = TaskId(UUID.randomUUID().nn)
+    val dependentTemplate: TaskId = TaskId(UUID.randomUUID().nn)
     val prerequisite = pendingTask(prerequisiteTemplate, 8)
     val dependent = pendingTask(dependentTemplate, 4)
     val dependencies = ManufacturingDependencies().addTaskDependencies(dependentTemplate, Set(prerequisiteTemplate))
@@ -244,7 +244,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     sliceByTask(dependent.id).map(_.day) shouldEqual List(tuesday)
 
   it should "skip Saturdays and Sundays" in:
-    val task = pendingTask(UUID.randomUUID().nn, 16)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 16)
     val nextMonday = monday.plusDays(7).nn
     val theOrder = order(orderId, nextMonday, NonEmptyList.one(manufacturing(manufacturingId, nextMonday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(friday, List(orderId)), List(theOrder), List(employee(employeeA)))
@@ -252,7 +252,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(_.day) shouldEqual List(friday, nextMonday)
 
   it should "skip employee vacation days" in:
-    val task = pendingTask(UUID.randomUUID().nn, 8)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 8)
     val vacation = VacationOverride.createVacationOverride(monday.toLocalDate, monday.toLocalDate).toOption.getOrElse(fail("invalid vacation"))
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA, overrides = List(vacation))))
@@ -260,7 +260,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(_.day) shouldEqual List(tuesday)
 
   it should "treat the last vacation day as a day off" in:
-    val task = pendingTask(UUID.randomUUID().nn, 8)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 8)
     val vacation = VacationOverride.createVacationOverride(monday.toLocalDate, tuesday.toLocalDate).toOption.getOrElse(fail("invalid vacation"))
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA, overrides = List(vacation))))
@@ -269,7 +269,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
   it should "apply a working-day override whatever the time zone it was entered in" in:
     // Days entered in the UI arrive as UTC midnights, while planning days are midnights in the server zone: only the calendar day matters.
-    val task = pendingTask(UUID.randomUUID().nn, 2)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 2)
     val enteredAsUtcMidnight = DateTime.parse("2026-06-15T00:00:00.000Z").toLocalDate
     val dayOverride = WorkingDayOverride.createWorkingDayOverride(2, None, enteredAsUtcMidnight).toOption.getOrElse(fail("invalid override"))
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
@@ -279,7 +279,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual List((monday, 2))
 
   it should "report order and manufacturing delays when work overruns the expected dates" in:
-    val task = pendingTask(UUID.randomUUID().nn, 20)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 20)
     val theOrder = order(orderId, monday, NonEmptyList.one(manufacturing(manufacturingId, monday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
 
@@ -287,7 +287,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.delayedOrders shouldEqual List(DelayedOrder(orderId, monday, wednesday))
 
   it should "report order delays against the work deadline before the customer delivery date" in:
-    val task = pendingTask(UUID.randomUUID().nn, 20)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 20)
     val theOrder =
       order(orderId, friday, monday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))), OrderPriority.Normal)
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
@@ -296,9 +296,9 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.delayedOrders shouldEqual List(DelayedOrder(orderId, monday, wednesday))
 
   it should "give urgent orders precedence over normal orders" in:
-    val urgentTask = pendingTask(UUID.randomUUID().nn, 8)
-    val normalTask = pendingTask(UUID.randomUUID().nn, 8)
-    val urgentManufacturingId: ScheduledManufacturingId = UUID.randomUUID().nn
+    val urgentTask = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val normalTask = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val urgentManufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.randomUUID().nn)
     val urgent =
       order(orderId, friday, NonEmptyList.one(manufacturing(urgentManufacturingId, friday, NonEmptyList.one(urgentTask))), OrderPriority.Urgent)
     val normal = order(otherOrderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(normalTask))))
@@ -309,7 +309,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     sliceByOrder(otherOrderId).map(_.day) shouldEqual List(tuesday)
 
   it should "keep planning after the former window would have ended" in:
-    val task = pendingTask(UUID.randomUUID().nn, 50)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 50)
     val nextTuesday = monday.plusDays(8).nn
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
@@ -319,7 +319,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.unplannedOrders shouldBe empty
 
   it should "return an unplanned order when no employee can provide future capacity" in:
-    val task = pendingTask(UUID.randomUUID().nn, 8)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 8)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), Nil)
 
@@ -329,7 +329,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     )
 
   it should "count the end date of a fixed-term contract as a working day" in:
-    val task = pendingTask(UUID.randomUUID().nn, 16)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 16)
     val endsTuesday = Contract.FixedTerm(monday.toLocalDate.minusDays(1), tuesday.toLocalDate)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA, contract = endsTuesday)))
@@ -338,9 +338,9 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.unplannedOrders shouldBe empty
 
   it should "plan higher-priority orders and mark later orders unplanned when fixed-term capacity runs out" in:
-    val urgentTask = pendingTask(UUID.randomUUID().nn, 16)
-    val normalTask = pendingTask(UUID.randomUUID().nn, 8)
-    val urgentManufacturingId: ScheduledManufacturingId = UUID.randomUUID().nn
+    val urgentTask = pendingTask(TaskId(UUID.randomUUID().nn), 16)
+    val normalTask = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val urgentManufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.randomUUID().nn)
     // The contract's last day is Tuesday: two 8h days, enough for the urgent order only.
     val limitedContract = Contract.FixedTerm(monday.toLocalDate.minusDays(1), tuesday.toLocalDate)
     val urgent =
@@ -354,14 +354,14 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.unplannedOrders.map(_.orderId) shouldEqual List(otherOrderId)
 
   it should "discard partial slices when a later manufacturing makes the order unplanned" in:
-    val validTask = pendingTask(UUID.randomUUID().nn, 8)
-    val firstTemplate: TaskId = UUID.randomUUID().nn
-    val secondTemplate: TaskId = UUID.randomUUID().nn
+    val validTask = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val firstTemplate: TaskId = TaskId(UUID.randomUUID().nn)
+    val secondTemplate: TaskId = TaskId(UUID.randomUUID().nn)
     val cycleDependencies = ManufacturingDependencies()
       .addTaskDependencies(firstTemplate, Set(secondTemplate))
       .addTaskDependencies(secondTemplate, Set(firstTemplate))
     val cycleTasks = NonEmptyList.of(pendingTask(firstTemplate, 4), pendingTask(secondTemplate, 4))
-    val firstManufacturing = manufacturing(UUID.randomUUID().nn: ScheduledManufacturingId, monday, NonEmptyList.one(validTask))
+    val firstManufacturing = manufacturing(ScheduledManufacturingId(UUID.randomUUID().nn), monday, NonEmptyList.one(validTask))
     val secondManufacturing = manufacturing(manufacturingId, friday, cycleTasks, cycleDependencies)
     val theOrder = order(orderId, friday, NonEmptyList.of(firstManufacturing, secondManufacturing))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
@@ -370,8 +370,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.unplannedOrders.map(_.orderId) shouldEqual List(orderId)
 
   it should "mark a manufacturing with a dependency cycle as unplanned" in:
-    val firstTemplate: TaskId = UUID.randomUUID().nn
-    val secondTemplate: TaskId = UUID.randomUUID().nn
+    val firstTemplate: TaskId = TaskId(UUID.randomUUID().nn)
+    val secondTemplate: TaskId = TaskId(UUID.randomUUID().nn)
     val dependencies = ManufacturingDependencies()
       .addTaskDependencies(firstTemplate, Set(secondTemplate))
       .addTaskDependencies(secondTemplate, Set(firstTemplate))
@@ -387,9 +387,9 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Expected a dependency cycle reason, got: $other")
 
   it should "schedule a dependent manufacturing starting the day after its prerequisite completes" in:
-    val prerequisiteId: ScheduledManufacturingId = UUID.randomUUID().nn
-    val prerequisiteTask = pendingTask(UUID.randomUUID().nn, 8)
-    val dependentTask = pendingTask(UUID.randomUUID().nn, 4)
+    val prerequisiteId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.randomUUID().nn)
+    val prerequisiteTask = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val dependentTask = pendingTask(TaskId(UUID.randomUUID().nn), 4)
     val prerequisite = manufacturing(prerequisiteId, friday, NonEmptyList.one(prerequisiteTask))
     // The dependent has the earliest completion date: without the dependency it would be planned first.
     val dependent = manufacturing(manufacturingId, monday, NonEmptyList.one(dependentTask))
@@ -403,15 +403,15 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     sliceByManufacturing(manufacturingId).map(_.day) shouldEqual List(tuesday)
 
   it should "treat dependencies on manufacturings without remaining work as already satisfied" in:
-    val completedId: ScheduledManufacturingId = UUID.randomUUID().nn
+    val completedId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.randomUUID().nn)
     val completedTask = ScheduledTask.CompletedTask(
-      UUID.randomUUID().nn: ScheduledTaskId,
-      UUID.randomUUID().nn: TaskId,
+      ScheduledTaskId(UUID.randomUUID().nn),
+      TaskId(UUID.randomUUID().nn),
       TaskDuration.applyUnsafe(8 * 60),
       TaskDuration.applyUnsafe(8 * 60),
       monday.minusDays(1).nn,
     )
-    val dependentTask = pendingTask(UUID.randomUUID().nn, 4)
+    val dependentTask = pendingTask(TaskId(UUID.randomUUID().nn), 4)
     val completed = manufacturing(completedId, friday, NonEmptyList.one(completedTask))
     val dependent = manufacturing(manufacturingId, friday, NonEmptyList.one(dependentTask))
     val base = order(orderId, friday, NonEmptyList.of(dependent, completed))
@@ -422,9 +422,9 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(slice => (slice.manufacturingId, slice.day)) shouldEqual List((manufacturingId, monday))
 
   it should "mark an order with a manufacturing dependency cycle as unplanned" in:
-    val firstId: ScheduledManufacturingId = UUID.randomUUID().nn
-    val first = manufacturing(firstId, friday, NonEmptyList.one(pendingTask(UUID.randomUUID().nn, 4)))
-    val second = manufacturing(manufacturingId, friday, NonEmptyList.one(pendingTask(UUID.randomUUID().nn, 4)))
+    val firstId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.randomUUID().nn)
+    val first = manufacturing(firstId, friday, NonEmptyList.one(pendingTask(TaskId(UUID.randomUUID().nn), 4)))
+    val second = manufacturing(manufacturingId, friday, NonEmptyList.one(pendingTask(TaskId(UUID.randomUUID().nn), 4)))
     val dependencies = OrderDependencies.empty
       .addManufacturingDependencies(firstId, Set(manufacturingId))
       .addManufacturingDependencies(manufacturingId, Set(firstId))
@@ -435,12 +435,12 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices shouldBe empty
     outcome.unplannedOrders.map(_.orderId) shouldEqual List(orderId)
     outcome.unplannedOrders.head.blockedTasks.head.reason match
-      case UnplannedReason.DependencyCycle(cycle) => cycle should contain allOf (firstId, manufacturingId)
+      case UnplannedReason.ManufacturingDependencyCycle(cycle) => cycle should contain allOf (firstId, manufacturingId)
       case other => fail(s"Expected a dependency cycle reason, got: $other")
 
   it should "mark a manufacturing depending on a missing manufacturing as unplanned" in:
-    val missingId: ScheduledManufacturingId = UUID.randomUUID().nn
-    val blockedTask = pendingTask(UUID.randomUUID().nn, 4)
+    val missingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.randomUUID().nn)
+    val blockedTask = pendingTask(TaskId(UUID.randomUUID().nn), 4)
     val blocked = manufacturing(manufacturingId, friday, NonEmptyList.one(blockedTask))
     val dependencies = OrderDependencies.empty.addManufacturingDependencies(manufacturingId, Set(missingId))
     val base = order(orderId, friday, NonEmptyList.one(blocked))
@@ -449,12 +449,15 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
     outcome.slices shouldBe empty
     outcome.unplannedOrders shouldEqual List(
-      UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, blockedTask.id, UnplannedReason.MissingDependency(missingId)))),
+      UnplannedOrder(
+        orderId,
+        NonEmptyList.one(UnplannedTask(manufacturingId, blockedTask.id, UnplannedReason.MissingManufacturingDependency(missingId))),
+      ),
     )
 
   it should "mark a task with a missing dependency as unplanned" in:
-    val missingTemplate: TaskId = UUID.randomUUID().nn
-    val blockedTemplate: TaskId = UUID.randomUUID().nn
+    val missingTemplate: TaskId = TaskId(UUID.randomUUID().nn)
+    val blockedTemplate: TaskId = TaskId(UUID.randomUUID().nn)
     val blockedTask = pendingTask(blockedTemplate, 4)
     val dependencies = ManufacturingDependencies().addTaskDependencies(blockedTemplate, Set(missingTemplate))
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(blockedTask), dependencies)))
@@ -466,7 +469,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     )
 
   it should "wait for future contracts and ignore expired contracts" in:
-    val task = pendingTask(UUID.randomUUID().nn, 8)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 8)
     val futureContract = Contract.FullTime(wednesday.toLocalDate)
     val expiredContract = Contract.FixedTerm(monday.toLocalDate.minusDays(10), monday.toLocalDate.minusDays(1))
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
@@ -479,8 +482,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.slices.map(slice => (slice.day, slice.candidateEmployee.employeeId)) shouldEqual List((wednesday, employeeB))
 
   it should "prefer the task-level employee over the manufacturing-level one" in:
-    val taskWithPreference = pendingTask(UUID.randomUUID().nn, 4)
-    val taskWithFallback = pendingTask(UUID.randomUUID().nn, 4)
+    val taskWithPreference = pendingTask(TaskId(UUID.randomUUID().nn), 4)
+    val taskWithFallback = pendingTask(TaskId(UUID.randomUUID().nn), 4)
     val base = manufacturing(manufacturingId, friday, NonEmptyList.of(taskWithPreference, taskWithFallback))
     val withPreferences = ScheduledManufacturing.NotStartedManufacturing(
       base.info.copy(preferredEmployeeId = Some(employeeA), taskPreferredEmployees = Map(taskWithPreference.id -> employeeB)),
@@ -493,7 +496,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     slicesByTask(taskWithFallback.id).map(_.candidateEmployee.employeeId).toSet shouldEqual Set(employeeA)
 
   it should "complete an empty request without slices or unplanned orders" in:
-    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, Nil), List(theOrder), List(employee(employeeA)))
 
@@ -502,7 +505,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     outcome.warnings shouldBe empty
 
   it should "warn about requested orders that are not in progress" in:
-    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId, otherOrderId)), List(theOrder), List(employee(employeeA)))
 
@@ -510,7 +513,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       List(s"Order $otherOrderId was requested for planning but is not an in-progress order and was skipped")
 
   "PlanningService" should "complete a feasible planning attempt and publish the completion" in:
-    val task = pendingTask(UUID.randomUUID().nn, 6)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val planningRequest = request(monday, List(orderId))
     val command = Command.ComputePlan(planningRequest, List(theOrder), List(employee(employeeA)))
@@ -525,7 +528,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Expected an accepted planning attempt, got: $other")
 
   it should "complete an attempt with unplanned orders and publish an unplanned notification" in:
-    val task = pendingTask(UUID.randomUUID().nn, 50)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 50)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val planningRequest = request(monday, List(orderId))
     val command = Command.ComputePlan(planningRequest, List(theOrder), Nil)
@@ -540,7 +543,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       case other => fail(s"Expected a completed planning attempt, got: $other")
 
   it should "publish delay notifications when planning delays an order" in:
-    val task = pendingTask(UUID.randomUUID().nn, 20)
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 20)
     val theOrder = order(orderId, monday, NonEmptyList.one(manufacturing(manufacturingId, monday, NonEmptyList.one(task))))
     val planningRequest = request(monday, List(orderId))
     val command = Command.ComputePlan(planningRequest, List(theOrder), List(employee(employeeA)))

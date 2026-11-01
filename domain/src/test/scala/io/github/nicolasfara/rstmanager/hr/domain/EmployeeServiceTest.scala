@@ -14,7 +14,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class EmployeeServiceTest extends AnyFlatSpecLike:
-  private val employeeId: EmployeeId = UUID.fromString("00000000-0000-0000-0000-0000000000e1").nn
+  private val employeeId: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-0000000000e1").nn)
   private val day: LocalDate = LocalDate.parse("2026-08-03")
 
   private def employeeWith(overrides: List[HoursOverride]): Employee =
@@ -61,7 +61,7 @@ class EmployeeServiceTest extends AnyFlatSpecLike:
     }
 
   it should "reject an employee sent to another employee's stream" in:
-    val otherStream: EmployeeId = UUID.fromString("00000000-0000-0000-0000-0000000000e2").nn
+    val otherStream: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-0000000000e2").nn)
     rejection(run(Command.Create(employeeWith(Nil)), EmployeeAggregate.Empty, otherStream)) shouldEqual List(EmployeeError.EmployeeIdMismatch)
 
   it should "publish the deleted employee's id, taken from its state" in:

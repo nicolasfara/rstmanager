@@ -1,7 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import java.util.UUID
-
+import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
@@ -30,14 +29,14 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case RemoveManufacturing(manufacturingId: ScheduledManufacturingId)
     case ChangeManufacturingDescription(manufacturingId: ScheduledManufacturingId, newDescription: Option[String])
     case ChangeManufacturingCompletionDate(manufacturingId: ScheduledManufacturingId, newCompletionDate: DateTime)
-    case SetPreferredEmployee(manufacturingId: ScheduledManufacturingId, employeeId: Option[UUID])
-    case SetTaskPreferredEmployee(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, employeeId: Option[UUID])
+    case SetPreferredEmployee(manufacturingId: ScheduledManufacturingId, employeeId: Option[EmployeeId])
+    case SetTaskPreferredEmployee(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, employeeId: Option[EmployeeId])
     case ChangeManufacturingStatus(manufacturingId: ScheduledManufacturingId, newStatus: ManufacturingStatus, reason: Option[String])
     case AddManufacturingTask(
         manufacturingId: ScheduledManufacturingId,
         task: ScheduledTask,
         dependsOn: List[TaskId],
-        preferredEmployeeId: Option[UUID] = None,
+        preferredEmployeeId: Option[EmployeeId] = None,
     )
     case RemoveManufacturingTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
     case SetTaskProgress(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId, completedDuration: TaskDuration)

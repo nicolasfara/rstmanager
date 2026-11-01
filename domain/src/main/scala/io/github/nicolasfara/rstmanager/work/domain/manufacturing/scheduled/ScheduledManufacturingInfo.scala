@@ -10,10 +10,17 @@ import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
 
-/** Unique identifier for a scheduled manufacturing instance. */
-type ScheduledManufacturingId = UUID
+/** Unique identifier of a manufacturing scheduled inside an order: a distinct type, so it cannot be mixed up with the other identifiers. */
+opaque type ScheduledManufacturingId = UUID
 
 object ScheduledManufacturingId:
+  /** Wraps an existing UUID. */
+  def apply(value: UUID): ScheduledManufacturingId = value
+
+  extension (id: ScheduledManufacturingId)
+    /** The underlying UUID, for persistence and the API. */
+    def value: UUID = id
+
   given CanEqual[ScheduledManufacturingId, ScheduledManufacturingId] = CanEqual.derived
 
 /**
@@ -43,7 +50,7 @@ final case class ScheduledManufacturingInfo(
     tasks: NonEmptyList[ScheduledTask],
     dependencies: ManufacturingDependencies,
     description: Option[String] = None,
-    preferredEmployeeId: Option[UUID] = None,
+    preferredEmployeeId: Option[EmployeeId] = None,
     taskPreferredEmployees: Map[ScheduledTaskId, EmployeeId] = Map.empty,
 ):
   /** Planner-effective preferred employee for one scheduled task: its own preference, falling back to the manufacturing-wide one. */

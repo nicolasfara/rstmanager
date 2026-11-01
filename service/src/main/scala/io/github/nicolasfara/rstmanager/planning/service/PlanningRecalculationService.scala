@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.planning.service
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.Employee
-import io.github.nicolasfara.rstmanager.planning.{ PlanningError, PlanningRequest, PlanningTrigger }
+import io.github.nicolasfara.rstmanager.planning.{ PlanningError, PlanningRequest, PlanningRequestId, PlanningTrigger }
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.PlanningDomainErrorDto
 import io.github.nicolasfara.rstmanager.work.domain.order.Order
 
@@ -85,7 +85,7 @@ object PlanningRecalculationService:
         requestId <- IO(cause.requestId.getOrElse(UUID.randomUUID().nn))
         requestedOn <- IO(DateTime.now())
       yield PlanningRequest(
-        requestId,
+        PlanningRequestId(requestId),
         requestedOn.withTimeAtStartOfDay().nn,
         cause.trigger,
         requestedOn,

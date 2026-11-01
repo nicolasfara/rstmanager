@@ -6,11 +6,16 @@ import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.planning.{ PlanningRequest, PlanningTrigger }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ScheduledManufacturing,
+  ScheduledManufacturingId,
+  ScheduledManufacturingInfo,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.NonEmptyList
 import cats.effect.{ IO, Ref }
@@ -25,8 +30,8 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
   private final case class Captured(request: PlanningRequest, orders: List[Order], employees: List[Employee])
 
   private val monday: DateTime = DateTime.parse("2026-06-15")
-  private val orderId: OrderId = UUID.fromString("00000000-0000-0000-0000-000000000011").nn
-  private val employeeId: EmployeeId = UUID.fromString("00000000-0000-0000-0000-000000000012").nn
+  private val orderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000011").nn)
+  private val employeeId: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-000000000012").nn)
 
   "PlanningRecalculationService" should "load a fresh automatic snapshot and compute a plan" in:
     val order = openOrder(orderId)
@@ -71,11 +76,11 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
     )
 
   private def openOrder(id: OrderId): InProgressOrder =
-    val taskId: TaskId = UUID.fromString("00000000-0000-0000-0000-000000000013").nn
-    val scheduledTask = PendingTask(UUID.fromString("00000000-0000-0000-0000-000000000014").nn, taskId, TaskDuration.applyUnsafe(8))
+    val taskId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000013").nn)
+    val scheduledTask = PendingTask(ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000014").nn), taskId, TaskDuration.applyUnsafe(8))
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
-        UUID.fromString("00000000-0000-0000-0000-000000000015").nn,
+        ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000015").nn),
         "MFG-TEST".refineUnsafe[ManufacturingCode],
         monday.plusDays(2).nn,
         NonEmptyList.one(scheduledTask),
@@ -87,7 +92,7 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
       OrderData(
         id,
         "ORD-1".refineUnsafe[OrderNumber],
-        UUID.fromString("00000000-0000-0000-0000-000000000016").nn: CustomerId,
+        CustomerId(UUID.fromString("00000000-0000-0000-0000-000000000016").nn),
         monday.minusDays(1).nn,
         monday.plusDays(5).nn,
         OrderPriority.Normal,

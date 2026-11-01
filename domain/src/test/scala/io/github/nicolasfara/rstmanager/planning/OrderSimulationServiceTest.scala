@@ -5,12 +5,23 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.planning.OrderSimulationService.{ SimulationDemand, SimulationResult }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies, ManufacturingName }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingInfo }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
+  Manufacturing,
+  ManufacturingCode,
+  ManufacturingDependencies,
+  ManufacturingId,
+  ManufacturingName,
+}
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ScheduledManufacturing,
+  ScheduledManufacturingId,
+  ScheduledManufacturingInfo,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.{ OrderData, OrderId, OrderNumber, OrderPriority }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskDuration, TaskId, TaskName }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.PendingTask
+import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
 
 import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.DateTime
@@ -23,7 +34,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
   private val tuesday: DateTime = monday.plusDays(1).nn
   private val wednesday: DateTime = monday.plusDays(2).nn
 
-  private val employeeA: EmployeeId = UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn
+  private val employeeA: EmployeeId = EmployeeId(UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn)
 
   private def employee(id: EmployeeId): Employee =
     Employee(
@@ -37,10 +48,10 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
   private def existingOrder(id: OrderId, hours: Int): InProgressOrder =
     val manufacturing = ScheduledManufacturing.NotStartedManufacturing(
       ScheduledManufacturingInfo(
-        UUID.randomUUID().nn,
+        ScheduledManufacturingId(UUID.randomUUID().nn),
         "MFG-EXISTING".refineUnsafe[ManufacturingCode],
         monday.plusDays(5).nn,
-        NonEmptyList.one(PendingTask(UUID.randomUUID().nn, UUID.randomUUID().nn, TaskDuration.applyUnsafe(hours * 60))),
+        NonEmptyList.one(PendingTask(ScheduledTaskId(UUID.randomUUID().nn), TaskId(UUID.randomUUID().nn), TaskDuration.applyUnsafe(hours * 60))),
         ManufacturingDependencies(),
       ),
     )
@@ -48,7 +59,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
       OrderData(
         id,
         s"ORD-$id".refineUnsafe[OrderNumber],
-        UUID.randomUUID().nn: CustomerId,
+        CustomerId(UUID.randomUUID().nn),
         monday.minusDays(7).nn,
         monday.plusDays(5).nn,
         OrderPriority.Normal,
@@ -63,7 +74,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
 
   private def template(taskIds: NonEmptyList[TaskId], dependencies: ManufacturingDependencies): Manufacturing =
     Manufacturing(
-      UUID.randomUUID().nn,
+      ManufacturingId(UUID.randomUUID().nn),
       "MFG-TPL".refineUnsafe[ManufacturingCode],
       "Serramenti".refineUnsafe[ManufacturingName],
       None,
@@ -89,14 +100,18 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
   it should "plan the simulated order after the existing commitments" in:
     // The existing order fills Monday entirely (8h), so the simulated 8 hours only start on Tuesday.
     val result =
-      simulateOrFail(List(existingOrder(UUID.randomUUID().nn, 8)), List(employee(employeeA)), SimulationDemand.TotalDuration(TaskDuration(8 * 60)))
+      simulateOrFail(
+        List(existingOrder(OrderId(UUID.randomUUID().nn), 8)),
+        List(employee(employeeA)),
+        SimulationDemand.TotalDuration(TaskDuration(8 * 60)),
+      )
 
     result.startDate shouldEqual Some(tuesday)
     result.estimatedCompletionDate shouldEqual Some(tuesday)
 
   it should "respect catalog task dependencies in the manufacturing-based mode" in:
-    val cutting: TaskId = UUID.randomUUID().nn
-    val assembly: TaskId = UUID.randomUUID().nn
+    val cutting: TaskId = TaskId(UUID.randomUUID().nn)
+    val assembly: TaskId = TaskId(UUID.randomUUID().nn)
     val dependencies = ManufacturingDependencies().addTaskDependencies(assembly, Set(cutting))
     val selection = NonEmptyList.one(
       template(NonEmptyList.of(cutting, assembly), dependencies) ->
@@ -110,7 +125,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
     result.estimatedCompletionDate shouldEqual Some(tuesday)
 
   it should "honour the template per-task duration overrides like a real order created from the catalog" in:
-    val cutting: TaskId = UUID.randomUUID().nn
+    val cutting: TaskId = TaskId(UUID.randomUUID().nn)
     val selection = NonEmptyList.one(
       template(NonEmptyList.one(cutting), ManufacturingDependencies())
         .copy(taskDurations = Map(cutting -> TaskDuration(2 * 60))) -> NonEmptyList.one(catalogTask(cutting, "Taglio", 8)),

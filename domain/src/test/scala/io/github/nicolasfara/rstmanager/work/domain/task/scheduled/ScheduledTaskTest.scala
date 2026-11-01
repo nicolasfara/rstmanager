@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.work.domain.task.scheduled
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
+import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTask.*
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskError.*
 
@@ -20,6 +20,8 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   // ---------------------------------------------------------------------------
 
   private val genUUID: Gen[UUID] = Gen.delay(UUID.randomUUID().nn)
+  private val genScheduledTaskId: Gen[ScheduledTaskId] = genUUID.map(ScheduledTaskId(_))
+  private val genTaskId: Gen[TaskId] = genUUID.map(TaskId(_))
   private val genHours: Gen[TaskDuration] = Gen.posNum[Int].map(TaskDuration.applyUnsafe)
 
   /**
@@ -33,30 +35,30 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   private val genPendingTask: Gen[PendingTask] =
     for
-      id <- genUUID
-      taskId <- genUUID
+      id <- genScheduledTaskId
+      taskId <- genTaskId
       hours <- genHours
     yield PendingTask(id, taskId, hours)
 
   private val genInProgressTask: Gen[InProgressTask] =
     for
-      id <- genUUID
-      taskId <- genUUID
+      id <- genScheduledTaskId
+      taskId <- genTaskId
       expectedDuration <- genHours
       completedDuration <- genHours
     yield InProgressTask(id, taskId, expectedDuration, completedDuration)
 
   private val genBoundedInProgressTask: Gen[InProgressTask] =
     for
-      id <- genUUID
-      taskId <- genUUID
+      id <- genScheduledTaskId
+      taskId <- genTaskId
       (expected, completed) <- genBoundedHours
     yield InProgressTask(id, taskId, expected, completed)
 
   private val genCompletedTask: Gen[CompletedTask] =
     for
-      id <- genUUID
-      taskId <- genUUID
+      id <- genScheduledTaskId
+      taskId <- genTaskId
       expectedDuration <- genHours
       completedDuration <- genHours
     yield CompletedTask(id, taskId, expectedDuration, completedDuration, DateTime.now())
@@ -229,7 +231,7 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   // ---------------------------------------------------------------------------
 
   "createScheduledTask" should "succeed for any positive expectedDuration and produce a PendingTask" in:
-    forAll(genUUID, genUUID, Gen.posNum[Int]): (id, taskId, hours) =>
+    forAll(genScheduledTaskId, genTaskId, Gen.posNum[Int]): (id, taskId, hours) =>
       val result = ScheduledTask.createScheduledTask(id, taskId, hours)
       result.isValid shouldEqual true
       result.foreach: task =>
@@ -238,5 +240,5 @@ class ScheduledTaskTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   it should "fail for zero or negative expectedDuration" in:
     forAll(Gen.chooseNum(Int.MinValue, -1)): hours =>
-      ScheduledTask.createScheduledTask(UUID.randomUUID().nn, UUID.randomUUID().nn, hours).isValid shouldEqual false
+      ScheduledTask.createScheduledTask(ScheduledTaskId(UUID.randomUUID().nn), TaskId(UUID.randomUUID().nn), hours).isValid shouldEqual false
 end ScheduledTaskTest

@@ -11,8 +11,13 @@ import io.github.nicolasfara.rstmanager.planning.service.PlanningServerConfig
 import io.github.nicolasfara.rstmanager.service.codecs.CustomerCodecs.given
 import io.github.nicolasfara.rstmanager.service.codecs.HrCodecs.given
 import io.github.nicolasfara.rstmanager.service.codecs.RegistryCodecs.given
+import io.github.nicolasfara.rstmanager.service.codecs.WarehouseCodecs.given
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
 import io.github.nicolasfara.rstmanager.service.registry.{ EntityRegistry, EntityRegistryEvent, EntityRegistryService }
+import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ ProductAggregate, ProductService }
+import io.github.nicolasfara.rstmanager.warehouse.domain.product.events.ProductEvent
+import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ SupplierAggregate, SupplierService }
+import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.events.SupplierEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingAggregate, ManufacturingService }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderService }
@@ -66,11 +71,23 @@ object JournalCheck extends IOApp:
       ),
       CheckedNamespace("orders", RowCheck.journal(Order, Decoder[OrderEvent]), RowCheck.outbox(Decoder[OrderService.Notification])),
       CheckedNamespace("planning", RowCheck.journal(Planning, Decoder[PlanningEvent]), RowCheck.outbox(Decoder[PlanningService.Notification])),
+      CheckedNamespace(
+        "suppliers",
+        RowCheck.journal(SupplierAggregate, Decoder[SupplierEvent]),
+        RowCheck.outbox(Decoder[SupplierService.Notification]),
+      ),
+      CheckedNamespace(
+        "products",
+        RowCheck.journal(ProductAggregate, Decoder[ProductEvent]),
+        RowCheck.outbox(Decoder[ProductService.Notification]),
+      ),
       registry("customer_index"),
       registry("employee_index"),
       registry("task_index"),
       registry("manufacturing_index"),
       registry("order_index"),
+      registry("supplier_index"),
+      registry("product_index"),
     )
   end namespaces
 

@@ -3,6 +3,7 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+import io.github.nicolasfara.rstmanager.warehouse.domain.Amount
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
 
@@ -42,6 +43,8 @@ object ScheduledManufacturingId:
  *   Manufacturing-wide preferred employee, used by the planner when a task has no dedicated preference.
  * @param taskPreferredEmployees
  *   Preferred employee for individual scheduled tasks (keyed by scheduled task instance id); takes precedence over `preferredEmployeeId`.
+ * @param materials
+ *   Warehouse products the manufacturing uses, at most one line per product, each with its frozen customer price.
  */
 final case class ScheduledManufacturingInfo(
     id: ScheduledManufacturingId,
@@ -52,7 +55,11 @@ final case class ScheduledManufacturingInfo(
     description: Option[String] = None,
     preferredEmployeeId: Option[EmployeeId] = None,
     taskPreferredEmployees: Map[ScheduledTaskId, EmployeeId] = Map.empty,
+    materials: List[ScheduledMaterial] = Nil,
 ):
   /** Planner-effective preferred employee for one scheduled task: its own preference, falling back to the manufacturing-wide one. */
   def preferredEmployeeForTask(taskId: ScheduledTaskId): Option[EmployeeId] =
     taskPreferredEmployees.get(taskId).orElse(preferredEmployeeId)
+
+  /** What the materials cost the customer: the sum of their line costs. */
+  def materialsCost: Amount = Amount.sum(materials.map(_.lineCost))

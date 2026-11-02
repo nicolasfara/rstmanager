@@ -2,12 +2,13 @@ package io.gitbub.nicolasfara.rstmanager.ui
 
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, AuthState, AuthUser }
+import io.gitbub.nicolasfara.rstmanager.ui.warehouse.WarehousePage
 
 /** Application shell: auth gate, top navigation, and the routed page content area. */
 object App:
 
   enum Page derives CanEqual:
-    case Planning, Orders, Employees, Customers, Tasks, Manufacturings
+    case Planning, Orders, Employees, Customers, Warehouse, Tasks, Manufacturings
 
   private val catalogPages: List[Page] = List(Page.Tasks, Page.Manufacturings)
   private val topLevelPages: List[Page] = Page.values.toList.filterNot(catalogPages.contains)
@@ -17,6 +18,7 @@ object App:
     case Page.Orders => "Ordini"
     case Page.Employees => "Dipendenti"
     case Page.Customers => "Clienti"
+    case Page.Warehouse => "Magazzino"
     case Page.Tasks => "Catalogo Task"
     case Page.Manufacturings => "Catalogo Lavorazioni"
 
@@ -25,6 +27,7 @@ object App:
     case Page.Orders => OrdersPage()
     case Page.Employees => EmployeesPage()
     case Page.Customers => CustomersPage()
+    case Page.Warehouse => WarehousePage()
     case Page.Tasks => TasksPage()
     case Page.Manufacturings => ManufacturingsPage()
 

@@ -17,6 +17,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
   ScheduledManufacturingId,
   ScheduledManufacturingInfo,
+  ScheduledMaterial,
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
@@ -52,7 +53,13 @@ object WorkCodecs:
   given Codec[ManufacturingStatus] = deriveCodec
   given Codec[ScheduledTask] = deriveCodec
 
-  /** Events persisted before per-task preferred employees existed lack the `taskPreferredEmployees` field: decode it as the empty map. */
+  /** A material line, with its quantity and frozen unit price as integer counts of thousandths and of 1e-4 euro. */
+  given Codec[ScheduledMaterial] = deriveCodec
+
+  /**
+   * Events persisted before per-task preferred employees existed lack the `taskPreferredEmployees` field: decode it as the empty map. `materials` is
+   * required: the v2 → v3 step of [[OrderEventSchema]] adds it to every older row.
+   */
   given Codec[ScheduledManufacturingInfo] = Codec.from(
     Decoder.instance { cursor =>
       for
@@ -64,6 +71,7 @@ object WorkCodecs:
         description <- cursor.get[Option[String]]("description")
         preferredEmployeeId <- cursor.get[Option[EmployeeId]]("preferredEmployeeId")
         taskPreferredEmployees <- cursor.get[Option[Map[ScheduledTaskId, EmployeeId]]]("taskPreferredEmployees")
+        materials <- cursor.get[List[ScheduledMaterial]]("materials")
       yield ScheduledManufacturingInfo(
         id,
         code,
@@ -73,6 +81,7 @@ object WorkCodecs:
         description,
         preferredEmployeeId,
         taskPreferredEmployees.getOrElse(Map.empty),
+        materials,
       )
     },
     deriveEncoder,

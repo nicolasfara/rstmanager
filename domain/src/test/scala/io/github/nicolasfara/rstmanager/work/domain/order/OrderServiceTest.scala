@@ -5,6 +5,8 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, UnitPrice }
+import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
@@ -35,6 +37,13 @@ class OrderServiceTest extends AnyFlatSpecLike:
   private val templateTaskId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000105").nn)
   private val otherTaskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000107").nn)
   private val secondManufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000108").nn)
+
+  private val profile: ProductId = ProductId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn)
+  private val glass: ProductId = ProductId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn)
+
+  /** 2.5 m of profile at 18.50 €/m (46.25 €) and 2 panes of glass at 12.50 € (25.00 €). */
+  private val materials: List[ScheduledMaterial] =
+    List(ScheduledMaterial(profile, Quantity(2500L), UnitPrice(185000L)), ScheduledMaterial(glass, Quantity(2000L), UnitPrice(125000L)))
 
   private def orderData(): OrderData =
     orderData(NonEmptyList.one(manufacturing()))
@@ -535,4 +544,106 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
         newState.data.dependencies.dependenciesOf(secondManufacturingId) shouldEqual Set(manufacturingId)
       case other => fail(s"Unexpected result: $other")
+
+  private def materialsOf(order: Order, id: ScheduledManufacturingId): List[ScheduledMaterial] =
+    order.orderData.toList.flatMap(_.setOfManufacturing.toList).filter(_.info.id == id).flatMap(_.info.materials)
+
+  it should "set the materials of a manufacturing, stamped with the command time, and request a recalculation" in:
+    val data = twoManufacturingsData()
+    run(Command.SetManufacturingMaterials(manufacturingId, materials), InProgressOrder(data, nextDay)) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, events, notifications) =>
+        materialsOf(newState, manufacturingId) shouldEqual materials
+        materialsOf(newState, secondManufacturingId) shouldBe empty
+        newState.data.materialsCost shouldEqual Amount(7125L)
+        events.toChain.toList match
+          case List(ManufacturingMaterialsChanged(`manufacturingId`, `materials`, changedOn)) =>
+            changedOn.getMillis shouldEqual Instant.parse("2026-06-14T12:00:00Z").nn.toEpochMilli
+          case other => fail(s"Unexpected events: $other")
+        notifications.toList shouldEqual List(Notification.SchedulingRecalculationRequested(orderId))
+      case other => fail(s"Unexpected result: $other")
+
+  it should "sum the materials cost over every manufacturing of the order" in:
+    val withMaterials = twoManufacturingsData().setOfManufacturing.map { manufacturing =>
+      if manufacturing.info.id == manufacturingId then manufacturing.withMaterials(materials.take(1))
+      else manufacturing.withMaterials(materials.drop(1))
+    }
+    orderData(withMaterials).materialsCost shouldEqual Amount(7125L)
+    orderData().materialsCost shouldEqual Amount.zero
+
+  it should "change the materials of a completed manufacturing without reopening it" in:
+    val completed = run(Command.CompleteTask(manufacturingId, taskId, TaskDuration(8)), InProgressOrder(orderData(), nextDay)) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) => newState
+      case other => fail(s"Unexpected result: $other")
+    val completedManufacturing = completed.data.setOfManufacturing.head
+    completedManufacturing shouldBe a[ScheduledManufacturing.CompletedManufacturing]
+
+    run(Command.SetManufacturingMaterials(manufacturingId, materials), completed) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
+        newState.data.setOfManufacturing.head shouldEqual completedManufacturing.withMaterials(materials)
+        newState.data.setOfManufacturing.head.status shouldEqual ManufacturingStatus.Completed
+      case other => fail(s"Unexpected result: $other")
+
+  it should "keep a suspended order suspended when its materials change" in:
+    val suspended = SuspendedOrder(orderData(), nextDay, day, None)
+    run(Command.SetManufacturingMaterials(manufacturingId, materials), suspended) match
+      case EdomatonResult.Accepted(newState: SuspendedOrder, _, _) => materialsOf(newState, manufacturingId) shouldEqual materials
+      case other => fail(s"Unexpected result: $other")
+
+  it should "clear the materials of a manufacturing" in:
+    val data = orderData(NonEmptyList.one(manufacturing().withMaterials(materials)))
+    run(Command.SetManufacturingMaterials(manufacturingId, Nil), InProgressOrder(data, nextDay)) match
+      case EdomatonResult.Accepted(newState, _, _) => materialsOf(newState, manufacturingId) shouldBe empty
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject materials listing a product twice or with a zero quantity" in:
+    val state = InProgressOrder(orderData(), nextDay)
+    val repeated = materials :+ ScheduledMaterial(profile, Quantity(1000L), UnitPrice(185000L))
+    rejectionOf(run(Command.SetManufacturingMaterials(manufacturingId, repeated), state)) shouldEqual
+      List(DuplicateMaterials(manufacturingId, Set(profile)))
+    val unused = List(ScheduledMaterial(glass, Quantity.zero, UnitPrice(125000L)))
+    rejectionOf(run(Command.SetManufacturingMaterials(manufacturingId, unused), state)) shouldEqual
+      List(NonPositiveMaterialQuantity(manufacturingId, Set(glass)))
+
+  it should "reject materials for a manufacturing that is not in the order" in:
+    rejectionOf(run(Command.SetManufacturingMaterials(secondManufacturingId, materials), InProgressOrder(orderData(), nextDay))) shouldEqual
+      List(ManufacturingNotFound(secondManufacturingId))
+
+  it should "reject changing the materials of an order that is not in progress or suspended" in:
+    val data = orderData()
+    List(NewOrder, CompletedOrder(data, nextDay), DeliveredOrder(data, nextDay, nextDay), CancelledOrder(data, nextDay, None)).foreach { state =>
+      withClue(state)(
+        rejectionOf(run(Command.SetManufacturingMaterials(manufacturingId, materials), state)) shouldEqual List(OrderMustBeInProgressOrPaused),
+      )
+    }
+
+  it should "create an order, or add a manufacturing, carrying materials" in:
+    val data = orderData(NonEmptyList.one(manufacturing().withMaterials(materials)))
+    val created = run(Command.Create(data, nextDay), NewOrder) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) => newState
+      case other => fail(s"Unexpected result: $other")
+    materialsOf(created, manufacturingId) shouldEqual materials
+
+    val added = manufacturing(secondManufacturingId, NonEmptyList.one(task(otherTaskId))).withMaterials(materials.take(1))
+    run(Command.AddManufacturing(added), created) match
+      case EdomatonResult.Accepted(newState: InProgressOrder, _, _) =>
+        materialsOf(newState, secondManufacturingId) shouldEqual materials.take(1)
+        newState.data.materialsCost shouldEqual Amount(11750L)
+      case other => fail(s"Unexpected result: $other")
+
+  it should "reject creating an order, or adding a manufacturing, with repeated materials" in:
+    val repeated = List(materials.head, materials.head)
+    rejectionOf(run(Command.Create(orderData(NonEmptyList.one(manufacturing().withMaterials(repeated))), nextDay), NewOrder)) shouldEqual
+      List(DuplicateMaterials(manufacturingId, Set(profile)))
+    val added = manufacturing(secondManufacturingId, NonEmptyList.one(task(otherTaskId))).withMaterials(repeated)
+    rejectionOf(run(Command.AddManufacturing(added), InProgressOrder(orderData(), nextDay))) shouldEqual
+      List(DuplicateMaterials(secondManufacturingId, Set(profile)))
+
+  it should "replay a materials change on the same state every time" in:
+    val events = List(OrderCreated(orderData(), nextDay), ManufacturingMaterialsChanged(manufacturingId, materials, day))
+    val replayed = events.foldLeftM(Order.initial)((state, event) => Order.transition(event)(state).toEither)
+    replayed.map(materialsOf(_, manufacturingId)) shouldEqual Right(materials)
+    // A stored change for a manufacturing removed since then is skipped, never a replay failure.
+    Order
+      .transition(ManufacturingMaterialsChanged(secondManufacturingId, materials, day))(InProgressOrder(orderData(), nextDay))
+      .isValid shouldBe true
 end OrderServiceTest

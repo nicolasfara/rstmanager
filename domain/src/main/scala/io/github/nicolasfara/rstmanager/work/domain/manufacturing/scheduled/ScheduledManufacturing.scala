@@ -83,6 +83,13 @@ enum ScheduledManufacturing(val info: ScheduledManufacturingInfo) derives CanEqu
       withInfo(info.copy(taskPreferredEmployees = updated))
     }
 
+  /**
+   * Replaces the materials. Only the content changes: the lifecycle state and its timestamps are kept, so the materials of a completed manufacturing
+   * can still be corrected without reopening it.
+   */
+  def withMaterials(materials: List[ScheduledMaterial]): ScheduledManufacturing =
+    withInfo(info.copy(materials = materials))
+
   /** Replaces the task dependency graph. */
   def withDependencies(dependencies: ManufacturingDependencies): ScheduledManufacturing =
     withInfo(info.copy(dependencies = dependencies))

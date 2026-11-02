@@ -8,6 +8,7 @@ lazy val slf4jVersion = "2.0.20"
 lazy val logbackVersion = "1.6.6"
 lazy val tapirVersion = "1.14.1"
 lazy val log4catsVersion = "2.8.0"
+lazy val fastexcelVersion = "0.20.2"
 lazy val projectScalacOptions = Seq(
   "-encoding",
   "utf-8",
@@ -104,6 +105,9 @@ lazy val service = project
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
       "org.slf4j" % "slf4j-api" % slf4jVersion,
+      // xlsx writer for the warehouse export (Apache-2.0; only depends on opczip); the reader checks the written files in tests.
+      "org.dhatim" % "fastexcel" % fastexcelVersion,
+      "org.dhatim" % "fastexcel-reader" % fastexcelVersion % Test,
       "ch.qos.logback" % "logback-classic" % logbackVersion % Runtime
     ) ++ sharedDependencies
   )

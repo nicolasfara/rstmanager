@@ -157,6 +157,17 @@ enum Order derives CanEqual:
   ): Decision[OrderError, OrderEvent, Order] =
     edit(ManufacturingStatusChanged(manufacturingId, newStatus, reason, now))
 
+  /**
+   * Replaces the materials of a manufacturing inside an active or suspended order: products distinct, quantities positive. The manufacturing keeps
+   * its lifecycle state, so a completed one can be corrected without reopening it (the warehouse reconciles its consumption with the new quantities).
+   */
+  def changeManufacturingMaterials(
+      manufacturingId: ScheduledManufacturingId,
+      materials: List[ScheduledMaterial],
+      now: DateTime,
+  ): Decision[OrderError, OrderEvent, Order] =
+    editChecked(_ => validateMaterials(manufacturingId, materials))(ManufacturingMaterialsChanged(manufacturingId, materials, now))
+
   /** Adds a task to a manufacturing inside an active or suspended order; its id must be new and its prerequisites must exist without a cycle. */
   def addManufacturingTask(
       manufacturingId: ScheduledManufacturingId,
@@ -361,6 +372,7 @@ object Order extends DomainModel[Order, OrderEvent, OrderError]:
     case ManufacturingTaskReverted(manufacturingId, taskId, occurredOn) => Some(revertTaskToInProgress(_, manufacturingId, taskId, occurredOn))
     case ManufacturingDependenciesChanged(newDependencies, _) => Some(changeManufacturingDependencies(_, newDependencies))
     case TaskDependenciesChanged(manufacturingId, newDependencies, _) => Some(changeTaskDependencies(_, manufacturingId, newDependencies))
+    case ManufacturingMaterialsChanged(manufacturingId, materials, _) => Some(changeManufacturingMaterials(_, manufacturingId, materials))
     case OrderCreated(_, _) | OrderCancelled(_, _) | OrderSuspended(_, _) | OrderReactivated(_) | OrderCompleted(_) | OrderDelivered(_) |
         OrderPromisedDeliveryDateChanged(_, _) | OrderPriorityChanged(_, _) | OrderDescriptionChanged(_, _) =>
       None

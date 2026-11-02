@@ -7,6 +7,9 @@ import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
+import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
+import io.github.nicolasfara.rstmanager.warehouse.service.{ ProductApp, WarehouseHttpSupport }
+import io.github.nicolasfara.rstmanager.warehouse.service.ProductApp.StoredProduct
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderError, OrderId, OrderService }
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
@@ -27,8 +30,28 @@ object OrderHttpApi:
   import OrderDtos.*
   import OrderDtos.given
 
-  private def conflict(error: OrderError): ApiFailure =
-    ApiError.conflict("order-command-rejected", s"The order command was rejected: ${error.toString}.", Nil)
+  private def conflict(error: OrderError): ApiFailure = error match
+    case OrderError.DuplicateMaterials(_, productIds) =>
+      ApiError.conflict("duplicate-materials", "Un prodotto compare in più righe dei materiali della lavorazione.", productList(productIds))
+    case OrderError.NonPositiveMaterialQuantity(_, productIds) =>
+      ApiError.conflict("non-positive-material-quantity", "La quantità di ogni materiale deve essere maggiore di zero.", productList(productIds))
+    case other => ApiError.conflict("order-command-rejected", s"The order command was rejected: ${other.toString}.", Nil)
+
+  /** Like [[conflict]], saying in Italian why the materials of the manufacturing cannot change. */
+  private def materialsConflict(error: OrderError): ApiFailure = error match
+    case OrderError.OrderMustBeInProgressOrPaused =>
+      ApiError.conflict(
+        "order-not-editable",
+        "I materiali si possono modificare solo per un ordine in corso o sospeso: riapri l'ordine per modificarli.",
+        Nil,
+      )
+    case OrderError.ManufacturingNotFound(manufacturingId) => manufacturingNotFound(manufacturingId.value)
+    case other => conflict(other)
+
+  private def productList(productIds: Set[ProductId]): List[String] = productIds.toList.map(_.value.toString).sorted
+
+  private def manufacturingNotFound(manufacturingId: UUID): ApiFailure =
+    StatusCode.NotFound -> ApiError("not-found", "La lavorazione richiesta non esiste nell'ordine.", List(manufacturingId.toString))
 
   private val collection = "orders"
 
@@ -140,6 +163,14 @@ object OrderHttpApi:
       .in(jsonBody[SetPreferredEmployeeRequest].example(SetPreferredEmployeeRequest.example))
       .out(jsonBody[OrderResponse])
 
+  val setMaterials: Secured.SecuredEndpoint[(UUID, UUID, MaterialsUpdateRequest), OrderResponse] =
+    Secured.base.put
+      .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "materials")
+      .tag("Orders")
+      .summary("Replace the materials of a manufacturing (a missing unit price keeps the frozen one, or freezes the product's customer price)")
+      .in(jsonBody[MaterialsUpdateRequest].example(MaterialsUpdateRequest.example))
+      .out(jsonBody[OrderResponse])
+
   val delete: Secured.SecuredEndpoint[(UUID, Option[String]), Unit] =
     Secured.base.delete
       .in(collection / path[UUID]("id"))
@@ -165,6 +196,7 @@ object OrderHttpApi:
       removeTask,
       setPreferredEmployee,
       setTaskPreferredEmployee,
+      setMaterials,
       delete,
     )
 
@@ -173,44 +205,54 @@ object OrderHttpApi:
       customers: CustomerApp.Store,
       tasks: TaskApp.Store,
       employees: EmployeeApp.Store,
+      products: ProductApp.Store,
       security: ApiSecurity,
-  ): List[ServerEndpoint[Any, IO]] = List(
-    security.secure(create, Role.Operator)(createLogic(store, customers, tasks)),
-    security.secure(list, Role.Viewer)(_ => listLogic(store)),
-    security.secure(read, Role.Viewer)(readLogic(store)),
-    security.secure(update, Role.Operator)(updateLogic(store)),
-    security.secure(transition, Role.Operator)(transitionLogic(store)),
-    security.secure(updateTask, Role.Operator)(updateTaskLogic(store)),
-    security.secure(addManufacturing, Role.Operator)(addManufacturingLogic(store, tasks)),
-    security.secure(removeManufacturing, Role.Operator)(removeManufacturingLogic(store)),
-    security.secure(updateManufacturing, Role.Operator)(updateManufacturingLogic(store)),
-    security.secure(updateDependencies, Role.Operator)(updateDependenciesLogic(store)),
-    security.secure(updateTaskDependencies, Role.Operator)(updateTaskDependenciesLogic(store)),
-    security.secure(addTask, Role.Operator)(addTaskLogic(store, tasks)),
-    security.secure(removeTask, Role.Operator)(removeTaskLogic(store)),
-    security.secure(setPreferredEmployee, Role.Operator)(setPreferredEmployeeLogic(store, employees)),
-    security.secure(setTaskPreferredEmployee, Role.Operator)(setTaskPreferredEmployeeLogic(store, employees)),
-    security.secure(delete, Role.Admin)(deleteLogic(store)),
-  )
+  ): List[ServerEndpoint[Any, IO]] =
+    val orders = Orders(store, products)
+    List(
+      security.secure(create, Role.Operator)(createLogic(orders, customers, tasks)),
+      security.secure(list, Role.Viewer)(_ => listLogic(orders)),
+      security.secure(read, Role.Viewer)(respondWith(orders, _)),
+      security.secure(update, Role.Operator)(updateLogic(orders)),
+      security.secure(transition, Role.Operator)(transitionLogic(orders)),
+      security.secure(updateTask, Role.Operator)(updateTaskLogic(orders)),
+      security.secure(addManufacturing, Role.Operator)(addManufacturingLogic(orders, tasks)),
+      security.secure(removeManufacturing, Role.Operator)(removeManufacturingLogic(orders)),
+      security.secure(updateManufacturing, Role.Operator)(updateManufacturingLogic(orders)),
+      security.secure(updateDependencies, Role.Operator)(updateDependenciesLogic(orders)),
+      security.secure(updateTaskDependencies, Role.Operator)(updateTaskDependenciesLogic(orders)),
+      security.secure(addTask, Role.Operator)(addTaskLogic(orders, tasks)),
+      security.secure(removeTask, Role.Operator)(removeTaskLogic(orders)),
+      security.secure(setPreferredEmployee, Role.Operator)(setPreferredEmployeeLogic(orders, employees)),
+      security.secure(setTaskPreferredEmployee, Role.Operator)(setTaskPreferredEmployeeLogic(orders, employees)),
+      security.secure(setMaterials, Role.Operator)(setMaterialsLogic(orders)),
+      security.secure(delete, Role.Admin)(deleteLogic(orders)),
+    )
+  end routes
+
+  /** The order backend plus the warehouse products, whose master data the responses show and against which material lines are checked. */
+  private final case class Orders(store: OrderApp.Store, products: ProductApp.Store)
 
   private def createLogic(
-      store: OrderApp.Store,
+      orders: Orders,
       customers: CustomerApp.Store,
       tasks: TaskApp.Store,
   )(request: OrderRequest): IO[Either[ApiFailure, OrderResponse]] =
     IO(UUID.randomUUID().nn).flatMap { id =>
-      request.toDomain(id).toEither match
-        case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-        case Right((data, promised)) =>
-          validateReferences(customers, tasks, data).flatMap {
-            case Some(failure) => IO.pure(failure.asLeft)
-            case None =>
-              OrderApp.create(store, data, promised).attempt.flatMap {
-                case Left(error) => IO.pure(ApiError.internal(error).asLeft)
-                case Right(Left(error)) => IO.pure(conflict(error).asLeft)
-                case Right(Right(())) => respondWith(store, id)
-              }
-          }
+      withCatalog(orders, request.productIds) { catalog =>
+        request.toDomain(id, catalog).toEither match
+          case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
+          case Right((data, promised)) =>
+            validateReferences(customers, tasks, data).flatMap {
+              case Some(failure) => IO.pure(failure.asLeft)
+              case None =>
+                OrderApp.create(orders.store, data, promised).attempt.flatMap {
+                  case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+                  case Right(Left(error)) => IO.pure(conflict(error).asLeft)
+                  case Right(Right(())) => respondWith(orders, id)
+                }
+            }
+      }
     }
 
   /** Verifies the referenced customer and catalog task ids exist before creating the order. */
@@ -224,73 +266,107 @@ object OrderHttpApi:
       else if missingTasks.nonEmpty then Some(ApiError.notFound("Task", missingTasks.mkString(", ")))
       else None
 
-  private def listLogic(store: OrderApp.Store): IO[Either[ApiFailure, List[OrderResponse]]] =
-    OrderApp.list(store).attempt.map(_.bimap(ApiError.internal, _.flatMap(OrderResponse.fromDomain(_).toList)))
+  /** The warehouse products with these ids, active or archived; ids of unknown products are left out. */
+  private def loadProducts(products: ProductApp.Store, ids: List[ProductId]): IO[Map[ProductId, StoredProduct]] =
+    ids.distinct.traverse(id => ProductApp.find(products, id).map(_.map(id -> _))).map(_.flatten.toMap)
 
-  private def readLogic(store: OrderApp.Store)(id: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    OrderApp.get(store, OrderId(id)).attempt.map {
-      case Left(error) => ApiError.internal(error).asLeft
-      case Right(Some(order)) => OrderResponse.fromDomain(order).toRight(ApiError.notFound("Order", id.toString))
-      case Right(None) => ApiError.notFound("Order", id.toString).asLeft
+  /** Runs `body` with the catalog of the warehouse products a request names. */
+  private def withCatalog(orders: Orders, ids: List[ProductId])(
+      body: MaterialCatalog => IO[Either[ApiFailure, OrderResponse]],
+  ): IO[Either[ApiFailure, OrderResponse]] =
+    loadProducts(orders.products, ids).attempt.flatMap {
+      case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+      case Right(found) => body(MaterialCatalog(found))
     }
 
-  private def updateLogic(store: OrderApp.Store)(id: UUID, request: OrderUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
+  private def listLogic(orders: Orders): IO[Either[ApiFailure, List[OrderResponse]]] =
+    val listed =
+      for
+        all <- OrderApp.list(orders.store)
+        products <- loadProducts(orders.products, all.flatMap(OrderResponse.productIds))
+      yield all.flatMap(OrderResponse.fromDomain(_, products).toList)
+    listed.attempt.map(_.leftMap(ApiError.internal))
+
+  private def updateLogic(orders: Orders)(id: UUID, request: OrderUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
     request.toCommands.toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-      case Right(commands) => runCommands(store, id, commands)
+      case Right(commands) => runCommands(orders, id, commands)
 
-  private def transitionLogic(store: OrderApp.Store)(id: UUID, request: TransitionRequest): IO[Either[ApiFailure, OrderResponse]] =
+  private def transitionLogic(orders: Orders)(id: UUID, request: TransitionRequest): IO[Either[ApiFailure, OrderResponse]] =
     request.toCommand.toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-      case Right(command) => runCommands(store, id, List(command))
+      case Right(command) => runCommands(orders, id, List(command))
 
   private def updateTaskLogic(
-      store: OrderApp.Store,
+      orders: Orders,
   )(id: UUID, manufacturingId: UUID, taskId: UUID, request: TaskProgressUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
     request.toCommands(manufacturingId, taskId).toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-      case Right(commands) => runCommands(store, id, commands)
+      case Right(commands) => runCommands(orders, id, commands)
 
   private def addManufacturingLogic(
-      store: OrderApp.Store,
+      orders: Orders,
       tasks: TaskApp.Store,
   )(id: UUID, request: ManufacturingDto): IO[Either[ApiFailure, OrderResponse]] =
     IO(UUID.randomUUID().nn).flatMap { manufacturingId =>
-      request.toDomain("manufacturing", manufacturingId).toEither match
-        case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-        case Right(manufacturing) =>
-          validateTaskIds(tasks, manufacturing.info.tasks.toList.map(_.taskId)).flatMap {
-            case Some(failure) => IO.pure(failure.asLeft)
-            case None => runCommands(store, id, List(OrderService.Command.AddManufacturing(manufacturing)))
-          }
+      withCatalog(orders, request.productIds) { catalog =>
+        request.toDomain("manufacturing", manufacturingId, catalog).toEither match
+          case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
+          case Right(manufacturing) =>
+            validateTaskIds(tasks, manufacturing.info.tasks.toList.map(_.taskId)).flatMap {
+              case Some(failure) => IO.pure(failure.asLeft)
+              case None => runCommands(orders, id, List(OrderService.Command.AddManufacturing(manufacturing)))
+            }
+      }
     }
 
-  private def removeManufacturingLogic(store: OrderApp.Store)(id: UUID, manufacturingId: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    runCommands(store, id, List(OrderService.Command.RemoveManufacturing(ScheduledManufacturingId(manufacturingId))))
+  private def removeManufacturingLogic(orders: Orders)(id: UUID, manufacturingId: UUID): IO[Either[ApiFailure, OrderResponse]] =
+    runCommands(orders, id, List(OrderService.Command.RemoveManufacturing(ScheduledManufacturingId(manufacturingId))))
 
   private def updateManufacturingLogic(
-      store: OrderApp.Store,
+      orders: Orders,
   )(id: UUID, manufacturingId: UUID, request: ManufacturingUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
     request.toCommands(manufacturingId).toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-      case Right(commands) => runCommands(store, id, commands)
+      case Right(commands) => runCommands(orders, id, commands)
+
+  /**
+   * Replaces the materials of a manufacturing. The lines are checked against the warehouse (see [[MaterialCatalog]]) and against the materials the
+   * manufacturing already has: those may keep an archived product, and a line without a price keeps its frozen one.
+   */
+  private def setMaterialsLogic(
+      orders: Orders,
+  )(id: UUID, manufacturingId: UUID, request: MaterialsUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
+    OrderApp.get(orders.store, OrderId(id)).attempt.flatMap {
+      case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+      case Right(None) => IO.pure(ApiError.notFound("Order", id.toString).asLeft)
+      case Right(Some(order)) =>
+        order.orderData.flatMap(_.setOfManufacturing.find(_.info.id == ScheduledManufacturingId(manufacturingId))) match
+          case None => IO.pure(manufacturingNotFound(manufacturingId).asLeft)
+          case Some(manufacturing) =>
+            withCatalog(orders, request.productIds) { catalog =>
+              request.toCommand(manufacturingId, catalog, manufacturing.info.materials).toEither match
+                case Left(errors) => IO.pure(WarehouseHttpSupport.validation(errors).asLeft)
+                case Right(command) => runCommandsWith(orders, id, List(command), materialsConflict)
+            }
+    }
 
   private def updateDependenciesLogic(
-      store: OrderApp.Store,
+      orders: Orders,
   )(id: UUID, request: OrderDependenciesUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
     request.toCommand.toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-      case Right(command) => runCommands(store, id, List(command))
+      case Right(command) => runCommands(orders, id, List(command))
 
   private def updateTaskDependenciesLogic(
-      store: OrderApp.Store,
+      orders: Orders,
   )(id: UUID, manufacturingId: UUID, request: TaskDependenciesUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
     request.toCommand(manufacturingId).toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-      case Right(command) => runCommands(store, id, List(command))
+      case Right(command) => runCommands(orders, id, List(command))
 
   private def addTaskLogic(
-      store: OrderApp.Store,
+      orders: Orders,
       tasks: TaskApp.Store,
   )(id: UUID, manufacturingId: UUID, request: AddTaskRequest): IO[Either[ApiFailure, OrderResponse]] =
     validateTaskIds(tasks, (request.taskId :: request.dependsOn).map(TaskId(_))).flatMap {
@@ -299,12 +375,12 @@ object OrderHttpApi:
         IO(UUID.randomUUID().nn).flatMap { taskInstanceId =>
           request.toCommand(manufacturingId, taskInstanceId).toEither match
             case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-            case Right(command) => runCommands(store, id, List(command))
+            case Right(command) => runCommands(orders, id, List(command))
         }
     }
 
-  private def removeTaskLogic(store: OrderApp.Store)(id: UUID, manufacturingId: UUID, taskId: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    runCommands(store, id, List(OrderService.Command.RemoveManufacturingTask(ScheduledManufacturingId(manufacturingId), ScheduledTaskId(taskId))))
+  private def removeTaskLogic(orders: Orders)(id: UUID, manufacturingId: UUID, taskId: UUID): IO[Either[ApiFailure, OrderResponse]] =
+    runCommands(orders, id, List(OrderService.Command.RemoveManufacturingTask(ScheduledManufacturingId(manufacturingId), ScheduledTaskId(taskId))))
 
   /** Verifies every referenced catalog task id exists, returning a not-found failure listing the missing ones. */
   private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[TaskId]): IO[Option[ApiFailure]] =
@@ -313,19 +389,19 @@ object OrderHttpApi:
     }
 
   private def setPreferredEmployeeLogic(
-      store: OrderApp.Store,
+      orders: Orders,
       employees: EmployeeApp.Store,
   )(id: UUID, manufacturingId: UUID, request: SetPreferredEmployeeRequest): IO[Either[ApiFailure, OrderResponse]] =
     withExistingEmployee(employees, request.employeeId) {
-      runCommands(store, id, List(request.toCommand(manufacturingId)))
+      runCommands(orders, id, List(request.toCommand(manufacturingId)))
     }
 
   private def setTaskPreferredEmployeeLogic(
-      store: OrderApp.Store,
+      orders: Orders,
       employees: EmployeeApp.Store,
   )(id: UUID, manufacturingId: UUID, taskId: UUID, request: SetPreferredEmployeeRequest): IO[Either[ApiFailure, OrderResponse]] =
     withExistingEmployee(employees, request.employeeId) {
-      runCommands(store, id, List(request.toTaskCommand(manufacturingId, taskId)))
+      runCommands(orders, id, List(request.toTaskCommand(manufacturingId, taskId)))
     }
 
   /** Runs `body` after verifying the referenced employee exists; a `None` employee (clearing the preference) needs no check. */
@@ -341,11 +417,11 @@ object OrderHttpApi:
           case true => body
         }
 
-  private def deleteLogic(store: OrderApp.Store)(id: UUID, reason: Option[String]): IO[Either[ApiFailure, Unit]] =
+  private def deleteLogic(orders: Orders)(id: UUID, reason: Option[String]): IO[Either[ApiFailure, Unit]] =
     reason.traverse(_.refineValidatedNec[CancellationReason]).toEither match
       case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
       case Right(cancellationReason) =>
-        OrderApp.delete(store, OrderId(id), cancellationReason).attempt.map {
+        OrderApp.delete(orders.store, OrderId(id), cancellationReason).attempt.map {
           case Left(error) => ApiError.internal(error).asLeft
           case Right(Left(OrderError.NoSuchOrder)) => ApiError.notFound("Order", id.toString).asLeft
           case Right(Left(error)) => conflict(error).asLeft
@@ -353,32 +429,41 @@ object OrderHttpApi:
         }
 
   /** Applies commands in order, stopping at the first rejection, then returns the resulting order. */
-  private def runCommands(
-      store: OrderApp.Store,
+  private def runCommands(orders: Orders, id: UUID, commands: List[OrderService.Command]): IO[Either[ApiFailure, OrderResponse]] =
+    runCommandsWith(orders, id, commands, conflict)
+
+  /** Like [[runCommands]], answering a rejection with `rejected`. */
+  private def runCommandsWith(
+      orders: Orders,
       id: UUID,
       commands: List[OrderService.Command],
+      rejected: OrderError => ApiFailure,
   ): IO[Either[ApiFailure, OrderResponse]] =
     val applied = commands.foldLeft(IO.pure(().asRight[ApiFailure])) { (acc, command) =>
       acc.flatMap {
         case Left(failure) => IO.pure(failure.asLeft)
         case Right(()) =>
-          OrderApp.command(store, OrderId(id), command).attempt.map {
+          OrderApp.command(orders.store, OrderId(id), command).attempt.map {
             case Left(error) => ApiError.internal(error).asLeft
-            case Right(Left(error)) => conflict(error).asLeft
+            case Right(Left(error)) => rejected(error).asLeft
             case Right(Right(())) => ().asRight
           }
       }
     }
     applied.flatMap {
       case Left(failure) => IO.pure(failure.asLeft)
-      case Right(()) => respondWith(store, id)
+      case Right(()) => respondWith(orders, id)
     }
-  end runCommands
+  end runCommandsWith
 
-  private def respondWith(store: OrderApp.Store, id: UUID): IO[Either[ApiFailure, OrderResponse]] =
-    OrderApp.get(store, OrderId(id)).attempt.map {
+  /** The current order, with the master data of the warehouse products its materials name. */
+  private def respondWith(orders: Orders, id: UUID): IO[Either[ApiFailure, OrderResponse]] =
+    val loaded = OrderApp
+      .get(orders.store, OrderId(id))
+      .flatMap(_.traverse(order => loadProducts(orders.products, OrderResponse.productIds(order)).tupleLeft(order)))
+    loaded.attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
-      case Right(Some(order)) => OrderResponse.fromDomain(order).toRight(ApiError.notFound("Order", id.toString))
+      case Right(Some((order, products))) => OrderResponse.fromDomain(order, products).toRight(ApiError.notFound("Order", id.toString))
       case Right(None) => ApiError.notFound("Order", id.toString).asLeft
     }
 end OrderHttpApi

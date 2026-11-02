@@ -36,4 +36,22 @@ object Upcasts:
       _.traverse(hoursToMinutes(renames, _)).map(Json.fromValues),
       hoursToMinutes(renames, _).map(Json.fromJsonObject),
     )
+
+  /**
+   * The step from `version` to `version + 1` that adds `key -> value` to every object of the data, at any depth, matching `where` and lacking `key`:
+   * a new field with a neutral value for the records written before it existed.
+   */
+  def addFieldWhere(version: Int, where: JsonObject => Boolean, key: String, value: Json)(envelope: EventEnvelope): Decoder.Result[EventEnvelope] =
+    Right(envelope.copy(version = version + 1, data = addFieldWhere(where, key, value, envelope.data)))
+
+  private def addFieldWhere(where: JsonObject => Boolean, key: String, value: Json, data: JsonObject): JsonObject =
+    val nested = data.mapValues(addFieldWhere(where, key, value, _))
+    if where(nested) && !nested.contains(key) then nested.add(key, value) else nested
+
+  private def addFieldWhere(where: JsonObject => Boolean, key: String, value: Json, json: Json): Json =
+    json.arrayOrObject(
+      json,
+      values => Json.fromValues(values.map(addFieldWhere(where, key, value, _))),
+      data => Json.fromJsonObject(addFieldWhere(where, key, value, data)),
+    )
 end Upcasts

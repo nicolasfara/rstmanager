@@ -2,7 +2,12 @@ package io.github.nicolasfara.rstmanager.work.domain.order.events
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ManufacturingStatus,
+  ScheduledManufacturing,
+  ScheduledManufacturingId,
+  ScheduledMaterial,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderDependencies, OrderPriority, SuspensionReason }
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
@@ -128,4 +133,7 @@ enum OrderEvent derives CanEqual:
 
   /** The task dependency graph of a manufacturing has been replaced. */
   case TaskDependenciesChanged(manufacturingId: ScheduledManufacturingId, dependencies: ManufacturingDependencies, changedOn: DateTime)
+
+  /** The materials of a manufacturing have been replaced; each line carries the customer price frozen when it was added. */
+  case ManufacturingMaterialsChanged(manufacturingId: ScheduledManufacturingId, materials: List[ScheduledMaterial], changedOn: DateTime)
 end OrderEvent

@@ -5,6 +5,9 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId, WeeklyHours }
 import io.github.nicolasfara.rstmanager.planning.PlanningRequestId
+import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, SignedQuantity, UnitPrice }
+import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ MovementId, ProductId }
+import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.SupplierId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
@@ -16,11 +19,12 @@ import com.github.nscala_time.time.Imports.*
 import io.circe.{ Codec, Decoder, Encoder, KeyDecoder, KeyEncoder }
 
 /**
- * Circe codecs shared by every entity codec: `DateTime`, calendar days (`LocalDate`), and the opaque refined-int budget/effort types.
+ * Circe codecs shared by every entity codec: `DateTime`, calendar days (`LocalDate`), the opaque refined-int budget/effort types, and the warehouse
+ * fixed-point values.
  *
- * The opaque `RefinedType` companions (`TaskDuration`, `WeeklyHours`, `DailyHours`) are not visible as `Int :| C` outside their definition, so
- * `iron-circe` cannot derive them; they get explicit codecs that re-validate on read. Direct `A :| C` fields are handled by the `iron-circe` givens
- * imported where needed.
+ * The opaque `RefinedType` companions (`TaskDuration`, `WeeklyHours`, `DailyHours`, `Quantity`, `UnitPrice`, …) are not visible as `Int :| C` outside
+ * their definition, so `iron-circe` cannot derive them; they get explicit codecs that re-validate on read. Direct `A :| C` fields are handled by the
+ * `iron-circe` givens imported where needed.
  */
 object CommonCodecs:
   given Codec[DateTime] = Codec.from(
@@ -56,6 +60,9 @@ object CommonCodecs:
   given Codec[ScheduledTaskId] = idCodec(ScheduledTaskId(_), _.value)
   given Codec[ScheduledManufacturingId] = idCodec(ScheduledManufacturingId(_), _.value)
   given Codec[PlanningRequestId] = idCodec(PlanningRequestId(_), _.value)
+  given Codec[SupplierId] = idCodec(SupplierId(_), _.value)
+  given Codec[ProductId] = idCodec(ProductId(_), _.value)
+  given Codec[MovementId] = idCodec(MovementId(_), _.value)
 
   // Identifiers used as JSON object keys (per-task maps).
   given KeyDecoder[TaskId] = idKeyDecoder(TaskId(_))
@@ -66,4 +73,10 @@ object CommonCodecs:
   given Codec[TaskDuration] = Codec.from(Decoder.decodeInt.emap(TaskDuration.either), Encoder.encodeInt.contramap(_.value))
   given Codec[WeeklyHours] = Codec.from(Decoder.decodeInt.emap(WeeklyHours.either), Encoder.encodeInt.contramap(_.value))
   given Codec[DailyHours] = Codec.from(Decoder.decodeInt.emap(DailyHours.either), Encoder.encodeInt.contramap(_.value))
+
+  // Warehouse fixed-point values are persisted as their integer count of units (thousandths, 1e-4 euro, cents), never as decimals.
+  given Codec[Quantity] = Codec.from(Decoder.decodeLong.emap(Quantity.either), Encoder.encodeLong.contramap(_.value))
+  given Codec[SignedQuantity] = Codec.from(Decoder.decodeLong.emap(SignedQuantity.either), Encoder.encodeLong.contramap(_.value))
+  given Codec[UnitPrice] = Codec.from(Decoder.decodeLong.emap(UnitPrice.either), Encoder.encodeLong.contramap(_.value))
+  given Codec[Amount] = Codec.from(Decoder.decodeLong.emap(Amount.either), Encoder.encodeLong.contramap(_.value))
 end CommonCodecs

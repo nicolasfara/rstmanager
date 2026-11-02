@@ -7,6 +7,7 @@ import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.ApiServer
 import io.github.nicolasfara.rstmanager.service.auth.{ AuthConfig, JwksClient, JwtValidator }
 import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
+import io.github.nicolasfara.rstmanager.warehouse.service.{ ProductApp, SupplierApp, WarehouseConsumptionReconciler, WarehouseDailyReconciler }
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, OrderApp, TaskApp }
 
 import cats.effect.{ IO, Resource }
@@ -40,6 +41,7 @@ final case class PlanningServerConfig(
     keycloak: KeycloakConfig,
     corsAllowedOrigins: List[String],
     dailyRecalculationHour: Int,
+    dailyConsumptionReconcileHour: Int,
 )
 
 object PlanningServerConfig:
@@ -52,6 +54,8 @@ object PlanningServerConfig:
       databasePort <- intValue(env, "RSTMANAGER_DB_PORT", 5432)
       poolSize <- intValue(env, "RSTMANAGER_DB_POOL_SIZE", 4)
       dailyRecalculationHour <- hourValue(env, "RSTMANAGER_PLANNING_DAILY_RECALC_HOUR", PlanningDailyScheduler.defaultRecalculationHour)
+      dailyConsumptionReconcileHour <-
+        hourValue(env, "RSTMANAGER_WAREHOUSE_DAILY_RECONCILE_HOUR", WarehouseDailyReconciler.defaultReconcileHour)
     yield PlanningServerConfig(
       PlanningHttpConfig(
         env.getOrElse("RSTMANAGER_HTTP_HOST", "0.0.0.0"),
@@ -73,6 +77,7 @@ object PlanningServerConfig:
       ),
       env.get("RSTMANAGER_CORS_ALLOWED_ORIGINS").fold(List.empty[String])(_.split(',').toList.map(_.trim.nn).filter(_.nonEmpty)),
       dailyRecalculationHour,
+      dailyConsumptionReconcileHour,
     )
 
   private def intValue(env: Map[String, String], key: String, default: Int): Either[String, Int] =
@@ -101,11 +106,15 @@ object PlanningHttpServer:
       tasks <- TaskApp.build(pool)
       manufacturings <- ManufacturingApp.build(pool)
       orders <- OrderApp.build(pool)
+      suppliers <- SupplierApp.build(pool)
+      products <- ProductApp.build(pool)
       planningGateway = PlanningEntityGateway.fromStores(orders, employees)
       planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
-      _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator)
+      consumptionReconciler <- Resource.eval(WarehouseConsumptionReconciler.live(orders, products))
+      _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator, consumptionReconciler)
       _ <- PlanningDailyScheduler.resource(planningRecalculator, config.dailyRecalculationHour)
-      routes = ApiServer.routes(planningBackend, employees, customers, tasks, manufacturings, orders, security)
+      _ <- WarehouseDailyReconciler.resource(consumptionReconciler, config.dailyConsumptionReconcileHour)
+      routes = ApiServer.routes(planningBackend, employees, customers, tasks, manufacturings, orders, suppliers, products, security)
       httpApp = corsPolicy(config.corsAllowedOrigins)(routes).orNotFound
       loggedHttpApp = HttpLogger.httpApp[IO](
         logHeaders = false,

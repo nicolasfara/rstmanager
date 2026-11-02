@@ -5,11 +5,14 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
+import io.github.nicolasfara.rstmanager.warehouse.domain.{ Quantity, UnitPrice }
+import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies, ManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
   ScheduledManufacturingId,
   ScheduledManufacturingInfo,
+  ScheduledMaterial,
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
@@ -81,6 +84,20 @@ class WorkCodecsTest extends AnyFlatSpecLike:
 
     decoded.taskPreferredEmployees shouldBe empty
     decoded.id shouldEqual firstManufacturingId
+
+  it should "round-trip materials with their exact quantities and frozen prices" in:
+    val materials = List(
+      ScheduledMaterial(ProductId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn), Quantity(2500L), UnitPrice(185000L)),
+      ScheduledMaterial(ProductId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn), Quantity(1L), UnitPrice(1L)),
+    )
+    val info = manufacturing(firstManufacturingId).info.copy(materials = materials)
+    val json = info.asJson
+
+    json.hcursor.downField("materials").downArray.get[Long]("quantity") shouldEqual Right(2500L)
+    json.as[ScheduledManufacturingInfo].map(_.materials) shouldEqual Right(materials)
+
+  it should "require the materials, which the journal upcaster adds to older rows" in:
+    manufacturing(firstManufacturingId).info.asJson.mapObject(_.remove("materials")).as[ScheduledManufacturingInfo].isLeft shouldBe true
 
   "Manufacturing codec" should "decode catalog templates persisted before default employees existed" in:
     val taskId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000301").nn)

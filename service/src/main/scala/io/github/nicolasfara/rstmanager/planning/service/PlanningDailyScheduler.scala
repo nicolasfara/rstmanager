@@ -44,13 +44,17 @@ object PlanningDailyScheduler:
         else logger.warn(s"Daily planning consolidation reported issues: ${result.errors.mkString("; ")}")
       }
 
-  /** Time until the next occurrence of `atHour:00` local time, strictly in the future (a run exactly at `atHour:00` waits for the following day). */
-  private[service] def durationUntilNextRun(now: DateTime, atHour: Int): FiniteDuration =
+  /**
+   * Time until the next occurrence of `atHour:00` local time, strictly in the future (a run exactly at `atHour:00` waits for the following day).
+   * Shared with the daily warehouse consumption reconciliation.
+   */
+  private[rstmanager] def durationUntilNextRun(now: DateTime, atHour: Int): FiniteDuration =
     val todayRun = now.withTimeAtStartOfDay().nn.plusHours(atHour).nn
     val nextRun = if todayRun.isAfter(now) then todayRun else todayRun.plusDays(1).nn
     (nextRun.getMillis - now.getMillis).millis
 
-  private def humanize(duration: FiniteDuration): String =
+  /** `duration` as hours and minutes, for the logs (`5h 7m`). */
+  private[rstmanager] def humanize(duration: FiniteDuration): String =
     val totalMinutes = duration.toMinutes
     s"${totalMinutes / 60}h ${totalMinutes % 60}m"
 end PlanningDailyScheduler

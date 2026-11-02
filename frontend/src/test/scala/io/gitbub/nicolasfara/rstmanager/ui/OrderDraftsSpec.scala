@@ -15,6 +15,7 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
   // strictEquality: `shouldBe` compares these DTOs structurally, so it needs CanEqual instances.
   private given CanEqual[TaskDependencyDto, TaskDependencyDto] = CanEqual.derived
   private given CanEqual[ManufacturingDependencyByIndexDto, ManufacturingDependencyByIndexDto] = CanEqual.derived
+  private given CanEqual[MaterialDto, MaterialDto] = CanEqual.derived
 
   private def uuid(s: String): UUID = UUID.fromString(s).nn
 
@@ -166,6 +167,32 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
     )
     val result = OrderDrafts.collectManufacturings(snapshots, "2026-09-15", _ => None, seqIds())
     result.isLeft shouldBe true
+
+  // ---- materials ---------------------------------------------------------------------------------
+
+  private val productId = uuid("00000000-0000-0000-0000-000000000f01")
+
+  private val materialsContext: MaterialDrafts.Context =
+    MaterialDrafts.Context(List(MaterialDrafts.Product(productId, "TES-001", "Tessuto", "linear_meters", Some("18.5000"), false)), Map.empty)
+
+  test("manufacturingFromDraft omits materials when the draft has no non-blank line"):
+    val snapshot = MfgSnapshot(1, baseCore, Nil, List(MaterialDrafts.Row.empty(1)))
+    OrderDrafts.manufacturingFromDraft(snapshot, "2026-09-15", _ => None, materialsContext, seqIds()).map(_.materials) shouldBe Right(None)
+
+  test("manufacturingFromDraft attaches the material lines, without a price unless one was typed"):
+    val snapshot = MfgSnapshot(1, baseCore, Nil, List(MaterialDrafts.Row(1, productId.toString, "2,5", "")))
+    val result = OrderDrafts.manufacturingFromDraft(snapshot, "2026-09-15", _ => None, materialsContext, seqIds())
+    result.map(_.materials) shouldBe Right(Some(List(MaterialDto(productId, "2.500", None))))
+
+  test("manufacturingFromDraft reports invalid material lines as an invalid-form error naming the manufacturing"):
+    val snapshot = MfgSnapshot(1, baseCore, Nil, List(MaterialDrafts.Row(1, productId.toString, "0", "")))
+    val result = OrderDrafts.manufacturingFromDraft(snapshot, "2026-09-15", _ => None, materialsContext, seqIds())
+    result.left.map(err => (err.code, err.message, err.details)) shouldBe
+      Left(("invalid-form", "Materiali della lavorazione C1 non validi.", List("Riga 1: la quantità deve essere maggiore di zero")))
+
+  test("the overloads without materials context reject any material line"):
+    val snapshot = MfgSnapshot(1, baseCore, Nil, List(MaterialDrafts.Row(1, productId.toString, "1", "")))
+    OrderDrafts.collectManufacturings(List(snapshot), "2026-09-15", _ => None, seqIds()).isLeft shouldBe true
 
   // ---- collectDependencies -----------------------------------------------------------------------
 

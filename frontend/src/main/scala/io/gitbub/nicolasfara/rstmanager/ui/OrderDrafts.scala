@@ -32,8 +32,11 @@ object OrderDrafts:
       taskEmployees: Map[String, String],
   )
 
-  /** A manufacturing draft resolved to plain data: its stable key, core fields, and the state of its task drafts. */
-  final case class MfgSnapshot(key: Int, core: MfgCoreState, tasks: List[TaskState])
+  /**
+   * A manufacturing draft resolved to plain data: its stable key, core fields, the state of its task drafts, and its material lines (see
+   * [[MaterialDrafts]]; blank lines are ignored, none means no materials).
+   */
+  final case class MfgSnapshot(key: Int, core: MfgCoreState, tasks: List[TaskState], materials: List[MaterialDrafts.Row] = Nil)
 
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
@@ -107,30 +110,72 @@ object OrderDrafts:
     )
   end fromCustom
 
-  /** Resolves one manufacturing snapshot to a DTO. Empty completion date falls back to the order-level work deadline. */
+  /** Resolves one manufacturing snapshot to a DTO, without materials context (any material line is then reported as unavailable). */
   def manufacturingFromDraft(
       snapshot: MfgSnapshot,
       fallbackDeadline: String,
       catalog: String => Option[ManufacturingCatalogResponse],
       newId: () => UUID,
   ): Either[ApiError, ManufacturingDto] =
+    manufacturingFromDraft(snapshot, fallbackDeadline, catalog, MaterialDrafts.Context.empty, newId)
+
+  /**
+   * Resolves one manufacturing snapshot to a DTO. Empty completion date falls back to the order-level work deadline; the material lines are checked
+   * against `materials` (a manufacturing without lines omits `materials`).
+   */
+  def manufacturingFromDraft(
+      snapshot: MfgSnapshot,
+      fallbackDeadline: String,
+      catalog: String => Option[ManufacturingCatalogResponse],
+      materials: MaterialDrafts.Context,
+      newId: () => UUID,
+  ): Either[ApiError, ManufacturingDto] =
     val core = snapshot.core
     val completionDate = Some(core.completionDate.trim.nn).filter(_.nonEmpty).getOrElse(fallbackDeadline)
-    if core.mode == "catalog" then
-      catalog(core.catalogId)
-        .toRight(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil))
-        .map(template => fromCatalog(template, completionDate, core.employeeId, core.taskEmployees, newId))
-    else Right(fromCustom(core, snapshot.tasks, completionDate, newId))
+    val manufacturing =
+      if core.mode == "catalog" then
+        catalog(core.catalogId)
+          .toRight(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil))
+          .map(template => fromCatalog(template, completionDate, core.employeeId, core.taskEmployees, newId))
+      else Right(fromCustom(core, snapshot.tasks, completionDate, newId))
+    manufacturing.flatMap(withMaterials(_, snapshot.materials, materials))
 
-  /** Resolves every manufacturing snapshot, short-circuiting on the first invalid one. Order is preserved. */
+  /** Attaches the non-blank material lines of a draft to `manufacturing`, or reports their validation messages. */
+  private def withMaterials(
+      manufacturing: ManufacturingDto,
+      rows: List[MaterialDrafts.Row],
+      context: MaterialDrafts.Context,
+  ): Either[ApiError, ManufacturingDto] =
+    if rows.forall(MaterialDrafts.isBlank) then Right(manufacturing)
+    else
+      MaterialDrafts
+        .request(rows, context)
+        .left
+        .map { errors =>
+          val subject = Some(manufacturing.code).filter(_.nonEmpty).fold("di una lavorazione")(code => s"della lavorazione $code")
+          ApiError("invalid-form", s"Materiali $subject non validi.", errors)
+        }
+        .map(lines => manufacturing.copy(materials = Some(lines)))
+
+  /** Resolves every manufacturing snapshot without materials context (see the overload with one). */
   def collectManufacturings(
       snapshots: List[MfgSnapshot],
       fallbackDeadline: String,
       catalog: String => Option[ManufacturingCatalogResponse],
       newId: () => UUID,
   ): Either[ApiError, List[ManufacturingDto]] =
+    collectManufacturings(snapshots, fallbackDeadline, catalog, MaterialDrafts.Context.empty, newId)
+
+  /** Resolves every manufacturing snapshot, short-circuiting on the first invalid one. Order is preserved. */
+  def collectManufacturings(
+      snapshots: List[MfgSnapshot],
+      fallbackDeadline: String,
+      catalog: String => Option[ManufacturingCatalogResponse],
+      materials: MaterialDrafts.Context,
+      newId: () => UUID,
+  ): Either[ApiError, List[ManufacturingDto]] =
     snapshots.foldLeft(Right(List.empty): Either[ApiError, List[ManufacturingDto]]) { (acc, snapshot) =>
-      acc.flatMap(list => manufacturingFromDraft(snapshot, fallbackDeadline, catalog, newId).map(list :+ _))
+      acc.flatMap(list => manufacturingFromDraft(snapshot, fallbackDeadline, catalog, materials, newId).map(list :+ _))
     }
 
   /** Maps the draft-key based "depends on" selections to positional indexes for the creation request. */

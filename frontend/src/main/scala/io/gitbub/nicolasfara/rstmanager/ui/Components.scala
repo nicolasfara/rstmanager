@@ -269,6 +269,23 @@ object Components:
       onCancel: () => Unit,
       onConfirm: () => Unit,
   ): HtmlElement =
+    confirmDialog(isOpen, titleText, message, confirmLabel, tone, emptyNode, Signal.fromValue(true), onCancel, onConfirm)
+
+  /**
+   * Variant of [[confirmDialog]] with extra `body` content under the message (e.g. a required "reason" input, carrying its own top margin); the
+   * confirm button stays disabled while `confirmEnabled` is false.
+   */
+  def confirmDialog(
+      isOpen: Signal[Boolean],
+      titleText: Signal[String],
+      message: Signal[String],
+      confirmLabel: String,
+      tone: DialogTone,
+      body: Modifier[HtmlElement],
+      confirmEnabled: Signal[Boolean],
+      onCancel: () => Unit,
+      onConfirm: () => Unit,
+  ): HtmlElement =
     val (iconWrapCls, iconChar, confirmCls) = tone match
       case DialogTone.Danger => ("bg-rose-100 text-rose-600", "⚠", btnDangerSolid)
       case DialogTone.Neutral => ("bg-sky-100 text-sky-600", "?", s"$btnPrimary justify-center")
@@ -294,10 +311,17 @@ object Components:
               p(cls := "text-sm text-slate-500", child.text <-- message),
             ),
           ),
+          body,
           div(
             cls := "mt-6 flex flex-col-reverse gap-2 sm:flex-row",
             button(tpe := "button", cls := s"$btnGhost flex-1 justify-center", "Annulla", onClick --> (_ => onCancel())),
-            button(tpe := "button", cls := s"$confirmCls flex-1", confirmLabel, onClick --> (_ => onConfirm())),
+            button(
+              tpe := "button",
+              cls := s"$confirmCls flex-1",
+              confirmLabel,
+              disabled <-- confirmEnabled.map(!_),
+              onClick --> (_ => onConfirm()),
+            ),
           ),
         ),
       ),
@@ -308,16 +332,23 @@ object Components:
     modal(isOpen, Signal.fromValue(titleText))(content)
 
   def modal(isOpen: Var[Boolean], titleText: Signal[String])(content: HtmlElement): HtmlElement =
+    modal(isOpen.signal, titleText, "max-w-2xl", () => isOpen.set(false))(content)
+
+  /**
+   * Variant of [[modal]] driven by a `Signal` (typically derived from a `Var[Option[T]]` holding what the modal is about), with the card width as a
+   * Tailwind `max-w-*` class; `onClose` runs when the ✕ is clicked and should flip the caller's state closed.
+   */
+  def modal(isOpen: Signal[Boolean], titleText: Signal[String], maxWidthCls: String, onClose: () => Unit)(content: HtmlElement): HtmlElement =
     div(
       cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-4",
-      cls <-- isOpen.signal.map(open => if open then "flex" else "hidden"),
+      cls <-- isOpen.map(open => if open then "flex" else "hidden"),
       div(
-        cls := "mt-8 w-full max-w-2xl",
+        cls := s"mt-8 w-full $maxWidthCls",
         card(
           div(
             cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
             h2(cls := "text-sm font-semibold text-slate-800", child.text <-- titleText),
-            button(cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => isOpen.set(false))),
+            button(tpe := "button", cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => onClose())),
           ),
           div(cls := "p-4", content),
         ),

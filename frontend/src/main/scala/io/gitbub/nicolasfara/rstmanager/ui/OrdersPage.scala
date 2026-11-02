@@ -100,8 +100,8 @@ object OrdersPage:
   /** Mutable draft holder: stable key for `split`, all mutable fields consolidated in one `Var`. */
   private final case class TaskDraft(key: Int, state: Var[TaskState])
 
-  /** `tasks` is kept as a separate `Var` because it undergoes its own add/remove mutations. */
-  private final case class MfgDraft(key: Int, state: Var[MfgCoreState], tasks: Var[List[TaskDraft]])
+  /** `tasks` and `materials` are kept as separate `Var`s because they undergo their own add/remove mutations. */
+  private final case class MfgDraft(key: Int, state: Var[MfgCoreState], tasks: Var[List[TaskDraft]], materials: Var[List[MaterialDrafts.Row]])
 
   /** Consolidated create-form state; reset is atomic via a single `Var.set`. */
   private case class CreateOrderState(
@@ -258,9 +258,11 @@ object OrdersPage:
 
     def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8:00", Set.empty, "")))
     def newMfg(): MfgDraft =
-      MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())))
+      MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())), Var(Nil))
 
     val mfgs = Var(List(newMfg()))
+    // Products the draft material lines are checked against on submit, written by the drafts' materials editors once loaded.
+    val draftMaterialsContext = Var(MaterialDrafts.Context.empty)
 
     def resetCreate(): Unit =
       createState.set(
@@ -288,10 +290,16 @@ object OrdersPage:
 
     /** Resolves a live manufacturing draft (with its `Var`s) into the immutable snapshot [[OrderDrafts]] operates on. */
     def snapshotOf(m: MfgDraft): MfgSnapshot =
-      MfgSnapshot(m.key, m.state.now(), m.tasks.now().map(_.state.now()))
+      MfgSnapshot(m.key, m.state.now(), m.tasks.now().map(_.state.now()), m.materials.now())
 
     def collectManufacturings(): Either[ApiError, List[ManufacturingDto]] =
-      OrderDrafts.collectManufacturings(mfgs.now().map(snapshotOf), createState.now().workDeadline, catalogById, () => randomUuid())
+      OrderDrafts.collectManufacturings(
+        mfgs.now().map(snapshotOf),
+        createState.now().workDeadline,
+        catalogById,
+        draftMaterialsContext.now(),
+        () => randomUuid(),
+      )
 
     def collectDependencies(): Option[List[ManufacturingDependencyByIndexDto]] =
       OrderDrafts.collectDependencies(mfgs.now().map(snapshotOf))
@@ -815,6 +823,7 @@ object OrdersPage:
               button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => m.tasks.update(_ :+ newTask()))),
             )
         },
+        MaterialsEditor.draftEditor(m.materials, () => nextKey(), draftMaterialsContext.writer),
       )
     end renderMfg
 
@@ -1098,6 +1107,8 @@ object OrdersPage:
           ,
           div(cls := "space-y-2", m.tasks.map(t => renderTaskEdit(m, t))),
           if editable then addTaskForm(m) else emptyNode,
+          // Keeps the unsaved edits of the modal: only the order snapshot is replaced (materials do not touch the other fields).
+          MaterialsEditor.section(order, m, updated => editing.set(Some(updated))),
           if editable && order.manufacturings.size > 1 then
             div(
               cls := "mt-2 flex justify-end",
@@ -1221,6 +1232,7 @@ object OrdersPage:
           readField("Stato", statusBadge(order.status)),
           readField("Cliente", child.text <-- customersMap.map(_.getOrElse(order.customerId, Formats.shortId(order.customerId)))),
           readField("Consegna cliente", Formats.date(order.deliveryDate)),
+          readField("Costo materiali", WarehouseFormats.formatEuro(order.materialsCost)),
         ),
         if editable then
           div(

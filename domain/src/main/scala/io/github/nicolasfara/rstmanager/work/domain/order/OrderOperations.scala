@@ -8,6 +8,7 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
   ScheduledManufacturingError,
   ScheduledManufacturingId,
+  ScheduledMaterial,
 }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
@@ -142,6 +143,14 @@ object OrderOperations:
   ): Either[OrderError, ActiveOrder] =
     updateManufacturing(order, manufacturingId)(_.withCompletionDate(completionDate).asRight)
 
+  /** Replaces the materials of one of the order manufacturings, keeping its lifecycle state (a completed manufacturing stays completed). */
+  def changeManufacturingMaterials(
+      order: ActiveOrder,
+      manufacturingId: ScheduledManufacturingId,
+      materials: List[ScheduledMaterial],
+  ): Either[OrderError, ActiveOrder] =
+    updateManufacturing(order, manufacturingId)(_.withMaterials(materials).asRight)
+
   /** Adds a task to one of the order manufacturings. */
   def addManufacturingTask(
       order: ActiveOrder,
@@ -177,14 +186,27 @@ object OrderOperations:
       yield data.replaceManufacturing(manufacturing.withDependencies(newDependencies))
     }
 
-  /** Checks a new order: unique manufacturing and task ids, and valid manufacturing and task dependency graphs. */
+  /** Checks a new order: unique manufacturing and task ids, valid manufacturing and task dependency graphs, and valid materials. */
   def validateNewOrder(data: OrderData): Either[OrderError, Unit] =
-    uniqueIds(data.setOfManufacturing.toList) *> data.setOfManufacturing.toList.traverse_(noRepeatedCatalogTasks) *> validateDependencies(data)
+    uniqueIds(data.setOfManufacturing.toList) *> data.setOfManufacturing.toList.traverse_(noRepeatedCatalogTasks) *> validateDependencies(data) *>
+      data.setOfManufacturing.toList.traverse_(manufacturing => validateMaterials(manufacturing.info.id, manufacturing.info.materials))
 
-  /** Checks that a manufacturing can join the order: its id and task ids are new, and its task dependency graph is valid. */
+  /** Checks that a manufacturing can join the order: its id and task ids are new, and its task dependency graph and materials are valid. */
   def validateManufacturingAddition(data: OrderData, manufacturing: ScheduledManufacturing): Either[OrderError, Unit] =
     uniqueIds(manufacturing :: data.setOfManufacturing.toList) *> noRepeatedCatalogTasks(manufacturing) *>
-      validateTaskDependencies(manufacturing, manufacturing.info.dependencies)
+      validateTaskDependencies(manufacturing, manufacturing.info.dependencies) *>
+      validateMaterials(manufacturing.info.id, manufacturing.info.materials)
+
+  /**
+   * Checks the materials of a manufacturing: each product appears in one line only (its quantity is the total used), and every quantity is positive.
+   * Whole pieces cannot be checked here, the order does not know the products' units: the service checks them against the warehouse.
+   */
+  def validateMaterials(manufacturingId: ScheduledManufacturingId, materials: List[ScheduledMaterial]): Either[OrderError, Unit] =
+    val repeated = duplicates(materials.map(_.productId))
+    val zero = materials.filter(_.quantity.value <= 0L).map(_.productId).toSet
+    if repeated.nonEmpty then OrderError.DuplicateMaterials(manufacturingId, repeated).asLeft
+    else if zero.nonEmpty then OrderError.NonPositiveMaterialQuantity(manufacturingId, zero).asLeft
+    else ().asRight
 
   /** Checks that a task can join a manufacturing of the order: its id is new, and its prerequisites exist in the manufacturing without a cycle. */
   def validateTaskAddition(

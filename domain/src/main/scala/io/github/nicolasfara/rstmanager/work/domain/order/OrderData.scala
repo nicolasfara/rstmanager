@@ -3,6 +3,7 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
+import io.github.nicolasfara.rstmanager.warehouse.domain.Amount
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderDependencies.*
 
@@ -61,6 +62,9 @@ final case class OrderData(
     description: Option[String] = None,
     dependencies: OrderDependencies = OrderDependencies.empty,
 ):
+  /** What the materials of every manufacturing cost the customer. */
+  def materialsCost: Amount = Amount.sum(setOfManufacturing.toList.map(_.info.materialsCost))
+
   /** Sets (or clears) the order description. */
   def withDescription(newDescription: Option[String]): OrderData =
     this.focus(_.description).replace(newDescription)

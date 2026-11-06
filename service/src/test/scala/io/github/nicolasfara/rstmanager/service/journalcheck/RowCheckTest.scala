@@ -4,6 +4,8 @@ import scala.io.Source
 import scala.util.Using
 
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
+import io.github.nicolasfara.rstmanager.work.domain.order.Order
+import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskAggregate, TaskService }
 import io.github.nicolasfara.rstmanager.work.domain.task.events.TaskEvent
 
@@ -24,6 +26,24 @@ class RowCheckTest extends AnyFlatSpecLike:
 
     report shouldEqual RowReport(rows = 4, streams = 2, failures = Vector.empty)
     report.ok shouldBe true
+
+  it should "replay an order stream mixing rows written before and after materials existed" in:
+    val report = RowCheck
+      .journal(Order, Decoder[OrderEvent])
+      .run(
+        Stream.emits(
+          List(
+            orderRow("a", 1, "legacy-v1-order-created"),
+            orderRow("a", 2, "v2-task-added"),
+            orderRow("a", 3, "v3-manufacturing-materials-changed"),
+            orderRow("a", 4, "v3-manufacturing-added-with-materials"),
+            orderRow("a", 5, "v2-order-suspended"),
+          ),
+        ),
+      )
+      .toList
+
+    report shouldEqual List(RowReport(rows = 5, streams = 1, failures = Vector.empty))
 
   it should "report a row that cannot be decoded, and stop folding its stream" in:
     val report = replay(
@@ -56,5 +76,9 @@ class RowCheckTest extends AnyFlatSpecLike:
 end RowCheckTest
 
 object RowCheckTest:
-  private def row(stream: String, version: Long, fixture: String): StoredRow =
-    StoredRow(stream, version, Using.resource(Source.fromResource(s"golden/task-events/$fixture.json"))(_.mkString))
+  private def row(stream: String, version: Long, fixture: String): StoredRow = stored("task-events", stream, version, fixture)
+
+  private def orderRow(stream: String, version: Long, fixture: String): StoredRow = stored("order-events", stream, version, fixture)
+
+  private def stored(directory: String, stream: String, version: Long, fixture: String): StoredRow =
+    StoredRow(stream, version, Using.resource(Source.fromResource(s"golden/$directory/$fixture.json"))(_.mkString))

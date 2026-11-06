@@ -3,6 +3,8 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, UnitPrice }
+import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
@@ -50,6 +52,13 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
 
   private val genScheduledTask: Gen[ScheduledTask] =
     Gen.oneOf(genPendingTask, genInProgressTask)
+
+  private val genMaterial: Gen[ScheduledMaterial] =
+    for
+      productId <- genUUID.map(ProductId(_))
+      quantity <- Gen.choose(1L, 1000000000L).map(Quantity.applyUnsafe)
+      unitPrice <- Gen.choose(0L, 100000000L).map(UnitPrice.applyUnsafe)
+    yield ScheduledMaterial(productId, quantity, unitPrice)
 
   private val fixedCode: String :| ManufacturingCode = "MFG-TEST".refineUnsafe[ManufacturingCode]
 
@@ -268,4 +277,42 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
         yield reverted
       result.isRight shouldEqual true
       result.foreach(_ shouldBe a[InProgressManufacturing])
+
+  "withMaterials" should "keep a completed manufacturing completed, with its timestamps" in:
+    forAll(genNotStartedSingleAndHours, Gen.listOf(genMaterial)): (t, materials) =>
+      val (mfg, taskId, hours) = t
+      mfg.completeTask(taskId, hours, at) match
+        case Right(completed: CompletedManufacturing) =>
+          completed.withMaterials(materials) shouldEqual completed.copy(info = completed.info.copy(materials = materials))
+        case other => fail(s"Expected a completed manufacturing, got $other")
+
+  it should "replace only the materials, whatever the lifecycle state" in:
+    forAll(genNotStarted, Gen.listOf(genMaterial)): (mfg, materials) =>
+      val paused = PausedManufacturing(mfg.info, Some("attesa"), at, at.plusHours(1).nn)
+      List(mfg, InProgressManufacturing(mfg.info, at), paused).foreach { state =>
+        val updated = state.withMaterials(materials)
+        updated.status shouldEqual state.status
+        updated.info shouldEqual state.info.copy(materials = materials)
+      }
+
+  "materialsCost" should "sum the line costs, each rounded to the cent" in:
+    val info = ScheduledManufacturingInfo(
+      ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000701").nn),
+      fixedCode,
+      at,
+      NonEmptyList.one(
+        PendingTask(ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000801").nn), TaskId(UUID.randomUUID().nn), TaskDuration(60)),
+      ),
+      ManufacturingDependencies(),
+      materials = List(
+        // 2.5 m at 18.50 €/m = 46.25 €
+        ScheduledMaterial(ProductId(UUID.randomUUID().nn), Quantity(2500L), UnitPrice(185000L)),
+        // 0.333 kg at 0.1000 €/kg = 0.0333 € → 0.03 €
+        ScheduledMaterial(ProductId(UUID.randomUUID().nn), Quantity(333L), UnitPrice(1000L)),
+      ),
+    )
+
+    info.materials.map(_.lineCost) shouldEqual List(Amount(4625L), Amount(3L))
+    info.materialsCost shouldEqual Amount(4628L)
+    info.copy(materials = Nil).materialsCost shouldEqual Amount.zero
 end ScheduledManufacturingTest

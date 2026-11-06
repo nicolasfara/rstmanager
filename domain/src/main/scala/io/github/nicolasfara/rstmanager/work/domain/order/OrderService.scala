@@ -2,7 +2,12 @@ package io.github.nicolasfara.rstmanager.work.domain.order
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ManufacturingStatus, ScheduledManufacturing, ScheduledManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ManufacturingStatus,
+  ScheduledManufacturing,
+  ScheduledManufacturingId,
+  ScheduledMaterial,
+}
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTask, ScheduledTaskId }
@@ -45,6 +50,7 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
     case RevertTask(manufacturingId: ScheduledManufacturingId, taskId: ScheduledTaskId)
     case ChangeManufacturingDependencies(dependencies: OrderDependencies)
     case ChangeTaskDependencies(manufacturingId: ScheduledManufacturingId, dependencies: ManufacturingDependencies)
+    case SetManufacturingMaterials(manufacturingId: ScheduledManufacturingId, materials: List[ScheduledMaterial])
   end Command
 
   enum Notification derives CanEqual:
@@ -104,6 +110,9 @@ object OrderService extends Order.Service[OrderService.Command, OrderService.Not
       decideAt((order, now) => order.changeManufacturingDependencies(dependencies, now)).flatMap(publishSchedulingRecalculation)
     case Command.ChangeTaskDependencies(manufacturingId, dependencies) =>
       decideAt((order, now) => order.changeTaskDependencies(manufacturingId, dependencies, now)).flatMap(publishSchedulingRecalculation)
+    // Materials do not change the schedule, but the same notification is what the warehouse consumption reconciliation reacts to.
+    case Command.SetManufacturingMaterials(manufacturingId, materials) =>
+      decideAt((order, now) => order.changeManufacturingMaterials(manufacturingId, materials, now)).flatMap(publishSchedulingRecalculation)
   }
 
   /** Decides on the current state at the instant the command was issued, so events never read the clock. */

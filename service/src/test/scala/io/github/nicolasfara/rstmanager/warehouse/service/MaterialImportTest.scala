@@ -126,15 +126,17 @@ class MaterialImportTest extends AnyFlatSpecLike:
       ),
     )
 
-  private def planOf(rows: List[List[X]], materials: List[MaterialInfo], suppliers: List[Supplier]): ValidatedNec[Problem, ImportPlan] =
+  private def planOf(rows: List[List[X]], materials: List[MaterialInfo], suppliers: List[Supplier]): ImportPlan =
     val read = rowsOf(workbook(headers, rows))
     MaterialImport.plan(read, context(read, materials, suppliers))
 
   private def planned(rows: List[List[X]], materials: List[MaterialInfo], suppliers: List[Supplier]): ImportPlan =
-    planOf(rows, materials, suppliers).fold(problems => fail(problems.toChain.toList.map(_.message).mkString("\n")), identity)
+    val plan = planOf(rows, materials, suppliers)
+    if plan.problems.nonEmpty then fail(plan.problems.map(_.message).mkString("\n")) else plan
 
   private def problems(rows: List[List[X]], materials: List[MaterialInfo], suppliers: List[Supplier]): List[String] =
-    planOf(rows, materials, suppliers).fold(_.toChain.toList.map(_.message), plan => fail(s"Unexpectedly valid: $plan"))
+    val plan = planOf(rows, materials, suppliers)
+    if plan.problems.isEmpty then fail(s"Unexpectedly valid: $plan") else plan.problems.map(_.message)
 
   private def material(plan: ImportPlan, code: String): MaterialInfo =
     plan.materials.find(m => (m.info.internalCode: String) == code).fold(fail(s"No material $code in $plan"))(_.info)
@@ -203,7 +205,7 @@ class MaterialImportTest extends AnyFlatSpecLike:
         ("04.100.039", rigging.id, None, Some(UnitPrice.applyUnsafe(15000L))),
       )
     plan.materials.map(_.lines) shouldEqual List(List(2, 3))
-    MaterialImportResponse.of(plan, dryRun = true) shouldEqual MaterialImportResponse(true, List("ANELLA4X30"), Nil, Nil, 2)
+    MaterialImportResponse.of(plan, dryRun = true) shouldEqual MaterialImportResponse(true, List("ANELLA4X30"), Nil, Nil, 2, Nil, Nil)
 
   it should "report the rows of a code that disagree on unit, customer price, or type" in:
     problems(
@@ -322,7 +324,7 @@ class MaterialImportTest extends AnyFlatSpecLike:
     plan.skipped shouldEqual List(SkippedMaterial("ESISTENTE", List(2)))
     plan.materials.map(_.info.internalCode: String) shouldEqual List("NUOVO")
     material(plan, "NUOVO").materialType shouldEqual Some("Materiale di consumo")
-    MaterialImportResponse.of(plan, dryRun = false) shouldEqual MaterialImportResponse(false, List("NUOVO"), List("ESISTENTE"), Nil, 0)
+    MaterialImportResponse.of(plan, dryRun = false) shouldEqual MaterialImportResponse(false, List("NUOVO"), List("ESISTENTE"), Nil, 0, Nil, Nil)
 
   it should "create an unknown supplier once, matching names without case and blanks" in:
     val plan = planned(
@@ -362,15 +364,120 @@ class MaterialImportTest extends AnyFlatSpecLike:
       "Riga 5, CODICE: il valore è obbligatorio",
     )
 
+  "plan (partial load)" should "ignore a material with a bad row and create the others" in:
+    val plan = planOf(
+      List(
+        row("BUONO", "pz", "Buono", "", X.N(1), "Nautea", "B-1", ""),
+        row("CATTIVO", "litri", "Cattivo", "", X.N(1), "Nautea", "C-1", ""),
+        row("cattivo", "pz", "Cattivo", "", X.N(1), "Nautea", "C-2", ""),
+        row("ALTRO", "mt", "Altro", "", X.N(2), "", "", ""),
+      ),
+      Nil,
+      List(nautea),
+    )
+    plan.materials.map(_.info.internalCode: String) shouldEqual List("BUONO", "ALTRO")
+    plan.ignored shouldEqual List("CATTIVO")
+    plan.problems.map(_.message) shouldEqual
+      List("Riga 3, UNITA' DI MISURA: 'litri' non è un'unità di misura riconosciuta (usa pz, mt, mq, kg o cf)")
+    MaterialImportResponse.of(plan, dryRun = true) shouldEqual
+      MaterialImportResponse(true, List("ALTRO", "BUONO"), Nil, Nil, 1, List("CATTIVO"), plan.problems.map(_.message))
+
+  it should "ignore every row of a code whose rows disagree" in:
+    val plan = planOf(
+      List(
+        row("FILO", "kg", "Filo", "", X.N(1), "Sail Service", "F-1", ""),
+        row("FILO", "pz", "Filo", "", X.N(1), "Sail Service", "F-2", ""),
+        row("NASTRO", "mt", "Nastro", "", X.N(1), "", "", ""),
+      ),
+      Nil,
+      Nil,
+    )
+    plan.materials.map(_.info.internalCode: String) shouldEqual List("NASTRO")
+    plan.ignored shouldEqual List("FILO")
+    plan.problems.map(_.message) shouldEqual List("Righe 2, 3 (FILO): UNITA' DI MISURA diverse: kg, pz")
+    plan.suppliers shouldEqual Nil
+
+  it should "ignore both codes sharing an MPN, even when one of them is wrong for another reason too" in:
+    val plan = planOf(
+      List(
+        row("LAMPOBIANCA", "pz", "Bianca", "", X.N(1), "Nautea", "LDVS082AB200", ""),
+        row("LAMPOBLU", "pz", "Blu", "", X.S("x"), "Nautea", "LDVS082AB200", ""),
+        row("LAMPOROSSA", "pz", "Rossa", "", X.N(1), "Nautea", "LDVS082AB300", ""),
+      ),
+      Nil,
+      List(nautea),
+    )
+    plan.materials.map(_.info.internalCode: String) shouldEqual List("LAMPOROSSA")
+    plan.ignored shouldEqual List("LAMPOBIANCA", "LAMPOBLU")
+    plan.problems.map(_.message) shouldEqual List(
+      "Righe 2, 3: MPN LDVS082AB200 di Nautea indicato per più materiali (LAMPOBIANCA, LAMPOBLU)",
+      "Riga 3, PREZZO CLIENTE: 'x' non è un prezzo valido (scrivi ad esempio 12,50)",
+    )
+
+  it should "ignore a material whose MPN an active material already has, or whose supplier is ambiguous" in:
+    val plan = planOf(
+      List(
+        row("NUOVO", "pz", "Nuovo", "", X.N(1), "Nautea", "taken-1", ""),
+        row("DOPPIO", "pz", "Doppio", "", X.N(1), "Rancati", "R-1", ""),
+        row("SANO", "pz", "Sano", "", X.N(1), "", "", ""),
+      ),
+      List(existing),
+      List(nautea, supplier(4, "Rancati"), supplier(5, "rancati")),
+    )
+    plan.materials.map(_.info.internalCode: String) shouldEqual List("SANO")
+    plan.ignored shouldEqual List("DOPPIO", "NUOVO")
+
+  it should "create a new supplier only for the materials it creates" in:
+    val plan = planOf(
+      List(
+        row("CATTIVO", "pz", "", "", X.N(1), "Gaspari", "G-1", ""),
+        row("BUONO", "pz", "Buono", "", X.N(1), "Defilus", "D-1", ""),
+      ),
+      Nil,
+      Nil,
+    )
+    plan.ignored shouldEqual List("CATTIVO")
+    plan.suppliers.map(supplier => supplier.name: String) shouldEqual List("Defilus")
+    MaterialImportResponse.of(plan, dryRun = true).newSuppliers shouldEqual List("Defilus")
+
+  it should "report a row without a code and load the rest" in:
+    val plan = planOf(List(row("", "pz", "Senza codice", "", X.N(1), "Nautea", "S-1", ""), row("A", "pz", "Uno", "", X.N(1), "", "", "")), Nil, Nil)
+    plan.materials.map(_.info.internalCode: String) shouldEqual List("A")
+    plan.ignored shouldEqual Nil
+    plan.suppliers shouldEqual Nil
+    plan.problems.map(_.message) shouldEqual List("Riga 2, CODICE: il valore è obbligatorio")
+
+  it should "leave nothing to create when every material has a problem" in:
+    val plan = planOf(List(row("A", "pz", "Uno", "", X.Blank, "Nautea", "A-1", ""), row("B", "litri", "Due", "", X.N(1), "", "", "")), Nil, Nil)
+    plan.materials shouldEqual Nil
+    plan.suppliers shouldEqual Nil
+    MaterialImportResponse.of(plan, dryRun = false) shouldEqual
+      MaterialImportResponse(false, Nil, Nil, Nil, 0, List("A", "B"), plan.problems.map(_.message))
+
+  it should "spell a type from the materials it creates, not from the ignored ones" in:
+    val plan = planOf(
+      List(
+        row("CATTIVO", "litri", "Cattivo", "materiale di consumo", X.N(1), "", "", ""),
+        row("A", "pz", "Uno", "Materiale di Consumo", X.N(1), "", "", ""),
+        row("B", "pz", "Due", "MATERIALE DI CONSUMO", X.N(1), "", "", ""),
+      ),
+      Nil,
+      Nil,
+    )
+    plan.materials.map(_.info.materialType) shouldEqual List(Some("Materiale di Consumo"), Some("Materiale di Consumo"))
+
   "MaterialImportResponse" should "travel as JSON with the field names the frontend reads" in:
-    val response = MaterialImportResponse(true, List("A", "B"), List("C"), List("Sail Service"), 3)
-    response.asJson.noSpaces shouldEqual """{"dryRun":true,"created":["A","B"],"skipped":["C"],"newSuppliers":["Sail Service"],"mpns":3}"""
+    val response = MaterialImportResponse(true, List("A", "B"), List("C"), List("Sail Service"), 3, List("D"), List("Riga 5, CODICE MPN: …"))
+    response.asJson.noSpaces shouldEqual
+      """{"dryRun":true,"created":["A","B"],"skipped":["C"],"newSuppliers":["Sail Service"],"mpns":3,"ignored":["D"],"problems":["Riga 5, CODICE MPN: …"]}"""
     decode[MaterialImportResponse](response.asJson.noSpaces) shouldEqual Right(response)
 
   "MaterialHttpApi.importXlsx" should "take the dryRun flag and the raw xlsx bytes" in:
     val served = MaterialHttpApi.importXlsx
       .serverSecurityLogicSuccess[Unit, IO](_ => IO.unit)
-      .serverLogic(_ => (dryRun, body) => IO.pure(Right(MaterialImportResponse(dryRun.getOrElse(false), List(body.length.toString), Nil, Nil, 0))))
+      .serverLogic(_ =>
+        (dryRun, body) => IO.pure(Right(MaterialImportResponse(dryRun.getOrElse(false), List(body.length.toString), Nil, Nil, 0, Nil, Nil))),
+      )
     val routes = Http4sServerInterpreter[IO]().toRoutes(served)
     def post(query: String): String =
       val request = Request[IO](Method.POST, Uri.unsafeFromString(s"/api/v1/warehouse/materials/import$query"))
@@ -379,6 +486,6 @@ class MaterialImportTest extends AnyFlatSpecLike:
         )
         .withBodyStream(fs2.Stream.emits(List[Byte](1, 2, 3)))
       routes.orNotFound.run(request).flatMap(_.as[String]).unsafeRunSync()
-    decode[MaterialImportResponse](post("?dryRun=true")) shouldEqual Right(MaterialImportResponse(true, List("3"), Nil, Nil, 0))
-    decode[MaterialImportResponse](post("")) shouldEqual Right(MaterialImportResponse(false, List("3"), Nil, Nil, 0))
+    decode[MaterialImportResponse](post("?dryRun=true")) shouldEqual Right(MaterialImportResponse(true, List("3"), Nil, Nil, 0, Nil, Nil))
+    decode[MaterialImportResponse](post("")) shouldEqual Right(MaterialImportResponse(false, List("3"), Nil, Nil, 0, Nil, Nil))
 end MaterialImportTest

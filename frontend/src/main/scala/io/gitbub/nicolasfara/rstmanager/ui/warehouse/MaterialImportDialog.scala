@@ -14,7 +14,8 @@ import org.scalajs.dom
  * The "Carica materiali da Excel" dialog (Admin): explains the expected columns, checks the chosen `.xlsx` file at once with a dry run of the import,
  * shows what the upload would do (or every problem found, with its row), and uploads the checked file with "Carica".
  *
- * Opened by `isOpen`; every opening starts from no file. The state rules live in [[MaterialImport]]. After an upload it calls
+ * Materials with problems are left out of the upload (listed as a warning after the check), the others are loaded; a file refused as a whole shows
+ * the error instead. Opened by `isOpen`; every opening starts from no file. The state rules live in [[MaterialImport]]. After an upload it calls
  * [[AppBus.mutatedWarehouse]] (materials and suppliers share the warehouse tick), closes, and hands the summary to `onImported` for the confirmation.
  */
 object MaterialImportDialog:
@@ -107,7 +108,8 @@ object MaterialImportDialog:
         li("Una riga per MPN: più righe con lo stesso CODICE sono lo stesso materiale con più MPN, e gli altri campi devono coincidere."),
         li("I codici già presenti in magazzino vengono saltati."),
         li("I fornitori mancanti vengono creati con il solo nome."),
-        li("Un solo errore annulla l'intero caricamento: non viene salvato niente."),
+        li("I materiali con errori non vengono caricati (sono ignorate tutte le righe di quel CODICE); gli altri sì."),
+        li("Corretto il file, caricalo di nuovo: i materiali già caricati verranno saltati."),
       ),
     )
   end instructions
@@ -173,6 +175,16 @@ object MaterialImportDialog:
           itemList(summary.newSuppliers),
         ),
       ),
+      Option.when(summary.ignored.nonEmpty)(
+        div(
+          cls := "mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800",
+          div(cls := "font-medium", s"${MaterialImport.ignoredText(summary)}."),
+          Option.when(summary.created.nonEmpty)(
+            div(cls := "mt-0.5 text-xs", "Con «Carica» vengono caricati solo i materiali senza errori."),
+          ),
+          problemsList(summary),
+        ),
+      ),
       // The skipped codes can be hundreds (e.g. the same file uploaded again): collapsed by default.
       Option.when(summary.skipped.nonEmpty)(
         detailsTag(
@@ -181,6 +193,14 @@ object MaterialImportDialog:
           itemList(summary.skipped),
         ),
       ),
+    )
+
+  /** The problems of the ignored materials, scrollable like the error box, then their codes. */
+  private[warehouse] def problemsList(summary: MaterialImportResponse): HtmlElement =
+    div(
+      cls := "mt-2 max-h-96 overflow-y-auto text-xs",
+      ul(cls := "list-disc space-y-0.5 pl-5", summary.problems.map(problem => li(problem))),
+      Option.when(summary.ignored.nonEmpty)(div(cls := "mt-2", span(cls := "font-medium", "Codici ignorati: "), summary.ignored.mkString(", "))),
     )
 
   private def itemList(items: List[String]): HtmlElement =

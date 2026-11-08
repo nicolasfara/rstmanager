@@ -152,10 +152,30 @@ object MaterialHttpApi:
   end MaterialResponse
 
   /**
-   * The outcome of a material import: the internal codes created (or, on a dry run, to be created), the codes skipped because an active material
-   * already has them, the suppliers created (to be created) by name, and the number of MPNs of the created materials. Codes are sorted.
+   * The outcome of a material import.
+   *
+   * @param created
+   *   The internal codes created (on a dry run, to be created), sorted.
+   * @param skipped
+   *   The codes an active material already has, sorted.
+   * @param newSuppliers
+   *   The suppliers created (to be created) by name, for the created materials only.
+   * @param mpns
+   *   The number of MPNs of the created materials.
+   * @param ignored
+   *   The codes (normalized, sorted) not loaded because one of their rows has a problem.
+   * @param problems
+   *   Every problem of the file, sorted by row (`Riga N, COLONNA: …`, `Righe a, b (CODICE): …`).
    */
-  final case class MaterialImportResponse(dryRun: Boolean, created: List[String], skipped: List[String], newSuppliers: List[String], mpns: Int)
+  final case class MaterialImportResponse(
+      dryRun: Boolean,
+      created: List[String],
+      skipped: List[String],
+      newSuppliers: List[String],
+      mpns: Int,
+      ignored: List[String],
+      problems: List[String],
+  )
 
   object MaterialImportResponse:
     def of(plan: MaterialImport.ImportPlan, dryRun: Boolean): MaterialImportResponse =
@@ -165,6 +185,8 @@ object MaterialHttpApi:
         plan.skipped.map(_.code).sorted,
         plan.suppliers.map(supplier => supplier.name: String),
         plan.materials.map(_.info.mpns.size).sum,
+        plan.ignored,
+        plan.problems.map(_.message),
       )
 
   private def describeInvariant(error: MaterialError): String = error match
@@ -227,15 +249,18 @@ object MaterialHttpApi:
   val importXlsx: Secured.SecuredEndpoint[(Option[Boolean], Array[Byte]), MaterialImportResponse] =
     Secured.base.post
       .in(collection / "import")
-      .in(query[Option[Boolean]]("dryRun").description("Only check the file and report what would be created (default false)."))
+      .in(query[Option[Boolean]]("dryRun").description("Only check the file and report what would be created and ignored (default false)."))
       .in(
         xlsxBody.description(
           s"The .xlsx workbook (at most ${MaterialImport.maxBytes / (1024 * 1024)} MB): first sheet, headers on row 1 " +
-            s"(${MaterialImport.Column.values.map(_.header).mkString(", ")}), one row per MPN.",
+            s"(${MaterialImport.Column.values.map(_.header).mkString(", ")}), one row per MPN; the rows with the same CODICE are one material.",
         ),
       )
       .tag("Warehouse")
-      .summary("Import materials from an Excel workbook, all or nothing (422 import-rejected lists every problem by row)")
+      .summary(
+        "Import materials from an Excel workbook: a material with a problem in any of its rows is ignored (listed with every problem by row), " +
+          "the others are created; 422 import-rejected only for a file that cannot be read as a whole",
+      )
       .out(jsonBody[MaterialImportResponse])
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, archive, importXlsx)
@@ -249,7 +274,7 @@ object MaterialHttpApi:
     security.secure(importXlsx, Role.Admin)(importLogic(store, suppliers)),
   )
 
-  /** The import was rejected: nothing was written. `problems` are listed by row. */
+  /** The file was rejected as a whole (unreadable, too large, headers missing, no rows, too many rows): nothing was written. */
   private def importRejected(problems: List[String]): ApiFailure =
     StatusCode.UnprocessableEntity -> ApiError("import-rejected", "Caricamento annullato: nessun materiale è stato salvato.", problems)
 
@@ -259,7 +284,8 @@ object MaterialHttpApi:
 
   /**
    * Reads and checks the workbook (see [[MaterialImport.plan]]) against the active materials and suppliers; on a dry run answers with what would be
-   * created, otherwise writes the new suppliers and then the materials ([[writeImport]]).
+   * created and ignored, otherwise writes the new suppliers and then the materials ([[writeImport]]). Nothing is written when nothing is left to
+   * create.
    */
   private def importLogic(store: MaterialApp.Store, suppliers: SupplierApp.Store)(
       dryRun: Option[Boolean],
@@ -279,11 +305,11 @@ object MaterialHttpApi:
                 materials <- MaterialApp.list(store)
                 active <- SupplierApp.list(suppliers)
                 ids <- newIds(MaterialImport.draft(rows))
-                planned = MaterialImport.plan(rows, MaterialImport.ImportContext(day, materials.map(_.info), active, ids))
-                outcome <- planned.toEither match
-                  case Left(problems) => IO.pure(importRejected(problems.toChain.toList.map(_.message)).asLeft)
-                  case Right(plan) if dryRun.getOrElse(false) => IO.pure(MaterialImportResponse.of(plan, dryRun = true).asRight)
-                  case Right(plan) => writeImport(store, suppliers, plan)
+                plan = MaterialImport.plan(rows, MaterialImport.ImportContext(day, materials.map(_.info), active, ids))
+                outcome <-
+                  if dryRun.getOrElse(false) then IO.pure(MaterialImportResponse.of(plan, dryRun = true).asRight)
+                  else if plan.materials.isEmpty then IO.pure(MaterialImportResponse.of(plan, dryRun = false).asRight)
+                  else writeImport(store, suppliers, plan)
               yield outcome
         yield result
       imported.handleError(error => internal(error).asLeft)

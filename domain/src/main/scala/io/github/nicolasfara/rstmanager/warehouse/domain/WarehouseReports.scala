@@ -1,39 +1,39 @@
 package io.github.nicolasfara.rstmanager.warehouse.domain
 
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ MovementKind, ProductId, ProductRecord, StockMovement, StockSnapshot }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialId, MaterialRecord, MovementKind, StockMovement, StockSnapshot }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.SupplierId
 
 import com.github.nscala_time.time.Imports.LocalDate
 import org.joda.time.DateTimeConstants
 
-/** A product as the reports see it: its folded record and the day it was archived, if it was. */
-final case class ReportedProduct(record: ProductRecord, archivedOn: Option[LocalDate]) derives CanEqual:
-  /** Whether the product was already archived at the end of `day`. */
+/** A material as the reports see it: its folded record and the day it was archived, if it was. */
+final case class ReportedMaterial(record: MaterialRecord, archivedOn: Option[LocalDate]) derives CanEqual:
+  /** Whether the material was already archived at the end of `day`. */
   def archivedAt(day: LocalDate): Boolean = archivedOn.exists(!_.isAfter(day))
 
 /**
- * A product in the warehouse state of a day.
+ * A material in the warehouse state of a day.
  *
  * @param customerPrice
  *   Customer price in effect on the day.
  * @param archived
- *   Whether the product was archived on or before the day (it is listed only while it still holds stock).
+ *   Whether the material was archived on or before the day (it is listed only while it still holds stock).
  */
-final case class StateRow(product: ReportedProduct, customerPrice: Option[UnitPrice], stock: StockSnapshot, archived: Boolean) derives CanEqual
+final case class StateRow(material: ReportedMaterial, customerPrice: Option[UnitPrice], stock: StockSnapshot, archived: Boolean) derives CanEqual
 
 /**
  * Totals of a warehouse state.
  *
  * @param value
- *   Sum of the product values (a product without any cost counts zero).
+ *   Sum of the material values (a material without any cost counts zero).
  * @param purchasedTotal
- *   Sum of what was spent on purchases of the listed products up to the day.
- * @param negativeProducts
- *   Products with a negative balance (anomalies).
- * @param unvaluedProducts
- *   Products with stock but no cost to value it.
+ *   Sum of what was spent on purchases of the listed materials up to the day.
+ * @param negativeMaterials
+ *   Materials with a negative balance (anomalies).
+ * @param unvaluedMaterials
+ *   Materials with stock but no cost to value it.
  */
-final case class StateTotals(products: Int, value: Amount, purchasedTotal: Amount, negativeProducts: Int, unvaluedProducts: Int) derives CanEqual
+final case class StateTotals(materials: Int, value: Amount, purchasedTotal: Amount, negativeMaterials: Int, unvaluedMaterials: Int) derives CanEqual
 
 /** The warehouse as it stood at the end of `at`. */
 final case class WarehouseState(at: LocalDate, rows: List[StateRow], totals: StateTotals) derives CanEqual
@@ -69,7 +69,7 @@ object FlowGranularity:
     values.find(_.wireName == normalized).toRight(s"La granularità '$raw' non è supportata. Usa ${values.map(_.wireName).mkString(", ")}.")
 
 /**
- * Quantities that came in and went out in one unit of measure, summed over every product in that unit. `quantityIn` is never negative; `quantityOut`
+ * Quantities that came in and went out in one unit of measure, summed over every material in that unit. `quantityIn` is never negative; `quantityOut`
  * is reduced by consumption reversals (storni), so it is negative in a period whose reversals exceed what went out.
  */
 final case class UnitFlow(unit: UnitOfMeasure, quantityIn: SignedQuantity, quantityOut: SignedQuantity) derives CanEqual:
@@ -107,32 +107,32 @@ final case class FlowBucket(start: LocalDate, label: String, from: LocalDate, to
 final case class FlowReport(from: LocalDate, to: LocalDate, granularity: FlowGranularity, buckets: List[FlowBucket], totals: FlowTotals)
     derives CanEqual
 
-/** What was bought under one MPN of one product. */
-final case class MpnSpend(productId: ProductId, mpnCode: String, unit: UnitOfMeasure, quantity: SignedQuantity, amount: Amount, purchases: Int)
+/** What was bought under one MPN of one material. */
+final case class MpnSpend(materialId: MaterialId, mpnCode: String, unit: UnitOfMeasure, quantity: SignedQuantity, amount: Amount, purchases: Int)
     derives CanEqual
 
-/** What was bought from one supplier, with the breakdown per product MPN (largest amount first). */
+/** What was bought from one supplier, with the breakdown per material MPN (largest amount first). */
 final case class SupplierSpend(supplierId: SupplierId, amount: Amount, purchases: Int, mpns: List[MpnSpend]) derives CanEqual
 
 /** What was bought from each supplier from `from` to `to` (inclusive), largest amount first. */
 final case class SupplierSpendReport(from: LocalDate, to: LocalDate, suppliers: List[SupplierSpend], total: Amount) derives CanEqual
 
 /**
- * Pure reports over the warehouse products: the state of any past day, the incoming and outgoing flows of a period, and the spend per supplier.
+ * Pure reports over the warehouse materials: the state of any past day, the incoming and outgoing flows of a period, and the spend per supplier.
  *
- * Every figure comes from the products' ledgers, as days: a movement on `D` counts for `D`. Voided movements count for no day.
+ * Every figure comes from the materials' ledgers, as days: a movement on `D` counts for `D`. Voided movements count for no day.
  */
 object WarehouseReports:
   /**
-   * The warehouse at the end of `day`: every product created on or before it (or with a movement by then) and not archived before it, plus the
+   * The warehouse at the end of `day`: every material created on or before it (or with a movement by then) and not archived before it, plus the
    * archived ones still holding stock then, by internal code.
    */
-  def stateAt(products: List[ReportedProduct], day: LocalDate): WarehouseState =
-    val rows = products
+  def stateAt(materials: List[ReportedMaterial], day: LocalDate): WarehouseState =
+    val rows = materials
       .filter(_.record.existsOn(day))
-      .map(product => StateRow(product, product.record.customerPriceAt(day), product.record.ledger.snapshotAt(day), product.archivedAt(day)))
-      .filter(row => !row.product.archivedOn.exists(_.isBefore(day)) || row.stock.quantity.value != 0L)
-      .sortBy(row => (row.product.record.info.internalCode: String))
+      .map(material => StateRow(material, material.record.customerPriceAt(day), material.record.ledger.snapshotAt(day), material.archivedAt(day)))
+      .filter(row => !row.material.archivedOn.exists(_.isBefore(day)) || row.stock.quantity.value != 0L)
+      .sortBy(row => (row.material.record.info.internalCode: String))
     val totals = StateTotals(
       rows.size,
       Amount.sum(rows.flatMap(_.stock.value)),
@@ -143,8 +143,8 @@ object WarehouseReports:
     WarehouseState(day, rows, totals)
 
   /** The flows from `from` to `to` (inclusive), in the weeks or months covering the period; empty when `from` is after `to`. */
-  def flows(products: List[ReportedProduct], from: LocalDate, to: LocalDate, granularity: FlowGranularity): FlowReport =
-    val items = flowItems(products, from, to)
+  def flows(materials: List[ReportedMaterial], from: LocalDate, to: LocalDate, granularity: FlowGranularity): FlowReport =
+    val items = flowItems(materials, from, to)
     val buckets =
       if from.isAfter(to) then Nil
       else
@@ -167,27 +167,27 @@ object WarehouseReports:
     FlowReport(from, to, granularity, buckets, totalsOf(items))
   end flows
 
-  /** The purchases from `from` to `to` (inclusive), by supplier and then by product MPN. */
-  def supplierSpend(products: List[ReportedProduct], from: LocalDate, to: LocalDate): SupplierSpendReport =
+  /** The purchases from `from` to `to` (inclusive), by supplier and then by material MPN. */
+  def supplierSpend(materials: List[ReportedMaterial], from: LocalDate, to: LocalDate): SupplierSpendReport =
     val purchases =
       for
-        product <- products
-        movement <- product.record.ledger.active.toList
+        material <- materials
+        movement <- material.record.ledger.active.toList
         if !movement.on.isBefore(from) && !movement.on.isAfter(to)
         purchase <- movement.kind match
           case purchase: MovementKind.Purchase => List(purchase)
           case MovementKind.Unload(_) | MovementKind.Adjustment(_, _) | MovementKind.Consumption(_) => Nil
-      yield (product, movement, purchase)
+      yield (material, movement, purchase)
     val suppliers = purchases
       .groupBy(_._3.supplierId)
       .toList
       .map { (supplierId, bought) =>
         val mpns = bought
-          .groupBy((product, _, purchase) => (product.record.info.id, purchase.mpnCode: String))
+          .groupBy((material, _, purchase) => (material.record.info.id, purchase.mpnCode: String))
           .toList
-          .map { case ((productId, mpnCode), lines) =>
+          .map { case ((materialId, mpnCode), lines) =>
             MpnSpend(
-              productId,
+              materialId,
               mpnCode,
               lines.headOption.fold(UnitOfMeasure.Pieces)(_._1.record.info.unit),
               SignedQuantity.saturating(lines.map(_._2.delta.value: Long).sum),
@@ -195,7 +195,7 @@ object WarehouseReports:
               lines.size,
             )
           }
-          .sortBy(mpn => (-mpn.amount.value, mpn.mpnCode, mpn.productId.value.toString))
+          .sortBy(mpn => (-mpn.amount.value, mpn.mpnCode, mpn.materialId.value.toString))
         SupplierSpend(supplierId, Amount.sum(mpns.map(_.amount)), bought.size, mpns)
       }
       .sortBy(supplier => (-supplier.amount.value, supplier.supplierId.value.toString))
@@ -212,13 +212,13 @@ object WarehouseReports:
       purchase: Boolean,
   )
 
-  private def flowItems(products: List[ReportedProduct], from: LocalDate, to: LocalDate): List[FlowItem] =
+  private def flowItems(materials: List[ReportedMaterial], from: LocalDate, to: LocalDate): List[FlowItem] =
     for
-      product <- products
-      ledger = product.record.ledger
+      material <- materials
+      ledger = material.record.ledger
       movement <- ledger.active.toList
       if !movement.on.isBefore(from) && !movement.on.isAfter(to)
-    yield FlowItem(movement.on, product.record.info.unit, movement.delta, ledger.valueOf(movement), movement.outflow, isPurchase(movement))
+    yield FlowItem(movement.on, material.record.info.unit, movement.delta, ledger.valueOf(movement), movement.outflow, isPurchase(movement))
 
   private def isPurchase(movement: StockMovement): Boolean = movement.kind match
     case _: MovementKind.Purchase => true

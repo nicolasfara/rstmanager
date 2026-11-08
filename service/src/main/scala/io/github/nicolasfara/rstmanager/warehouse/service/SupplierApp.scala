@@ -21,8 +21,8 @@ import skunk.Session
 /**
  * Application backend for the supplier CRUD API: a [[SupplierAggregate]] stream per id plus a durable id registry.
  *
- * Deletion is soft: a deleted supplier stays registered, so products and purchases referencing it can still show its name ([[getAny]]), while [[get]]
- * and [[list]] only see active suppliers.
+ * Deletion is soft: a deleted supplier stays registered, so materials and purchases referencing it can still show its name ([[getAny]]), while
+ * [[get]] and [[list]] only see active suppliers.
  */
 object SupplierApp:
   given BackendCodec[SupplierEvent] = CirceCodec.jsonb

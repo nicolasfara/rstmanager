@@ -4,7 +4,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingError.*
@@ -53,12 +53,12 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
   private val genScheduledTask: Gen[ScheduledTask] =
     Gen.oneOf(genPendingTask, genInProgressTask)
 
-  private val genMaterial: Gen[ScheduledMaterial] =
+  private val genMaterialLine: Gen[ScheduledMaterial] =
     for
-      productId <- genUUID.map(ProductId(_))
+      materialId <- genUUID.map(MaterialId(_))
       quantity <- Gen.choose(1L, 1000000000L).map(Quantity.applyUnsafe)
       unitPrice <- Gen.choose(0L, 100000000L).map(UnitPrice.applyUnsafe)
-    yield ScheduledMaterial(productId, quantity, unitPrice)
+    yield ScheduledMaterial(materialId, quantity, unitPrice)
 
   private val fixedCode: String :| ManufacturingCode = "MFG-TEST".refineUnsafe[ManufacturingCode]
 
@@ -279,7 +279,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       result.foreach(_ shouldBe a[InProgressManufacturing])
 
   "withMaterials" should "keep a completed manufacturing completed, with its timestamps" in:
-    forAll(genNotStartedSingleAndHours, Gen.listOf(genMaterial)): (t, materials) =>
+    forAll(genNotStartedSingleAndHours, Gen.listOf(genMaterialLine)): (t, materials) =>
       val (mfg, taskId, hours) = t
       mfg.completeTask(taskId, hours, at) match
         case Right(completed: CompletedManufacturing) =>
@@ -287,7 +287,7 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
         case other => fail(s"Expected a completed manufacturing, got $other")
 
   it should "replace only the materials, whatever the lifecycle state" in:
-    forAll(genNotStarted, Gen.listOf(genMaterial)): (mfg, materials) =>
+    forAll(genNotStarted, Gen.listOf(genMaterialLine)): (mfg, materials) =>
       val paused = PausedManufacturing(mfg.info, Some("attesa"), at, at.plusHours(1).nn)
       List(mfg, InProgressManufacturing(mfg.info, at), paused).foreach { state =>
         val updated = state.withMaterials(materials)
@@ -306,9 +306,9 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
       ManufacturingDependencies(),
       materials = List(
         // 2.5 m at 18.50 €/m = 46.25 €
-        ScheduledMaterial(ProductId(UUID.randomUUID().nn), Quantity(2500L), UnitPrice(185000L)),
+        ScheduledMaterial(MaterialId(UUID.randomUUID().nn), Quantity(2500L), UnitPrice(185000L)),
         // 0.333 kg at 0.1000 €/kg = 0.0333 € → 0.03 €
-        ScheduledMaterial(ProductId(UUID.randomUUID().nn), Quantity(333L), UnitPrice(1000L)),
+        ScheduledMaterial(MaterialId(UUID.randomUUID().nn), Quantity(333L), UnitPrice(1000L)),
       ),
     )
 

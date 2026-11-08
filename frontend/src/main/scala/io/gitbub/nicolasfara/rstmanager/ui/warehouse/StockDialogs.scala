@@ -10,21 +10,21 @@ import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
-/** What the stock dialog opened from the products table is about. */
+/** What the stock dialog opened from the materials table is about. */
 enum StockDialog derives CanEqual:
-  case Purchase(product: ProductResponse)
-  case Unload(product: ProductResponse)
-  case Adjust(product: ProductResponse)
-  case Movements(product: ProductResponse)
+  case Purchase(material: MaterialResponse)
+  case Unload(material: MaterialResponse)
+  case Adjust(material: MaterialResponse)
+  case Movements(material: MaterialResponse)
 
 /**
- * The stock dialogs of a product: the purchase ("Carico"), unload ("Scarico"), and adjustment ("Rettifica") forms (Operator), and the movements list
+ * The stock dialogs of a material: the purchase ("Carico"), unload ("Scarico"), and adjustment ("Rettifica") forms (Operator), and the movements list
  * with the running balance and the void action (Admin). The list also shows the automatic consumptions by order manufacturings ("Scarico
  * lavorazione", and "Storno lavorazione" when a reopened manufacturing gives the material back) with their order, which cannot be voided.
  *
- * Driven by one `Var[Option[StockDialog]]` owned by the products tab: `Some` opens the matching modal, `None` closes it. The forms are rebuilt on
+ * Driven by one `Var[Option[StockDialog]]` owned by the materials tab: `Some` opens the matching modal, `None` closes it. The forms are rebuilt on
  * every opening (the state goes through `None` in between), so a form never shows the values of a previous one. Every successful write calls
- * [[AppBus.mutatedWarehouse]], which refreshes the products table, the open movements list, and the reports.
+ * [[AppBus.mutatedWarehouse]], which refreshes the materials table, the open movements list, and the reports.
  */
 object StockDialogs:
 
@@ -36,7 +36,7 @@ object StockDialogs:
       case StockDialog.Movements(_) => false
       case _ => true
     })
-    val movementsOf: Signal[Option[ProductResponse]] = current.signal.map(_.collect { case StockDialog.Movements(product) => product })
+    val movementsOf: Signal[Option[MaterialResponse]] = current.signal.map(_.collect { case StockDialog.Movements(material) => material })
     // `contents`: the wrapper must not take a cell of the tab grid; the modals are fixed overlays anyway.
     div(
       cls := "contents",
@@ -63,17 +63,17 @@ object StockDialogs:
 
   // ---- Shared pieces -----------------------------------------------------------------------------
 
-  private def productHeader(product: ProductResponse): HtmlElement =
+  private def materialHeader(material: MaterialResponse): HtmlElement =
     div(
       cls := "mb-4 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600",
-      span(cls := "font-medium text-slate-800", product.internalCode),
-      s" — ${product.description}",
+      span(cls := "font-medium text-slate-800", material.internalCode),
+      s" — ${material.description}",
       div(
         cls := "mt-0.5",
         "Giacenza attuale: ",
         span(
-          cls := (if product.stock.negative then "font-medium text-rose-700" else "font-medium text-slate-800"),
-          WarehouseFormats.formatQty(product.stock.quantity, product.unit),
+          cls := (if material.stock.negative then "font-medium text-rose-700" else "font-medium text-slate-800"),
+          WarehouseFormats.formatQty(material.stock.quantity, material.unit),
         ),
       ),
     )
@@ -128,30 +128,33 @@ object StockDialogs:
 
   // ---- Purchase ----------------------------------------------------------------------------------
 
-  private def purchaseForm(product: ProductResponse, close: () => Unit): HtmlElement =
+  private def purchaseForm(material: MaterialResponse, close: () => Unit): HtmlElement =
     val today = WarehousePage.today()
-    val state = Var(MovementForm.purchase(product, today))
+    val state = Var(MovementForm.purchase(material, today))
     val error = Var(Option.empty[ApiError])
     val submitting = Var(false)
-    val unitLabel = WarehouseFormats.unitShortLabel(product.unit)
+    val unitLabel = WarehouseFormats.unitShortLabel(material.unit)
     val mpnChoices = ("" -> "Seleziona un MPN…") :: state.now().mpns.map(o => o.key -> o.label)
     def submit(): Unit =
-      state.now().request.foreach(request => record(() => ApiClient.recordPurchase(product.id, request), submitting, error, "Carico", close))
+      state.now().request.foreach(request => record(() => ApiClient.recordPurchase(material.id, request), submitting, error, "Carico", close))
     div(
-      productHeader(product),
+      materialHeader(material),
       div(
         cls := "grid gap-3 sm:grid-cols-2",
         div(
           cls := "sm:col-span-2",
           field(
             "MPN acquistato (fornitore)",
-            if state.now().mpns.isEmpty then div(cls := "text-xs text-rose-600", "Il prodotto non ha MPN: aggiungine uno in anagrafica.")
+            if state.now().mpns.isEmpty then div(cls := "text-xs text-rose-600", "Il materiale non ha MPN: aggiungine uno in anagrafica.")
             else staticSelect(state.signal.map(_.mpnKey), Observer[String](v => state.update(_.copy(mpnKey = v))), mpnChoices),
           ),
         ),
         field(
           s"Quantità ($unitLabel)",
-          div(decimalInput(state.signal.map(_.quantity), Observer[String](v => state.update(_.copy(quantity = v))), "25,5"), piecesHint(product.unit)),
+          div(
+            decimalInput(state.signal.map(_.quantity), Observer[String](v => state.update(_.copy(quantity = v))), "25,5"),
+            piecesHint(material.unit),
+          ),
         ),
         field("Costo unitario (€)", decimalInput(state.signal.map(_.unitCost), Observer[String](v => state.update(_.copy(unitCost = v))), "3,50")),
         field("Data", dateInput(state.signal.map(_.on), Observer[String](v => state.update(_.copy(on = v))), today)),
@@ -173,20 +176,20 @@ object StockDialogs:
 
   // ---- Unload ------------------------------------------------------------------------------------
 
-  private def unloadForm(product: ProductResponse, close: () => Unit): HtmlElement =
+  private def unloadForm(material: MaterialResponse, close: () => Unit): HtmlElement =
     val today = WarehousePage.today()
-    val state = Var(MovementForm.unload(product, today))
+    val state = Var(MovementForm.unload(material, today))
     val error = Var(Option.empty[ApiError])
     val submitting = Var(false)
     def submit(): Unit =
-      state.now().request.foreach(request => record(() => ApiClient.recordUnload(product.id, request), submitting, error, "Scarico", close))
+      state.now().request.foreach(request => record(() => ApiClient.recordUnload(material.id, request), submitting, error, "Scarico", close))
     div(
-      productHeader(product),
+      materialHeader(material),
       div(
         cls := "grid gap-3 sm:grid-cols-2",
         field(
-          s"Quantità (${WarehouseFormats.unitShortLabel(product.unit)})",
-          div(decimalInput(state.signal.map(_.quantity), Observer[String](v => state.update(_.copy(quantity = v))), "2"), piecesHint(product.unit)),
+          s"Quantità (${WarehouseFormats.unitShortLabel(material.unit)})",
+          div(decimalInput(state.signal.map(_.quantity), Observer[String](v => state.update(_.copy(quantity = v))), "2"), piecesHint(material.unit)),
         ),
         field("Data", dateInput(state.signal.map(_.on), Observer[String](v => state.update(_.copy(on = v))), today)),
         div(
@@ -206,23 +209,23 @@ object StockDialogs:
 
   // ---- Adjustment --------------------------------------------------------------------------------
 
-  private def adjustmentForm(product: ProductResponse, close: () => Unit): HtmlElement =
+  private def adjustmentForm(material: MaterialResponse, close: () => Unit): HtmlElement =
     val today = WarehousePage.today()
-    val state = Var(MovementForm.adjustment(product, today))
+    val state = Var(MovementForm.adjustment(material, today))
     val error = Var(Option.empty[ApiError])
     val submitting = Var(false)
     def submit(): Unit =
-      state.now().request.foreach(request => record(() => ApiClient.recordAdjustment(product.id, request), submitting, error, "Rettifica", close))
+      state.now().request.foreach(request => record(() => ApiClient.recordAdjustment(material.id, request), submitting, error, "Rettifica", close))
     div(
-      productHeader(product),
+      materialHeader(material),
       div(
         cls := "grid gap-3 sm:grid-cols-2",
         field(
-          s"Variazione (${WarehouseFormats.unitShortLabel(product.unit)})",
+          s"Variazione (${WarehouseFormats.unitShortLabel(material.unit)})",
           div(
             textInput(state.signal.map(_.delta), Observer[String](v => state.update(_.copy(delta = v))), "-2 oppure 10"),
             hint("Negativa per togliere, positiva per aggiungere"),
-            piecesHint(product.unit),
+            piecesHint(material.unit),
           ),
         ),
         field(
@@ -244,7 +247,7 @@ object StockDialogs:
 
   // ---- Movements ---------------------------------------------------------------------------------
 
-  private def movementsView(product: ProductResponse): HtmlElement =
+  private def movementsView(material: MaterialResponse): HtmlElement =
     val today = WarehousePage.today()
     val from = Var("")
     val to = Var("")
@@ -256,7 +259,7 @@ object StockDialogs:
     val applied = Var((Option.empty[String], Option.empty[String]))
     val movements =
       loadable(AppBus.warehouseTicks.combineWith(applied.signal.distinct))(() =>
-        ApiClient.listMovements(product.id, applied.now()._1, applied.now()._2),
+        ApiClient.listMovements(material.id, applied.now()._1, applied.now()._2),
       )
 
     def cancelVoid(): Unit =
@@ -268,7 +271,7 @@ object StockDialogs:
       pendingVoid.now().filter(_ => reason.nonEmpty).foreach { movement =>
         cancelVoid()
         actionError.set(None)
-        ApiClient.voidMovement(product.id, movement.id, reason).foreach {
+        ApiClient.voidMovement(material.id, movement.id, reason).foreach {
           case Right(_) => AppBus.mutatedWarehouse()
           case Left(err) => showError(actionError, "Annullo movimento")(err)
         }
@@ -280,7 +283,7 @@ object StockDialogs:
         titleText = Signal.fromValue("Annulla movimento"),
         message = pendingVoid.signal.map(_.fold("") { m =>
           s"Annullare il movimento “${WarehouseViews.movementKindLabel(m)}” del ${IsoDay.display(m.on)} " +
-            s"(${WarehouseViews.signedQty(m.delta, product.unit)})? Resta nello storico, ma non conta più nella giacenza."
+            s"(${WarehouseViews.signedQty(m.delta, material.unit)})? Resta nello storico, ma non conta più nella giacenza."
         }),
         confirmLabel = "Annulla movimento",
         tone = DialogTone.Danger,
@@ -297,7 +300,7 @@ object StockDialogs:
         div(
           cls := (if WarehouseViews.signOf(value) < 0 then "font-semibold tabular-nums text-rose-700"
                   else "font-semibold tabular-nums text-slate-800"),
-          WarehouseFormats.formatQty(value, product.unit),
+          WarehouseFormats.formatQty(value, material.unit),
         ),
       )
 
@@ -325,14 +328,14 @@ object StockDialogs:
         ),
         td(
           cls := s"px-3 py-2 whitespace-nowrap text-right font-medium tabular-nums $qtyCls $struck",
-          WarehouseViews.signedQty(m.delta, product.unit),
+          WarehouseViews.signedQty(m.delta, material.unit),
         ),
         td(cls := s"px-3 py-2 whitespace-nowrap text-right tabular-nums $struck", m.unitCost.fold("—")(WarehouseFormats.formatUnitPrice)),
         td(cls := s"px-3 py-2 whitespace-nowrap text-right tabular-nums $struck", m.value.fold("—")(WarehouseFormats.formatEuro)),
         td(
           cls := "px-3 py-2 whitespace-nowrap text-right tabular-nums",
           cls := (if WarehouseViews.signOf(m.balance) < 0 then "text-rose-700" else "text-slate-700"),
-          WarehouseFormats.formatQty(m.balance, product.unit),
+          WarehouseFormats.formatQty(m.balance, material.unit),
         ),
         td(
           cls := "px-3 py-2 text-xs",
@@ -349,7 +352,7 @@ object StockDialogs:
         td(
           cls := "px-3 py-2 text-right",
           // A consumption follows its order manufacturing (reopening it reverses the consumption): it is never voided by hand.
-          Option.when(!m.voided && !product.archived && !WarehouseViews.isConsumption(m))(
+          Option.when(!m.voided && !material.archived && !WarehouseViews.isConsumption(m))(
             div(roleGated(Role.Admin)(button(tpe := "button", cls := btnDanger, "Annulla", onClick --> (_ => pendingVoid.set(Some(m)))))),
           ),
         ),

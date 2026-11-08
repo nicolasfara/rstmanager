@@ -6,7 +6,7 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.*
@@ -38,8 +38,8 @@ class OrderServiceTest extends AnyFlatSpecLike:
   private val otherTaskId: ScheduledTaskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000107").nn)
   private val secondManufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000108").nn)
 
-  private val profile: ProductId = ProductId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn)
-  private val glass: ProductId = ProductId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn)
+  private val profile: MaterialId = MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn)
+  private val glass: MaterialId = MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn)
 
   /** 2.5 m of profile at 18.50 €/m (46.25 €) and 2 panes of glass at 12.50 € (25.00 €). */
   private val materials: List[ScheduledMaterial] =
@@ -595,7 +595,7 @@ class OrderServiceTest extends AnyFlatSpecLike:
       case EdomatonResult.Accepted(newState, _, _) => materialsOf(newState, manufacturingId) shouldBe empty
       case other => fail(s"Unexpected result: $other")
 
-  it should "reject materials listing a product twice or with a zero quantity" in:
+  it should "reject materials listing a material twice or with a zero quantity" in:
     val state = InProgressOrder(orderData(), nextDay)
     val repeated = materials :+ ScheduledMaterial(profile, Quantity(1000L), UnitPrice(185000L))
     rejectionOf(run(Command.SetManufacturingMaterials(manufacturingId, repeated), state)) shouldEqual

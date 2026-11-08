@@ -44,7 +44,7 @@ object ScheduledManufacturingId:
  * @param taskPreferredEmployees
  *   Preferred employee for individual scheduled tasks (keyed by scheduled task instance id); takes precedence over `preferredEmployeeId`.
  * @param materials
- *   Warehouse products the manufacturing uses, at most one line per product, each with its frozen customer price.
+ *   Warehouse materials the manufacturing uses, at most one line per material, each with its frozen customer price.
  */
 final case class ScheduledManufacturingInfo(
     id: ScheduledManufacturingId,

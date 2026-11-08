@@ -198,12 +198,12 @@ object OrderOperations:
       validateMaterials(manufacturing.info.id, manufacturing.info.materials)
 
   /**
-   * Checks the materials of a manufacturing: each product appears in one line only (its quantity is the total used), and every quantity is positive.
-   * Whole pieces cannot be checked here, the order does not know the products' units: the service checks them against the warehouse.
+   * Checks the materials of a manufacturing: each material appears in one line only (its quantity is the total used), and every quantity is positive.
+   * Whole pieces cannot be checked here, the order does not know the materials' units: the service checks them against the warehouse.
    */
   def validateMaterials(manufacturingId: ScheduledManufacturingId, materials: List[ScheduledMaterial]): Either[OrderError, Unit] =
-    val repeated = duplicates(materials.map(_.productId))
-    val zero = materials.filter(_.quantity.value <= 0L).map(_.productId).toSet
+    val repeated = duplicates(materials.map(_.materialId))
+    val zero = materials.filter(_.quantity.value <= 0L).map(_.materialId).toSet
     if repeated.nonEmpty then OrderError.DuplicateMaterials(manufacturingId, repeated).asLeft
     else if zero.nonEmpty then OrderError.NonPositiveMaterialQuantity(manufacturingId, zero).asLeft
     else ().asRight

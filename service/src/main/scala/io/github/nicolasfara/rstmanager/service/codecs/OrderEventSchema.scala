@@ -11,8 +11,9 @@ import io.circe.{ Decoder, Json, JsonObject }
  *   - v1: task estimates and progress are in whole hours: `expectedHours` / `completedHours` in the scheduled tasks, `withHours` on completion,
  *     `completedHours` / `expectedHours` on the progress and estimate changes.
  *   - v2: they are `expectedDuration` / `completedDuration` / `withDuration`, in minutes.
- *   - v3: every scheduled manufacturing `info` (in `OrderCreated`, `ManufacturingAdded`) carries its `materials` (product, quantity in thousandths,
+ *   - v3: every scheduled manufacturing `info` (in `OrderCreated`, `ManufacturingAdded`) carries its `materials` (material, quantity in thousandths,
  *     frozen unit price in 1e-4 euro); `ManufacturingMaterialsChanged` replaces them. Older rows get `"materials": []`.
+ *   - v4: the material lines name their warehouse item as `materialId` instead of `productId`.
  *
  * Rows without a version predate materials, so they are v1 or v2. `ManufacturingTaskAdvanced` / `ManufacturingTaskRolledBack` kept their field names
  * across the switch to minutes, so their version cannot be told from the data; no release ever wrote them, and they are read as v2. Rows predating
@@ -26,11 +27,12 @@ object OrderEventSchema extends DerivedEventSchema[OrderEvent](using WorkCodecs.
   /** A scheduled manufacturing `info` object: the only one with both its tasks and its completion date. */
   private def isManufacturingInfo(data: JsonObject): Boolean = data.contains("tasks") && data.contains("completionDate")
 
-  val currentVersion: Int = 3
+  val currentVersion: Int = 4
 
   val upcasters: Map[Int, EventEnvelope => Decoder.Result[EventEnvelope]] = Map(
     1 -> Upcasts.hoursToMinutes(1, hourFields),
     2 -> Upcasts.addFieldWhere(2, isManufacturingInfo, "materials", Json.arr()),
+    3 -> Upcasts.rename(3, Map.empty, Map("productId" -> "materialId")),
   )
 
   def legacyVersion(tag: String, data: JsonObject): Int = if Upcasts.hasKey(data, hourFields.keySet) then 1 else 2

@@ -12,7 +12,7 @@ import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.AppBus
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
-/** Supplier registry of the warehouse: the suppliers the product MPNs are bought from. Same layout as the customer registry. */
+/** Supplier registry of the warehouse: the suppliers the material MPNs are bought from. Same layout as the customer registry. */
 object SuppliersTab:
 
   def apply(): HtmlElement =
@@ -38,7 +38,7 @@ object SuppliersTab:
         case Left(err) => showError(formError, "Salvataggio fornitore")(err)
       }
 
-    // A supplier referenced by a product is refused with 409 `supplier-in-use`; the error details name the products.
+    // A supplier referenced by a material is refused with 409 `supplier-in-use`; the error details name the materials.
     def delete(id: UUID): Unit =
       ApiClient.deleteSupplier(id).foreach {
         case Right(_) =>
@@ -52,7 +52,7 @@ object SuppliersTab:
         isOpen = pendingDelete.signal.map(_.isDefined),
         titleText = Signal.fromValue("Elimina fornitore"),
         message = pendingDelete.signal.map(
-          _.fold("")(s => s"Eliminare il fornitore “${s.name}”? Non è possibile se un prodotto di magazzino ne usa gli MPN."),
+          _.fold("")(s => s"Eliminare il fornitore “${s.name}”? Non è possibile se un materiale di magazzino ne usa gli MPN."),
         ),
         confirmLabel = "Elimina",
         tone = DialogTone.Danger,

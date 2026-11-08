@@ -5,7 +5,7 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.service.codecs.CommonCodecs.given
 import io.github.nicolasfara.rstmanager.service.codecs.WarehouseCodecs.given
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, SignedQuantity, UnitOfMeasure, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ ProductId, ProductService }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialId, MaterialService }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ SupplierId, SupplierService }
 
 import io.circe.{ Decoder, Json }
@@ -32,7 +32,12 @@ class WarehouseCodecsTest extends AnyFlatSpecLike:
 
   "Warehouse notification codecs" should "round-trip" in:
     val supplierChanged = SupplierService.Notification.SupplierChanged(SupplierId(UUID.fromString("00000000-0000-0000-0000-000000000301").nn))
-    val productChanged = ProductService.Notification.ProductChanged(ProductId(UUID.fromString("00000000-0000-0000-0000-000000000401").nn))
+    val materialChanged = MaterialService.Notification.MaterialChanged(MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000401").nn))
     Decoder[SupplierService.Notification].decodeJson(supplierChanged.asJson) shouldEqual Right(supplierChanged)
-    Decoder[ProductService.Notification].decodeJson(productChanged.asJson) shouldEqual Right(productChanged)
+    Decoder[MaterialService.Notification].decodeJson(materialChanged.asJson) shouldEqual Right(materialChanged)
+
+  it should "read a material notification written while the materials were products" in:
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000401").nn
+    val legacy = Json.obj("ProductChanged" -> Json.obj("productId" -> Json.fromString(id.toString)))
+    Decoder[MaterialService.Notification].decodeJson(legacy) shouldEqual Right(MaterialService.Notification.MaterialChanged(MaterialId(id)))
 end WarehouseCodecsTest

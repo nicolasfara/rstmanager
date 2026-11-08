@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.warehouse.domain
 import java.util.Locale
 
 /**
- * Unit in which a product is stocked, bought, and priced. Quantities are always thousandths of it ([[Quantity]]).
+ * Unit in which a material is stocked, bought, and priced. Quantities are always thousandths of it ([[Quantity]]).
  *
  * @param wireName
  *   Stable name used by the API and the journal; never rename it.

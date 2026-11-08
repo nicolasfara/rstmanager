@@ -6,7 +6,7 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.planning.service.PlanningServerConfig
 import io.github.nicolasfara.rstmanager.warehouse.domain.*
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.*
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturing.{ CompletedManufacturing, InProgressManufacturing }
@@ -31,20 +31,22 @@ class WarehouseConsumptionReconcilerTest extends AnyFlatSpecLike:
   private val orderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000801").nn)
   private val manufacturingId: ScheduledManufacturingId = ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000802").nn)
   private val ref: ConsumptionRef = ConsumptionRef(orderId, manufacturingId)
-  private val profile: ProductId = ProductId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn)
-  private val glass: ProductId = ProductId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn)
-  private val missing: ProductId = ProductId(UUID.fromString("00000000-0000-0000-0000-000000000903").nn)
+  private val profile: MaterialId = MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn)
+  private val glass: MaterialId = MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn)
+  private val missing: MaterialId = MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000903").nn)
 
   private def valid[A](value: ValidatedNec[String, A]): A = value.fold(errors => fail(errors.toChain.toList.mkString(", ")), identity)
 
-  private def product(id: ProductId, code: String): ProductRecord =
-    ProductRecord.created(
-      valid(ProductInfo.createProductInfo(id, code, s"Prodotto $code", None, None, UnitOfMeasure.LinearMeters, UnitPrice.applyUnsafe(10000L), Nil)),
+  private def material(id: MaterialId, code: String): MaterialRecord =
+    MaterialRecord.created(
+      valid(
+        MaterialInfo.createMaterialInfo(id, code, s"Materiale $code", None, None, UnitOfMeasure.LinearMeters, UnitPrice.applyUnsafe(10000L), Nil),
+      ),
       LocalDate.parse("2026-01-01"),
     )
 
-  private def material(productId: ProductId, quantity: Long): ScheduledMaterial =
-    ScheduledMaterial(productId, Quantity.applyUnsafe(quantity), UnitPrice.applyUnsafe(10000L))
+  private def material(materialId: MaterialId, quantity: Long): ScheduledMaterial =
+    ScheduledMaterial(materialId, Quantity.applyUnsafe(quantity), UnitPrice.applyUnsafe(10000L))
 
   private def order(materials: List[ScheduledMaterial], done: Boolean): Order =
     val taskId = ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000803").nn)
@@ -71,33 +73,33 @@ class WarehouseConsumptionReconcilerTest extends AnyFlatSpecLike:
     Order.InProgressOrder(data, completedAt.plusDays(10).nn)
   end order
 
-  /** A gateway over in-memory products that applies commands like the product backend, failing on `broken`. */
+  /** A gateway over in-memory materials that applies commands like the material backend, failing on `broken`. */
   private final class FakeGateway(
       orders: Ref[IO, Map[OrderId, Order]],
-      products: Ref[IO, Map[ProductId, ProductRecord]],
+      materials: Ref[IO, Map[MaterialId, MaterialRecord]],
       sent: Ref[IO, List[String]],
-      broken: Set[ProductId],
+      broken: Set[MaterialId],
   ) extends WarehouseConsumptionGateway:
     override def orderIds: IO[List[OrderId]] = orders.get.map(_.keys.toList)
 
     override def loadOrder(id: OrderId): IO[Option[Order]] = orders.get.map(_.get(id))
 
-    override def listProducts: IO[List[ProductRecord]] = products.get.map(_.values.toList.sortBy(_.info.id.value.toString))
+    override def listMaterials: IO[List[MaterialRecord]] = materials.get.map(_.values.toList.sortBy(_.info.id.value.toString))
 
     override def setConsumption(
-        productId: ProductId,
-        command: ProductService.Command.SetConsumption,
+        materialId: MaterialId,
+        command: MaterialService.Command.SetConsumption,
         commandId: String,
-    ): IO[Either[ProductError, Unit]] =
-      if broken.contains(productId) then IO.raiseError(new RuntimeException(s"database down for $productId"))
+    ): IO[Either[MaterialError, Unit]] =
+      if broken.contains(materialId) then IO.raiseError(new RuntimeException(s"database down for $materialId"))
       else
-        sent.update(_ :+ commandId) >> products.modify { current =>
-          current.get(productId) match
-            case None => (current, ProductError.ProductNotFound.asLeft)
+        sent.update(_ :+ commandId) >> materials.modify { current =>
+          current.get(materialId) match
+            case None => (current, MaterialError.MaterialNotFound.asLeft)
             case Some(record) =>
-              ProductAggregate.Active(record).setConsumption(command.ref, command.quantity, command.on, today).toEither match
-                case Right(ProductAggregate.Active(updated)) => (current.updated(productId, updated), ().asRight)
-                case Right(_) => (current, ProductError.ProductNotFound.asLeft)
+              MaterialAggregate.Active(record).setConsumption(command.ref, command.quantity, command.on, today).toEither match
+                case Right(MaterialAggregate.Active(updated)) => (current.updated(materialId, updated), ().asRight)
+                case Right(_) => (current, MaterialError.MaterialNotFound.asLeft)
                 case Left(errors) => (current, errors.head.asLeft)
         }
   end FakeGateway
@@ -105,29 +107,29 @@ class WarehouseConsumptionReconcilerTest extends AnyFlatSpecLike:
   private final case class Fixture(
       reconciler: WarehouseConsumptionReconciler,
       orders: Ref[IO, Map[OrderId, Order]],
-      products: Ref[IO, Map[ProductId, ProductRecord]],
+      materials: Ref[IO, Map[MaterialId, MaterialRecord]],
       sent: Ref[IO, List[String]],
   ):
-    def consumed(productId: ProductId): Long = products.get.unsafeRunSync().get(productId).fold(-1L)(_.ledger.consumedBy(ref).value)
+    def consumed(materialId: MaterialId): Long = materials.get.unsafeRunSync().get(materialId).fold(-1L)(_.ledger.consumedBy(ref).value)
 
-  private def fixture(initial: Order, broken: Set[ProductId]): Fixture =
+  private def fixture(initial: Order, broken: Set[MaterialId]): Fixture =
     (
       for
         orders <- Ref.of[IO, Map[OrderId, Order]](Map(orderId -> initial))
-        products <- Ref.of[IO, Map[ProductId, ProductRecord]](Map(profile -> product(profile, "PRF-1"), glass -> product(glass, "VET-1")))
+        materials <- Ref.of[IO, Map[MaterialId, MaterialRecord]](Map(profile -> material(profile, "PRF-1"), glass -> material(glass, "VET-1")))
         sent <- Ref.of[IO, List[String]](Nil)
-        reconciler <- WarehouseConsumptionReconciler.make(FakeGateway(orders, products, sent, broken), IO.pure(now))
-      yield Fixture(reconciler, orders, products, sent)
+        reconciler <- WarehouseConsumptionReconciler.make(FakeGateway(orders, materials, sent, broken), IO.pure(now))
+      yield Fixture(reconciler, orders, materials, sent)
     ).unsafeRunSync()
 
   private val materials = List(material(profile, 2500L), material(glass, 2000L), material(missing, 1000L))
 
-  "WarehouseConsumptionReconciler" should "consume the materials of a completed manufacturing, skipping unknown products" in:
+  "WarehouseConsumptionReconciler" should "consume the materials of a completed manufacturing, skipping unknown materials" in:
     val f = fixture(order(materials, done = true), Set.empty)
     f.reconciler.reconcileOrder(orderId).unsafeRunSync() shouldEqual ReconciliationSummary(2, 1, 0)
     f.consumed(profile) shouldEqual 2500L
     f.consumed(glass) shouldEqual 2000L
-    f.products.get.unsafeRunSync().get(profile).flatMap(_.ledger.movements.lastOption).map(_.on) shouldEqual Some(LocalDate.parse("2026-10-22"))
+    f.materials.get.unsafeRunSync().get(profile).flatMap(_.ledger.movements.lastOption).map(_.on) shouldEqual Some(LocalDate.parse("2026-10-22"))
 
   it should "do nothing the second time, and reverse the consumption today once the manufacturing is reopened" in:
     val f = fixture(order(materials, done = true), Set.empty)
@@ -136,14 +138,14 @@ class WarehouseConsumptionReconcilerTest extends AnyFlatSpecLike:
     f.orders.set(Map(orderId -> order(materials, done = false))).unsafeRunSync()
     f.reconciler.reconcileAll.unsafeRunSync() shouldEqual ReconciliationSummary(2, 0, 0)
     f.consumed(profile) shouldEqual 0L
-    f.products.get
+    f.materials.get
       .unsafeRunSync()
       .get(profile)
       .flatMap(_.ledger.movements.lastOption)
       .map(movement => (movement.on, movement.delta.value: Long)) shouldEqual
       Some((today, 2500L))
 
-  it should "go on with the other products when one fails, and catch up on the next run" in:
+  it should "go on with the other materials when one fails, and catch up on the next run" in:
     val f = fixture(order(materials, done = true), Set(profile))
     f.reconciler.reconcileOrder(orderId).unsafeRunSync() shouldEqual ReconciliationSummary(1, 1, 1)
     f.consumed(profile) shouldEqual 0L

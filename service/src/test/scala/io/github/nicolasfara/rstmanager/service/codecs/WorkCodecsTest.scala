@@ -6,7 +6,7 @@ import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Quantity, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies, ManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
@@ -87,8 +87,8 @@ class WorkCodecsTest extends AnyFlatSpecLike:
 
   it should "round-trip materials with their exact quantities and frozen prices" in:
     val materials = List(
-      ScheduledMaterial(ProductId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn), Quantity(2500L), UnitPrice(185000L)),
-      ScheduledMaterial(ProductId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn), Quantity(1L), UnitPrice(1L)),
+      ScheduledMaterial(MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn), Quantity(2500L), UnitPrice(185000L)),
+      ScheduledMaterial(MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000902").nn), Quantity(1L), UnitPrice(1L)),
     )
     val info = manufacturing(firstManufacturingId).info.copy(materials = materials)
     val json = info.asJson

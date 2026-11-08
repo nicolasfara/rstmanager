@@ -54,4 +54,21 @@ object Upcasts:
       values => Json.fromValues(values.map(addFieldWhere(where, key, value, _))),
       data => Json.fromJsonObject(addFieldWhere(where, key, value, data)),
     )
+
+  /**
+   * The step from `version` to `version + 1` that renames the case tag by `tags` and every key of the data, at any depth, by `keys`: a renamed case
+   * or field with the same meaning. Tags and keys missing from the maps are kept.
+   */
+  def rename(version: Int, tags: Map[String, String], keys: Map[String, String])(envelope: EventEnvelope): Decoder.Result[EventEnvelope] =
+    Right(EventEnvelope(tags.getOrElse(envelope.tag, envelope.tag), version + 1, renameKeys(keys, envelope.data)))
+
+  private def renameKeys(keys: Map[String, String], data: JsonObject): JsonObject =
+    JsonObject.fromIterable(data.toList.map((key, value) => keys.getOrElse(key, key) -> renameKeys(keys, value)))
+
+  private def renameKeys(keys: Map[String, String], json: Json): Json =
+    json.arrayOrObject(
+      json,
+      values => Json.fromValues(values.map(renameKeys(keys, _))),
+      data => Json.fromJsonObject(renameKeys(keys, data)),
+    )
 end Upcasts

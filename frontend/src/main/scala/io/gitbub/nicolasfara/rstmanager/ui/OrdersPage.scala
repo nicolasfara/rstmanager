@@ -261,7 +261,7 @@ object OrdersPage:
       MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())), Var(Nil))
 
     val mfgs = Var(List(newMfg()))
-    // Products the draft material lines are checked against on submit, written by the drafts' materials editors once loaded.
+    // Materials the draft material lines are checked against on submit, written by the drafts' materials editors once loaded.
     val draftMaterialsContext = Var(MaterialDrafts.Context.empty)
 
     def resetCreate(): Unit =

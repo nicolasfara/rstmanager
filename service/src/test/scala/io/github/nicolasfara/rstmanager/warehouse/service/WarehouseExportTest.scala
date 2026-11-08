@@ -8,7 +8,7 @@ import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.*
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.*
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ Supplier, SupplierId }
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierApp.StoredSupplier
 import io.github.nicolasfara.rstmanager.warehouse.service.WarehouseExport.{ Cell, NumberFormat }
@@ -47,12 +47,12 @@ class WarehouseExportTest extends AnyFlatSpecLike:
     val unitCost = UnitPrice.applyUnsafe(cost)
     MovementKind.Purchase(code.refineUnsafe, supplier, unitCost, Valuation.amount(Quantity.applyUnsafe(quantity), unitCost), note)
 
-  private def product(code: String, unit: UnitOfMeasure, price: Long, mpns: List[Mpn], created: String)(ledger: StockLedger => StockLedger) =
+  private def material(code: String, unit: UnitOfMeasure, price: Long, mpns: List[Mpn], created: String)(ledger: StockLedger => StockLedger) =
     val info = valid(
-      ProductInfo.createProductInfo(
-        ProductId(UUID.nameUUIDFromBytes(code.getBytes).nn),
+      MaterialInfo.createMaterialInfo(
+        MaterialId(UUID.nameUUIDFromBytes(code.getBytes).nn),
         code,
-        s"Prodotto $code",
+        s"Materiale $code",
         None,
         None,
         unit,
@@ -60,9 +60,9 @@ class WarehouseExportTest extends AnyFlatSpecLike:
         mpns,
       ),
     )
-    ReportedProduct(ProductRecord.created(info, day(created)).withLedger(ledger), None)
+    ReportedMaterial(MaterialRecord.created(info, day(created)).withLedger(ledger), None)
 
-  private val tessuto = product(
+  private val tessuto = material(
     "TES-1",
     UnitOfMeasure.LinearMeters,
     185000L,
@@ -77,16 +77,16 @@ class WarehouseExportTest extends AnyFlatSpecLike:
       .appended(movementId(5), day("2026-10-20"), qty(1000L), purchase("AC-152", supplierId, 1000L, 40000L, None)),
   )
 
-  private val viti = product("VIT-1", UnitOfMeasure.Pieces, 5000L, Nil, "2026-10-02")(
+  private val viti = material("VIT-1", UnitOfMeasure.Pieces, 5000L, Nil, "2026-10-02")(
     _.appended(movementId(6), day("2026-10-02"), qty(4000L), MovementKind.Adjustment(None, reason)),
   )
 
-  private val colla = product("NEG-1", UnitOfMeasure.Kilograms, 0L, List(valid(Mpn.createMpn("GLUE", unknownSupplierId, None))), "2026-10-02")(
+  private val colla = material("NEG-1", UnitOfMeasure.Kilograms, 0L, List(valid(Mpn.createMpn("GLUE", unknownSupplierId, None))), "2026-10-02")(
     _.appended(movementId(7), day("2026-10-03"), qty(1000L), purchase("GLUE", unknownSupplierId, 1000L, 20000L, None))
       .appended(movementId(8), day("2026-10-04"), qty(-3000L), MovementKind.Unload(reason)),
   )
 
-  private val products = List(tessuto, viti, colla)
+  private val materials = List(tessuto, viti, colla)
 
   private val suppliers: Map[SupplierId, StoredSupplier] = Map(
     supplierId -> StoredSupplier(valid(Supplier.createSupplier(supplierId, "Tessuti Nautici", None, None, None, None, None)), deleted = false),
@@ -96,19 +96,19 @@ class WarehouseExportTest extends AnyFlatSpecLike:
     ),
   )
 
-  private val state = WarehouseReports.stateAt(products, at)
-  private val movements = WarehouseExport.movementsUntil(products, at)
+  private val state = WarehouseReports.stateAt(materials, at)
+  private val movements = WarehouseExport.movementsUntil(materials, at)
 
   private def number(units: Long, scale: Int, format: NumberFormat): Cell = Cell.Number(BigDecimal(BigInt(units), scale), format)
 
-  "WarehouseExport.rows" should "describe every product of the state with typed cells, one per column" in:
+  "WarehouseExport.rows" should "describe every material of the state with typed cells, one per column" in:
     val rows = WarehouseExport.rows(state, suppliers)
     rows.map(_.headOption) shouldEqual List(Some(Cell.Text("NEG-1")), Some(Cell.Text("TES-1")), Some(Cell.Text("VIT-1")))
     rows.foreach(_ should have size WarehouseExport.stockColumns.size.toLong)
     rows.lift(1) shouldEqual Some(
       List(
         Cell.Text("TES-1"),
-        Cell.Text("Prodotto TES-1"),
+        Cell.Text("Materiale TES-1"),
         Cell.Blank,
         Cell.Text("m"),
         number(13000L, 3, NumberFormat.Quantity),
@@ -138,7 +138,7 @@ class WarehouseExportTest extends AnyFlatSpecLike:
     sheet.totals shouldEqual Some(
       List(
         Cell.Text("Totale"),
-        Cell.Text("3 prodotti"),
+        Cell.Text("3 materiali"),
         Cell.Blank,
         Cell.Blank,
         Cell.Blank,
@@ -155,7 +155,7 @@ class WarehouseExportTest extends AnyFlatSpecLike:
     )
 
   "WarehouseExport.movementsUntil" should "list the movements not voided up to the day, chronologically, valued like the movement list" in:
-    movements.map(exported => (exported.movement.on.toString, exported.product.record.info.internalCode: String)) shouldEqual List(
+    movements.map(exported => (exported.movement.on.toString, exported.material.record.info.internalCode: String)) shouldEqual List(
       ("2026-10-01", "TES-1"),
       ("2026-10-02", "VIT-1"),
       ("2026-10-03", "NEG-1"),
@@ -167,7 +167,7 @@ class WarehouseExportTest extends AnyFlatSpecLike:
     WarehouseExport.movementRow(unload, suppliers, Map.empty) shouldEqual List(
       Cell.Day(day("2026-10-06")),
       Cell.Text("TES-1"),
-      Cell.Text("Prodotto TES-1"),
+      Cell.Text("Materiale TES-1"),
       Cell.Text("m"),
       Cell.Text("Scarico"),
       Cell.Blank,
@@ -185,7 +185,7 @@ class WarehouseExportTest extends AnyFlatSpecLike:
   it should "name automatic consumptions and their reversals with the order they belong to" in:
     val ref = ConsumptionRef(OrderId(new UUID(9L, 1L)), ScheduledManufacturingId(new UUID(9L, 2L)))
     val unknown = ConsumptionRef(OrderId(new UUID(9L, 3L)), ScheduledManufacturingId(new UUID(9L, 4L)))
-    val consumed = product("PRF-1", UnitOfMeasure.LinearMeters, 10000L, Nil, "2026-10-01")(
+    val consumed = material("PRF-1", UnitOfMeasure.LinearMeters, 10000L, Nil, "2026-10-01")(
       _.appended(movementId(20), day("2026-10-01"), qty(5000L), MovementKind.Adjustment(Some(UnitPrice.applyUnsafe(20000L)), reason))
         .consumptionSet(ref, Quantity.applyUnsafe(3000L), day("2026-10-02"))
         .consumptionSet(ref, Quantity.applyUnsafe(1000L), day("2026-10-03"))

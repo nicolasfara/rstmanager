@@ -349,7 +349,18 @@ object MaterialsTab:
         child.maybe <-- lastImport.signal.map(_.map { summary =>
           div(
             cls := "flex items-start justify-between gap-3 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800",
-            span(MaterialImport.confirmationText(summary)),
+            div(
+              cls := "min-w-0",
+              div(MaterialImport.confirmationText(summary)),
+              // The problems of the ignored materials stay at hand, to fix the file and load it again.
+              Option.when(summary.ignored.nonEmpty)(
+                detailsTag(
+                  cls := "mt-1 text-amber-800",
+                  summaryTag(cls := "cursor-pointer text-xs font-medium", s"Errori dei materiali ignorati (${summary.problems.size})"),
+                  MaterialImportDialog.problemsList(summary),
+                ),
+              ),
+            ),
             button(
               tpe := "button",
               cls := "shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100",

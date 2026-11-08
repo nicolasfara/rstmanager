@@ -8,11 +8,15 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ ApiError, MaterialImportRespo
  *
  * `F` is the file handle: a `dom.File` in the dialog, any value in tests. Every choice of a file (and every reset) bumps `selection`, and a response
  * is applied only when it carries the selection it was sent for, so the answer about a file replaced meanwhile is dropped. "Carica" is possible only
- * after a successful check of the current file that would create at least one material.
+ * after a successful check of the current file that would create at least one material; the materials with problems are then left out, and the others
+ * are loaded.
  */
 object MaterialImport:
 
-  /** Error code of a file the server checked and refused: expected feedback, shown in the dialog only (not as a global error). */
+  /**
+   * Error code of a file refused as a whole (not a workbook, too big, missing headers, no rows…): expected feedback, shown in the dialog only (not as
+   * a global error). Problems of single materials do not refuse the file: they come back in the summary.
+   */
   val rejectedCode: String = "import-rejected"
 
   enum Phase derives CanEqual:
@@ -25,7 +29,7 @@ object MaterialImport:
     /** The dry run succeeded: what the upload would do. */
     case Checked(summary: MaterialImportResponse)
 
-    /** The check or the upload failed: nothing was saved. */
+    /** The file was refused as a whole, or the request failed: nothing was saved. */
     case Rejected(error: ApiError)
 
     /** The upload of a checked file is in flight. */
@@ -103,7 +107,15 @@ object MaterialImport:
   def summaryText(summary: MaterialImportResponse): String =
     s"${count(summary.created.size, "materiale nuovo", "materiali nuovi")}, ${count(summary.mpns, "MPN", "MPN")}"
 
-  /** The confirmation shown after an upload: `"Caricati 359 materiali (380 MPN). Creati 12 fornitori. 3 codici già presenti saltati."`. */
+  /** `"9 materiali non verranno caricati per errori"`, shown after a check that left some materials out. */
+  def ignoredText(summary: MaterialImportResponse): String =
+    if summary.ignored.size == 1 then "1 materiale non verrà caricato per errori"
+    else s"${summary.ignored.size} materiali non verranno caricati per errori"
+
+  /**
+   * The confirmation shown after an upload: `"Caricati 350 materiali (368 MPN). Creati 12 fornitori. 3 codici già presenti saltati. 9 materiali
+   * ignorati per errori."`.
+   */
   def confirmationText(summary: MaterialImportResponse): String =
     val materials =
       if summary.created.size == 1 then s"Caricato 1 materiale (${count(summary.mpns, "MPN", "MPN")})."
@@ -116,5 +128,9 @@ object MaterialImport:
       case 0 => None
       case 1 => Some("1 codice già presente saltato.")
       case n => Some(s"$n codici già presenti saltati.")
-    (materials :: suppliers.toList ::: skipped.toList).mkString(" ")
+    val ignored = summary.ignored.size match
+      case 0 => None
+      case 1 => Some("1 materiale ignorato per errori.")
+      case n => Some(s"$n materiali ignorati per errori.")
+    (materials :: suppliers.toList ::: skipped.toList ::: ignored.toList).mkString(" ")
 end MaterialImport

@@ -13,14 +13,32 @@ final class MaterialImportDtosSpec extends AnyFunSuite with Matchers:
   // strictEquality: `shouldBe` compares the DTO structurally, so it needs a CanEqual instance.
   private given CanEqual[MaterialImportResponse, MaterialImportResponse] = CanEqual.derived
 
-  test("the import response decodes the contract fields"):
-    val json = """{"dryRun":true,"created":["ANELLA4X30","PUNTANERA"],"skipped":["TES-001"],"newSuppliers":["Nautea"],"mpns":3}"""
+  test("the import response decodes the contract fields, ignored materials and problems included"):
+    val json =
+      """{"dryRun":true,"created":["ANELLA4X30","PUNTANERA"],"skipped":["TES-001"],"newSuppliers":["Nautea"],"mpns":3,
+        |"ignored":["FILOCERATO"],"problems":["Righe 171, 172 (FILOCERATO): UNITA' DI MISURA diverse: kg, pz"]}""".stripMargin
     decode[MaterialImportResponse](json) shouldBe
-      Right(MaterialImportResponse(true, List("ANELLA4X30", "PUNTANERA"), List("TES-001"), List("Nautea"), 3))
+      Right(
+        MaterialImportResponse(
+          true,
+          List("ANELLA4X30", "PUNTANERA"),
+          List("TES-001"),
+          List("Nautea"),
+          3,
+          List("FILOCERATO"),
+          List("Righe 171, 172 (FILOCERATO): UNITA' DI MISURA diverse: kg, pz"),
+        ),
+      )
+
+  test("a response without ignored materials and problems decodes them as empty"):
+    val json = """{"dryRun":true,"created":["A"],"skipped":[],"newSuppliers":[],"mpns":1}"""
+    decode[MaterialImportResponse](json) shouldBe Right(MaterialImportResponse(true, List("A"), Nil, Nil, 1, Nil, Nil))
 
   test("the import response round-trips, empty lists included"):
-    val response = MaterialImportResponse(false, Nil, List("A", "B"), Nil, 0)
-    response.asJson.noSpaces shouldBe """{"dryRun":false,"created":[],"skipped":["A","B"],"newSuppliers":[],"mpns":0}"""
+    val response = MaterialImportResponse(false, Nil, List("A", "B"), Nil, 0, List("C"), List("Riga 4, CODICE MPN: manca il FORNITORE"))
+    response.asJson.noSpaces shouldBe
+      """{"dryRun":false,"created":[],"skipped":["A","B"],"newSuppliers":[],"mpns":0,"ignored":["C"],""" +
+      """"problems":["Riga 4, CODICE MPN: manca il FORNITORE"]}"""
     decode[MaterialImportResponse](response.asJson.noSpaces) shouldBe Right(response)
 
   test("the import rejection decodes as an ApiError with one detail per problem"):

@@ -20,7 +20,8 @@ enum StockDialog derives CanEqual:
 /**
  * The stock dialogs of a material: the purchase ("Carico"), unload ("Scarico"), and adjustment ("Rettifica") forms (Operator), and the movements list
  * with the running balance and the void action (Admin). The list also shows the automatic consumptions by order manufacturings ("Scarico
- * lavorazione", and "Storno lavorazione" when a reopened manufacturing gives the material back) with their order, which cannot be voided.
+ * lavorazione", and "Storno lavorazione" when a reopened manufacturing gives the material back) with their order, which cannot be voided, and the
+ * purchases loaded by a delivery note ("DDT n. X"), corrected only through the delivery note.
  *
  * Driven by one `Var[Option[StockDialog]]` owned by the materials tab: `Some` opens the matching modal, `None` closes it. The forms are rebuilt on
  * every opening (the state goes through `None` in between), so a form never shows the values of a previous one. Every successful write calls
@@ -90,7 +91,14 @@ object StockDialogs:
   private def errorList(errors: Signal[List[String]]): Modifier[HtmlElement] =
     child.maybe <-- errors.map(list => Option.when(list.nonEmpty)(ul(cls := "mt-3 list-disc pl-5 text-xs text-rose-600", list.map(e => li(e)))))
 
-  private def formActions(submitLabel: String, canSubmit: Signal[Boolean], submitting: Signal[Boolean], close: () => Unit, submit: () => Unit) =
+  /** The "Annulla" / submit pair of a dialog form; the submit button is disabled while `canSubmit` is false or a request is in flight. */
+  private[warehouse] def formActions(
+      submitLabel: String,
+      canSubmit: Signal[Boolean],
+      submitting: Signal[Boolean],
+      close: () => Unit,
+      submit: () => Unit,
+  ): HtmlElement =
     div(
       cls := "mt-4 flex justify-end gap-2",
       button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => close())),
@@ -315,7 +323,11 @@ object StockDialogs:
         cls := "border-b border-slate-100 align-top last:border-0",
         cls := (if m.voided then "bg-slate-50" else ""),
         td(cls := s"px-3 py-2 whitespace-nowrap $struck", IsoDay.display(m.on)),
-        td(cls := s"px-3 py-2 $struck", WarehouseViews.movementKindLabel(m)),
+        td(
+          cls := s"px-3 py-2 $struck",
+          WarehouseViews.movementKindLabel(m),
+          WarehouseViews.deliveryNoteSource(m).map(source => div(cls := "text-xs text-slate-500", source)),
+        ),
         td(
           cls := s"px-3 py-2 $struck",
           WarehouseViews
@@ -351,8 +363,9 @@ object StockDialogs:
         ),
         td(
           cls := "px-3 py-2 text-right",
-          // A consumption follows its order manufacturing (reopening it reverses the consumption): it is never voided by hand.
-          Option.when(!m.voided && !material.archived && !WarehouseViews.isConsumption(m))(
+          // A consumption follows its order manufacturing (reopening it reverses the consumption), a delivery note purchase its delivery note
+          // (edited or cancelled in the "DDT" tab): neither is voided by hand.
+          Option.when(!material.archived && WarehouseViews.isVoidable(m))(
             div(roleGated(Role.Admin)(button(tpe := "button", cls := btnDanger, "Annulla", onClick --> (_ => pendingVoid.set(Some(m)))))),
           ),
         ),

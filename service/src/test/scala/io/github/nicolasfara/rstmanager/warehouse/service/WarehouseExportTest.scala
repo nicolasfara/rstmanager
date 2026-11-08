@@ -8,6 +8,7 @@ import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.*
+import io.github.nicolasfara.rstmanager.warehouse.domain.deliverynote.DeliveryNoteId
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ Supplier, SupplierId }
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierApp.StoredSupplier
@@ -45,7 +46,7 @@ class WarehouseExportTest extends AnyFlatSpecLike:
 
   private def purchase(code: String, supplier: SupplierId, quantity: Long, cost: Long, note: Option[String]): MovementKind =
     val unitCost = UnitPrice.applyUnsafe(cost)
-    MovementKind.Purchase(code.refineUnsafe, supplier, unitCost, Valuation.amount(Quantity.applyUnsafe(quantity), unitCost), note)
+    MovementKind.Purchase(code.refineUnsafe, supplier, unitCost, Valuation.amount(Quantity.applyUnsafe(quantity), unitCost), note, None)
 
   private def material(code: String, unit: UnitOfMeasure, price: Long, mpns: List[Mpn], created: String)(ledger: StockLedger => StockLedger) =
     val info = valid(
@@ -66,7 +67,7 @@ class WarehouseExportTest extends AnyFlatSpecLike:
     "TES-1",
     UnitOfMeasure.LinearMeters,
     185000L,
-    List(valid(Mpn.createMpn("AC-152", supplierId, None)), valid(Mpn.createMpn("OLD-1", goneSupplierId, None))),
+    List(valid(Mpn.createMpn("AC-152", supplierId, None, None)), valid(Mpn.createMpn("OLD-1", goneSupplierId, None, None))),
     "2026-10-01",
   )(
     _.appended(movementId(1), day("2026-10-01"), qty(10000L), purchase("AC-152", supplierId, 10000L, 30000L, Some("DDT 1")))
@@ -81,7 +82,7 @@ class WarehouseExportTest extends AnyFlatSpecLike:
     _.appended(movementId(6), day("2026-10-02"), qty(4000L), MovementKind.Adjustment(None, reason)),
   )
 
-  private val colla = material("NEG-1", UnitOfMeasure.Kilograms, 0L, List(valid(Mpn.createMpn("GLUE", unknownSupplierId, None))), "2026-10-02")(
+  private val colla = material("NEG-1", UnitOfMeasure.Kilograms, 0L, List(valid(Mpn.createMpn("GLUE", unknownSupplierId, None, None))), "2026-10-02")(
     _.appended(movementId(7), day("2026-10-03"), qty(1000L), purchase("GLUE", unknownSupplierId, 1000L, 20000L, None))
       .appended(movementId(8), day("2026-10-04"), qty(-3000L), MovementKind.Unload(reason)),
   )
@@ -219,6 +220,16 @@ class WarehouseExportTest extends AnyFlatSpecLike:
         Some(Cell.Text(s"Ordine ${unknown.orderId.value}")),
       ),
     )
+
+  it should "name a purchase of a delivery note by the number of the note, the voided one included" in:
+    val ref = DeliveryNoteRef(DeliveryNoteId(new UUID(9L, 9L)), "1234/A")
+    def purchases(quantity: Long) =
+      List(DeliveryNotePurchase("AC-152", supplierId, Quantity.applyUnsafe(quantity), UnitPrice.applyUnsafe(10000L), Amount.zero, day("2026-10-02")))
+    val delivered = material("DDT-1", UnitOfMeasure.Pieces, 0L, Nil, "2026-10-01")(
+      _.deliveryNoteSet(ref, purchases(2000L), day("2026-10-02")).deliveryNoteSet(ref, purchases(3000L), day("2026-10-03")),
+    )
+    WarehouseExport.movementsUntil(List(delivered), at).map(row => WarehouseExport.movementRow(row, suppliers, Map.empty).lastOption) shouldEqual
+      List(Some(Cell.Text("DDT n. 1234/A")))
 
   "WarehouseExport.fileName" should "carry the day" in:
     WarehouseExport.fileName(at) shouldEqual "magazzino-2026-10-10.xlsx"

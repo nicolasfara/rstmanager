@@ -1,6 +1,6 @@
 package io.github.nicolasfara.rstmanager.warehouse.domain.material
 
-import io.github.nicolasfara.rstmanager.warehouse.domain.{ Quantity, SignedQuantity, UnitPrice, Valuation }
+import io.github.nicolasfara.rstmanager.warehouse.domain.{ BusinessCalendar, Quantity, SignedQuantity, UnitPrice, Valuation }
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialAggregate.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialError.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.events.MaterialEvent
@@ -28,6 +28,9 @@ import io.github.iltotore.iron.:|
  *
  * Automatic consumptions by order manufacturings ([[MaterialAggregate.setConsumption]]) are the exception: what the order used is recorded even
  * beyond the stock (a negative balance is an anomaly the reports flag), and also on an archived material, since the order may still name it.
+ *
+ * The purchases of a delivery note ([[MaterialAggregate.setDeliveryNotePurchases]]) are set as a whole: the note brings an absolute list of
+ * purchases, recorded again whenever it changes, and only changing (or cancelling) the note changes them.
  */
 enum MaterialAggregate derives CanEqual:
   case Empty
@@ -76,7 +79,7 @@ enum MaterialAggregate derives CanEqual:
       today: LocalDate,
   ): Decision[MaterialError, MaterialEvent, MaterialAggregate] = this.decide {
     case Active(material) =>
-      val kind = MovementKind.Purchase(mpnCode, supplierId, unitCost, Valuation.amount(quantity, unitCost), note)
+      val kind = MovementKind.Purchase(mpnCode, supplierId, unitCost, Valuation.amount(quantity, unitCost), note, None)
       (
         Validated.condNec(
           material.info.mpns.exists(mpn => mpn.supplierId == supplierId && (mpn.code: String) == (mpnCode: String)),
@@ -147,6 +150,7 @@ enum MaterialAggregate derives CanEqual:
           case None => Decision.reject(MovementNotFound(movementId))
           case Some(movement) if movement.voided => Decision.reject(MovementAlreadyVoided(movementId))
           case Some(movement) if movement.consumption.isDefined => Decision.reject(ConsumptionNotVoidable(movementId))
+          case Some(movement) if movement.deliveryNote.isDefined => Decision.reject(DeliveryNoteMovementNotVoidable(movementId))
           case Some(movement) =>
             val after = material.ledger.voided(movementId, MovementVoid(reason, today))
             val stock = if movement.incoming then staysNonNegative(material.ledger, after, movement.on) else staysWithinLimit(after, movement.on)
@@ -175,6 +179,28 @@ enum MaterialAggregate derives CanEqual:
       case Empty => Decision.reject(MaterialNotFound)
     }.validate(_.mustExist)
 
+  /**
+   * Sets the purchases delivery note `ref` brings to the material to exactly `lines`, on business day `today`.
+   *
+   * The event is absolute and decided only when something changes: setting the purchases the note already brings (under the same number) decides
+   * nothing. On an active material, an MPN of the lines the material does not have yet is added first ([[MaterialEvent.MpnAdded]]), with the cost of
+   * its first line as expected unit cost; every line is dated on or before `today`, has a positive quantity (whole for pieces), and keeps the stock
+   * within its limit. When the note already brought purchases, the change (fewer, smaller, or moved purchases) may not leave the stock below zero
+   * from the earliest day involved on, unless it leaves it no lower than it was. An archived material only lets the note go: an empty list.
+   */
+  def setDeliveryNotePurchases(
+      ref: DeliveryNoteRef,
+      lines: List[DeliveryNotePurchaseLine],
+      today: LocalDate,
+  ): Decision[MaterialError, MaterialEvent, MaterialAggregate] =
+    this.decide {
+      case Active(material) => deliveryNotePurchases(material, ref, lines, today)
+      case Archived(material, _) =>
+        if lines.nonEmpty && !material.ledger.holdsDeliveryNote(ref, lines.map(_.priced)) then Decision.reject(MaterialIsArchived)
+        else deliveryNotePurchases(material, ref, lines, today)
+      case Empty => Decision.reject(MaterialNotFound)
+    }.validate(_.mustExist)
+
   private def mustExist: ValidatedNec[MaterialError, MaterialAggregate] = this match
     case Active(_) | Archived(_, _) => this.validNec
     case Empty => MaterialNotFound.invalidNec
@@ -199,13 +225,15 @@ object MaterialAggregate extends DomainModel[MaterialAggregate, MaterialEvent, M
     case MaterialUpdated(info, changedOn) => _.mustBeActive.map(active => Active(active.material.updated(info, changedOn)))
     case MaterialArchived(archivedOn) => _.mustBeActive.map(active => Archived(active.material, archivedOn))
     case PurchaseRecorded(movementId, mpnCode, supplierId, quantity, unitCost, totalCost, on, note) =>
-      changeLedger(_.appended(movementId, on, quantity.toSigned, MovementKind.Purchase(mpnCode, supplierId, unitCost, totalCost, note)))
+      changeLedger(_.appended(movementId, on, quantity.toSigned, MovementKind.Purchase(mpnCode, supplierId, unitCost, totalCost, note, None)))
     case StockUnloaded(movementId, quantity, reason, on) =>
       changeLedger(_.appended(movementId, on, quantity.toSigned.negate, MovementKind.Unload(reason)))
     case StockAdjusted(movementId, delta, unitCost, reason, on) =>
       changeLedger(_.appended(movementId, on, delta, MovementKind.Adjustment(unitCost, reason)))
     case MovementVoided(movementId, reason, voidedOn) => changeLedger(_.voided(movementId, MovementVoid(reason, voidedOn)))
     case ConsumptionSet(ref, quantity, on) => changeLedger(_.consumptionSet(ref, quantity, on))
+    case MpnAdded(mpn, _) => _.mustBeActive.map(active => Active(active.material.withMpn(mpn)))
+    case DeliveryNotePurchasesSet(ref, purchases, changedOn) => changeLedger(_.deliveryNoteSet(ref, purchases, changedOn))
   }
 
   /** The consumption decision on `material`: nothing when `ref` already consumes `quantity`, otherwise the event. */
@@ -220,6 +248,54 @@ object MaterialAggregate extends DomainModel[MaterialAggregate, MaterialEvent, M
     else
       Validated.condNec(!on.isAfter(today), (), MovementInFuture(on, today)).toDecision *>
         ConsumptionSet(ref, quantity, on).accept
+
+  /**
+   * The delivery note decision on `material`: nothing when the note already brings `lines`, otherwise the MPNs to add and the absolute event, once
+   * every line and the resulting stock satisfy the rules of [[MaterialAggregate.setDeliveryNotePurchases]].
+   */
+  private def deliveryNotePurchases(
+      material: MaterialRecord,
+      ref: DeliveryNoteRef,
+      lines: List[DeliveryNotePurchaseLine],
+      today: LocalDate,
+  ): Decision[MaterialError, MaterialEvent, Unit] =
+    val purchases = lines.map(_.priced)
+    val before = material.ledger
+    if before.holdsDeliveryNote(ref, purchases) then Decision.unit
+    else
+      val after = before.deliveryNoteSet(ref, purchases, today)
+      val previous = before.deliveryNotes.get(ref.id).toList.flatMap(_.purchases)
+      val from = (previous ++ purchases).map(_.on).minOption(using BusinessCalendar.dayOrdering)
+      val missing = lines
+        .filter(line => material.info.mpn(line.supplierId, line.mpnCode).isEmpty)
+        .distinctBy(line => (line.supplierId, line.mpnCode: String))
+        .map(line => Mpn(line.mpnCode, line.supplierId, None, Some(line.unitCost)))
+      (
+        lines.traverse_(line => lineRules(material, line, today)),
+        from.traverse_(day => staysWithinLimit(after, day)),
+        if previous.isEmpty then ().validNec else from.traverse_(day => staysNonNegativeOrNoLower(before, after, day)),
+      ).tupled.toDecision *>
+        missing.traverse_(mpn => MpnAdded(mpn, today).accept) *>
+        DeliveryNotePurchasesSet(ref, purchases, today).accept
+    end if
+  end deliveryNotePurchases
+
+  /** The rules every delivery note line satisfies: a day not after today, a positive quantity, whole pieces. */
+  private def lineRules(material: MaterialRecord, line: DeliveryNotePurchaseLine, today: LocalDate): ValidatedNec[MaterialError, Unit] =
+    (
+      Validated.condNec(!line.on.isAfter(today), (), MovementInFuture(line.on, today)),
+      Validated.condNec(line.quantity.value > 0L, (), NonPositiveQuantity),
+      Validated.condNec(material.info.unit.allowsFractions || line.quantity.isWhole, (), FractionalPieces),
+    ).tupled.void
+
+  /**
+   * Stock taken out from `on` by a changed delivery note: the balance `after` the change stays non-negative on `on` and every later day, or at least
+   * no lower than it was (a change that brings stock back is never rejected because a consumption left it negative).
+   */
+  private def staysNonNegativeOrNoLower(before: StockLedger, after: StockLedger, on: LocalDate): ValidatedNec[MaterialError, Unit] =
+    val lowest = after.minBalanceFrom(on).value
+    val available = before.minBalanceFrom(on)
+    Validated.condNec(lowest >= 0L || lowest >= available.value, (), InsufficientStock(on, available))
 
   private def changeLedger(change: StockLedger => StockLedger): MaterialAggregate => ValidatedNec[MaterialError, MaterialAggregate] = {
     case Active(material) => Active(material.withLedger(change)).validNec

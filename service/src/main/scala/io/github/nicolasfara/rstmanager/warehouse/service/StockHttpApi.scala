@@ -121,6 +121,10 @@ object StockHttpApi:
    *   Number of the order of a consumption, when the order can be loaded.
    * @param manufacturingCode
    *   Template code of the manufacturing of a consumption, when it is still in the order.
+   * @param deliveryNoteId
+   *   Delivery note (DDT) of a purchase it recorded: such a purchase changes only with the note, it cannot be voided by hand.
+   * @param deliveryNoteNumber
+   *   Number of the delivery note of a purchase, as it was when the purchase was recorded.
    */
   final case class MovementResponse(
       id: UUID,
@@ -143,6 +147,8 @@ object StockHttpApi:
       manufacturingId: Option[UUID],
       orderNumber: Option[String],
       manufacturingCode: Option[String],
+      deliveryNoteId: Option[UUID],
+      deliveryNoteNumber: Option[String],
   )
 
   object MovementResponse:
@@ -175,10 +181,19 @@ object StockHttpApi:
         None,
         None,
         None,
+        None,
+        None,
       )
       movement.kind match
-        case MovementKind.Purchase(code, supplierId, _, _, note) =>
-          base.copy(kind = "purchase", supplier = Some(MaterialSupplierDto.of(supplierId, suppliers)), mpnCode = Some(code), note = note)
+        case MovementKind.Purchase(code, supplierId, _, _, note, deliveryNote) =>
+          base.copy(
+            kind = "purchase",
+            supplier = Some(MaterialSupplierDto.of(supplierId, suppliers)),
+            mpnCode = Some(code),
+            note = note,
+            deliveryNoteId = deliveryNote.map(_.id.value),
+            deliveryNoteNumber = deliveryNote.map(ref => ref.number: String),
+          )
         case MovementKind.Unload(reason) => base.copy(kind = "unload", reason = Some(reason))
         case MovementKind.Adjustment(_, reason) => base.copy(reason = Some(reason))
         case MovementKind.Consumption(ref) =>
@@ -190,6 +205,7 @@ object StockHttpApi:
             orderNumber = label.map(_.number),
             manufacturingCode = label.flatMap(_.manufacturingCodes.get(ref.manufacturingId)),
           )
+      end match
     end fromDomain
   end MovementResponse
 
@@ -251,7 +267,10 @@ object StockHttpApi:
       .in(material / "movements" / path[UUID]("movementId"))
       .in(query[Option[String]]("reason").description("Why the movement is voided (required)."))
       .tag("Warehouse")
-      .summary("Void a stock movement (automatic consumptions by order manufacturings cannot be voided: 409 consumption-not-voidable)")
+      .summary(
+        "Void a stock movement (automatic consumptions by order manufacturings cannot be voided: 409 consumption-not-voidable; " +
+          "purchases of a delivery note neither: 409 delivery-note-movement-not-voidable)",
+      )
       .out(statusCode(StatusCode.NoContent))
 
   val listMovements: Secured.SecuredEndpoint[(UUID, Option[String], Option[String]), MovementsResponse] =
@@ -312,7 +331,7 @@ object StockHttpApi:
         withMaterial(store, id) { stored =>
           val ledger = stored.material.ledger
           val purchaseSuppliers = ledger.movements.toList.collect {
-            case StockMovement(_, _, _, _, MovementKind.Purchase(_, supplierId, _, _, _), _) => supplierId
+            case StockMovement(_, _, _, _, MovementKind.Purchase(_, supplierId, _, _, _, _), _) => supplierId
           }
           (MaterialHttpApi.suppliersById(suppliers, purchaseSuppliers), orderLabels(orders, ledger.movements.toList)).mapN((found, labels) =>
             movements(stored, start, end, found, labels).asRight,
@@ -352,11 +371,6 @@ object StockHttpApi:
       }
       .handleError(error => internal(error).asLeft)
 
-  /** Prefixes every problem of `value` with the field `name` (the label the UI gives it). */
-  private def field[A](name: String, value: ValidatedNec[String, A]): ValidatedNec[String, A] = value.leftMap(_.map(error => s"$name: $error"))
-
   private def parseReason(raw: String, name: String): ValidatedNec[String, String :| MovementReason] =
     field(name, raw.trim.nn.refineValidatedNec[MovementReason])
-
-  private def normalized(value: Option[String]): Option[String] = value.map(_.trim.nn).filter(_.nonEmpty)
 end StockHttpApi

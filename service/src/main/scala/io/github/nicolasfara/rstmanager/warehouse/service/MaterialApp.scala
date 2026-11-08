@@ -92,6 +92,18 @@ object MaterialApp:
   ): IO[Either[MaterialError, Unit]] =
     dispatchAs(store, id, command, commandId)
 
+  /**
+   * Sets the purchases of a delivery note on material `id` (see [[MaterialService.Command.SetDeliveryNotePurchases]]) under `commandId`: the
+   * reconciliation derives it from what it applies, so the same step sent twice (a retry, two reconciliations racing) is handled once.
+   */
+  def setDeliveryNotePurchases(
+      store: Store,
+      id: MaterialId,
+      command: MaterialService.Command.SetDeliveryNotePurchases,
+      commandId: String,
+  ): IO[Either[MaterialError, Unit]] =
+    dispatchAs(store, id, command, commandId)
+
   /** The material, active or archived. */
   def find(store: Store, id: MaterialId): IO[Option[StoredMaterial]] =
     store.entity.repository.get(id.toString).map {

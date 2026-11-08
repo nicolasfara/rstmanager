@@ -307,6 +307,24 @@ object ApiClient:
   def listMovements(materialId: UUID, from: Option[String], to: Option[String]): Future[Result[MovementsResponse]] =
     sendJson(dom.HttpMethod.GET, s"/warehouse/materials/$materialId/movements${queryString(List("from" -> from, "to" -> to))}", None)
 
+  /** The delivery notes ("DDT") dated from `from` to `to` (`YYYY-MM-DD`, inclusive) of `supplierId`, every filter optional; newest first. */
+  def listDeliveryNotes(from: Option[String], to: Option[String], supplierId: Option[UUID]): Future[Result[List[DeliveryNoteResponse]]] =
+    val query = queryString(List("from" -> from, "to" -> to, "supplierId" -> supplierId.map(_.toString)))
+    sendJson(dom.HttpMethod.GET, s"/warehouse/delivery-notes$query", None)
+  def getDeliveryNote(id: UUID): Future[Result[DeliveryNoteResponse]] = sendJson(dom.HttpMethod.GET, s"/warehouse/delivery-notes/$id", None)
+
+  /** Registers a delivery note (Operator): it loads the stock of every material of its lines. */
+  def createDeliveryNote(request: DeliveryNoteRequest): Future[Result[DeliveryNoteResponse]] =
+    sendJson(dom.HttpMethod.POST, "/warehouse/delivery-notes", jsonBody(request))
+
+  /** Replaces a delivery note (Operator): the server voids the stock loads of its previous version and records the new ones. */
+  def updateDeliveryNote(id: UUID, request: DeliveryNoteRequest): Future[Result[DeliveryNoteResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/warehouse/delivery-notes/$id", jsonBody(request))
+
+  /** Cancels a delivery note (Admin), removing the stock it loaded; the server requires a non-blank `reason`. */
+  def cancelDeliveryNote(id: UUID, reason: String): Future[Result[DeliveryNoteResponse]] =
+    sendJson(dom.HttpMethod.POST, s"/warehouse/delivery-notes/$id/cancel", jsonBody(CancelDeliveryNoteRequest(reason)))
+
   /** The warehouse at the end of day `at` (`YYYY-MM-DD`, not after today). */
   def warehouseState(at: String): Future[Result[WarehouseStateResponse]] =
     sendJson(dom.HttpMethod.GET, s"/warehouse/state${queryString(List("at" -> Some(at)))}", None)

@@ -182,4 +182,64 @@ final class WarehouseViewsSpec extends AnyFunSuite with Matchers:
     consumptionSource(consumption.copy(orderNumber = None, manufacturingCode = None)) shouldBe Some("Ordine 0a0b0c0d – 0e0f0a0b")
     consumptionSource(consumption.copy(orderNumber = None, manufacturingId = None, manufacturingCode = None)) shouldBe Some("Ordine 0a0b0c0d")
     consumptionSource(purchase) shouldBe None
+
+  // ---- delivery notes ----------------------------------------------------------------------------
+
+  private val deliveryNoteId = UUID.fromString("00000000-0000-0000-0000-0000000000e1").nn
+
+  private val fromDeliveryNote: MovementResponse = purchase.copy(deliveryNoteId = Some(deliveryNoteId), deliveryNoteNumber = Some("1234/A"))
+
+  test("a purchase loaded by a delivery note names it and cannot be voided by hand"):
+    deliveryNoteSource(fromDeliveryNote) shouldBe Some("DDT n. 1234/A")
+    deliveryNoteSource(fromDeliveryNote.copy(deliveryNoteNumber = None)) shouldBe Some("DDT n. 00000000")
+    deliveryNoteSource(purchase) shouldBe None
+    isFromDeliveryNote(fromDeliveryNote) shouldBe true
+    isVoidable(fromDeliveryNote) shouldBe false
+    isVoidable(purchase) shouldBe true
+    isVoidable(purchase.copy(voided = true)) shouldBe false
+    isVoidable(consumption) shouldBe false
+
+  private def note(number: String, status: String, total: String, applied: Boolean): DeliveryNoteResponse =
+    DeliveryNoteResponse(
+      deliveryNoteId,
+      number,
+      "2026-10-20",
+      UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn,
+      "Tessiture Rossi",
+      true,
+      None,
+      status,
+      "2026-10-20",
+      None,
+      None,
+      None,
+      List(
+        DeliveryNoteLineResponse(
+          UUID.fromString("00000000-0000-0000-0000-0000000000f1").nn,
+          "TES-001",
+          "Tessuto",
+          "linear_meters",
+          "AC-152",
+          "1.000",
+          "1.0000",
+          total,
+          applied,
+        ),
+      ),
+      total,
+    )
+
+  test("delivery notes are searched by number and totalled without the cancelled ones"):
+    val notes = List(note("1234/A", "registered", "10.50", true), note("77", "cancelled", "5.00", true), note("1240", "registered", "0.25", true))
+    filterDeliveryNotes(notes, "12").map(_.number) shouldBe List("1234/A", "1240")
+    filterDeliveryNotes(notes, " 1234/a ").map(_.number) shouldBe List("1234/A")
+    filterDeliveryNotes(notes, "").size shouldBe 3
+    deliveryNotesTotal(notes) shouldBe "10.75"
+    deliveryNotesTotal(Nil) shouldBe "0.00"
+
+  test("a registered delivery note with an unapplied line is pending; a cancelled one never is"):
+    hasPendingLines(note("1", "registered", "1.00", false)) shouldBe true
+    hasPendingLines(note("1", "registered", "1.00", true)) shouldBe false
+    hasPendingLines(note("1", "cancelled", "1.00", false)) shouldBe false
+    isCancelled(note("1", "cancelled", "1.00", true)) shouldBe true
 end WarehouseViewsSpec

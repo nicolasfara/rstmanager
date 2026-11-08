@@ -153,5 +153,6 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
       UnitPrice.applyUnsafe(cost),
       Valuation.amount(Quantity.applyUnsafe(quantity), UnitPrice.applyUnsafe(cost)),
       None,
+      None,
     )
 end StockHttpDtosTest

@@ -18,10 +18,17 @@ object MaterialForm:
   /** Decimals of a customer price on the API (ten-thousandths of a euro). */
   val priceScale: Int = 4
 
-  /** One row of the MPN editor. `key` is stable across edits so Laminar keeps the row's inputs (and focus) while typing. */
-  final case class MpnRow(key: Int, supplierId: String, code: String, description: String) derives CanEqual:
+  /**
+   * One row of the MPN editor. `key` is stable across edits so Laminar keeps the row's inputs (and focus) while typing; `expectedUnitCost` is the
+   * typed expected purchase price (blank = unknown), prefilled as the unit cost of the delivery note lines bought under this MPN.
+   */
+  final case class MpnRow(key: Int, supplierId: String, code: String, description: String, expectedUnitCost: String) derives CanEqual:
     /** A row the user added but never filled in: ignored instead of being reported. */
-    def isBlank: Boolean = supplierId.trim.nn.isEmpty && code.trim.nn.isEmpty && description.trim.nn.isEmpty
+    def isBlank: Boolean = supplierId.trim.nn.isEmpty && code.trim.nn.isEmpty && description.trim.nn.isEmpty && expectedUnitCost.trim.nn.isEmpty
+
+    /** The expected price as the API expects it (4 decimals): `Right(None)` when blank, `Left(())` when unreadable. */
+    def parsedExpectedCost: Either[Unit, Option[String]] =
+      if expectedUnitCost.trim.nn.isEmpty then Right(None) else WarehouseFormats.parseDecimal(expectedUnitCost, priceScale).map(Some(_)).toRight(())
 
   final case class State(
       editingId: Option[UUID],
@@ -55,6 +62,7 @@ object MaterialForm:
         List(
           Option.when(parseUuid(row.supplierId).isEmpty)(s"Fornitore mancante nella riga MPN $n"),
           Option.when(row.code.trim.nn.isEmpty)(s"Codice mancante nella riga MPN $n"),
+          Option.when(row.parsedExpectedCost.isLeft)(s"Prezzo acquisto previsto non valido nella riga MPN $n (es. 3,50, al massimo 4 decimali)"),
         ).flatten
       }
       val duplicateErrors = filledRows
@@ -81,10 +89,14 @@ object MaterialForm:
         SupplierForm.opt(notes),
         unit,
         price,
-        filledRows.flatMap((row, _) => parseUuid(row.supplierId).map(id => MpnDto(row.code.trim.nn, id, SupplierForm.opt(row.description)))),
+        filledRows.flatMap((row, _) =>
+          parseUuid(row.supplierId).map(id =>
+            MpnDto(row.code.trim.nn, id, SupplierForm.opt(row.description), row.parsedExpectedCost.toOption.flatten),
+          ),
+        ),
       )
 
-    def addRow: State = copy(mpns = mpns :+ MpnRow(nextKey, "", "", ""), nextKey = nextKey + 1)
+    def addRow: State = copy(mpns = mpns :+ MpnRow(nextKey, "", "", "", ""), nextKey = nextKey + 1)
 
     def removeRow(key: Int): State = copy(mpns = mpns.filterNot(_.key == key))
 
@@ -93,7 +105,10 @@ object MaterialForm:
 
   val empty: State = State(None, "", "", "", "", MeasureUnit.Pieces.wireName, "", Nil, 0)
 
-  /** The form prefilled with `material` for editing; the price is shown the Italian way with at least the cents (`"18.5000"` → `"18,50"`). */
+  /**
+   * The form prefilled with `material` for editing; the customer price and the expected purchase prices are shown the Italian way with at least the
+   * cents (`"18.5000"` → `"18,50"`).
+   */
   def fromResponse(material: MaterialResponse): State =
     State(
       Some(material.id),
@@ -103,7 +118,15 @@ object MaterialForm:
       material.notes.getOrElse(""),
       material.unit,
       WarehouseFormats.decimalInputText(material.customerPrice, 2, priceScale),
-      material.mpns.zipWithIndex.map((mpn, index) => MpnRow(index, mpn.supplierId.toString, mpn.code, mpn.description.getOrElse(""))),
+      material.mpns.zipWithIndex.map((mpn, index) =>
+        MpnRow(
+          index,
+          mpn.supplierId.toString,
+          mpn.code,
+          mpn.description.getOrElse(""),
+          mpn.expectedUnitCost.fold("")(WarehouseFormats.decimalInputText(_, 2, priceScale)),
+        ),
+      ),
       material.mpns.size,
     )
 

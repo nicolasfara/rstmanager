@@ -1,0 +1,1 @@
+{"version":1,"event":{"DeliveryNoteRegistered":{"info":{"id":"00000000-0000-0000-0000-000000000b02","number":"77","date":"2026-11-01","supplierId":"00000000-0000-0000-0000-000000000302","note":null,"lines":[{"materialId":"00000000-0000-0000-0000-000000000402","mpnCode":"VIT-M6-20","quantity":100000,"unit":"pieces","unitCost":125}]},"registeredOn":"2026-11-01"}}}

@@ -7,7 +7,14 @@ import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.ApiServer
 import io.github.nicolasfara.rstmanager.service.auth.{ AuthConfig, JwksClient, JwtValidator }
 import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
-import io.github.nicolasfara.rstmanager.warehouse.service.{ MaterialApp, SupplierApp, WarehouseConsumptionReconciler, WarehouseDailyReconciler }
+import io.github.nicolasfara.rstmanager.warehouse.service.{
+  DeliveryNoteApp,
+  MaterialApp,
+  SupplierApp,
+  WarehouseConsumptionReconciler,
+  WarehouseDailyReconciler,
+  WarehouseDeliveryNoteReconciler,
+}
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, OrderApp, TaskApp }
 
 import cats.effect.{ IO, Resource }
@@ -108,13 +115,27 @@ object PlanningHttpServer:
       orders <- OrderApp.build(pool)
       suppliers <- SupplierApp.build(pool)
       materials <- MaterialApp.build(pool)
+      deliveryNotes <- DeliveryNoteApp.build(pool)
       planningGateway = PlanningEntityGateway.fromStores(orders, employees)
       planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
       consumptionReconciler <- Resource.eval(WarehouseConsumptionReconciler.live(orders, materials))
+      deliveryNoteReconciler <- Resource.eval(WarehouseDeliveryNoteReconciler.live(deliveryNotes, materials))
       _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator, consumptionReconciler)
       _ <- PlanningDailyScheduler.resource(planningRecalculator, config.dailyRecalculationHour)
-      _ <- WarehouseDailyReconciler.resource(consumptionReconciler, config.dailyConsumptionReconcileHour)
-      routes = ApiServer.routes(planningBackend, employees, customers, tasks, manufacturings, orders, suppliers, materials, security)
+      _ <- WarehouseDailyReconciler.resource(consumptionReconciler, deliveryNoteReconciler, config.dailyConsumptionReconcileHour)
+      routes = ApiServer.routes(
+        planningBackend,
+        employees,
+        customers,
+        tasks,
+        manufacturings,
+        orders,
+        suppliers,
+        materials,
+        deliveryNotes,
+        deliveryNoteReconciler,
+        security,
+      )
       httpApp = corsPolicy(config.corsAllowedOrigins)(routes).orNotFound
       loggedHttpApp = HttpLogger.httpApp[IO](
         logHeaders = false,

@@ -1,5 +1,6 @@
 package io.gitbub.nicolasfara.rstmanager.ui
 
+import scala.annotation.targetName
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
@@ -109,21 +110,47 @@ object Components:
       placeholderText: String,
       maxResults: Int,
   ): HtmlElement =
+    val labelMatch: (String, String) => Boolean = (typed, labelText) =>
+      val needle = typed.trim.nn.toLowerCase.nn
+      needle.isEmpty || labelText.toLowerCase.nn.contains(needle)
+    combobox(valueSignal, writer, opts.map(_.map((id, labelText) => (id, labelText, labelText))), labelMatch, placeholderText, maxResults)
+
+  /**
+   * Variant of [[searchableSelect]] whose options are `(value, label, searchText)`: the label is what is shown, the search text what the typed query
+   * is matched against, term by term — every blank-separated term must appear in it, case-insensitively (see [[SearchTerms]]). So one option can be
+   * found by any of the words or codes its search text gathers (e.g. a material by internal code, description, or any of its MPNs).
+   */
+  @targetName("searchableSelectWithSearchText")
+  def searchableSelect(
+      valueSignal: Signal[String],
+      writer: Observer[String],
+      opts: Signal[List[(String, String, String)]],
+      placeholderText: String,
+      maxResults: Int,
+  ): HtmlElement =
+    combobox(valueSignal, writer, opts, SearchTerms.matches, placeholderText, maxResults)
+
+  /** The combobox behind both [[searchableSelect]] variants: `matches(typed, searchText)` decides which options are listed while typing. */
+  private def combobox(
+      valueSignal: Signal[String],
+      writer: Observer[String],
+      opts: Signal[List[(String, String, String)]],
+      matches: (String, String) => Boolean,
+      placeholderText: String,
+      maxResults: Int,
+  ): HtmlElement =
     // `None` = not editing (show the selected label); `Some(text)` = the search text being typed.
     val query = Var(Option.empty[String])
     val open = Var(false)
     val displayValue: Signal[String] =
       query.signal.combineWith(valueSignal, opts).map { case (typed, selected, options) =>
-        typed.getOrElse(options.collectFirst { case (id, labelText) if id == selected => labelText }.getOrElse(""))
+        typed.getOrElse(options.collectFirst { case (id, labelText, _) if id == selected => labelText }.getOrElse(""))
       }
     // Visible matches plus how many further matches were cut off by `maxResults`.
-    val filtered: Signal[(List[(String, String)], Int)] =
+    val filtered: Signal[(List[(String, String, String)], Int)] =
       query.signal.combineWith(opts).map { case (typed, options) =>
-        val needle = typed.getOrElse("").trim.nn.toLowerCase.nn
-        val matches =
-          if needle.isEmpty then options
-          else options.filter((_, labelText) => labelText.toLowerCase.nn.contains(needle))
-        (matches.take(maxResults), (matches.size - maxResults).max(0))
+        val matching = typed.fold(options)(text => options.filter((_, _, searchText) => matches(text, searchText)))
+        (matching.take(maxResults), (matching.size - maxResults).max(0))
       }
     def choose(id: String): Unit =
       writer.onNext(id)
@@ -148,7 +175,7 @@ object Components:
             cls := "absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg",
             if options.isEmpty then div(cls := "px-2.5 py-2 text-sm text-slate-400", "Nessun risultato")
             else
-              options.map { case (id, labelText) =>
+              options.map { case (id, labelText, _) =>
                 div(
                   cls := "cursor-pointer px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-100",
                   cls <-- valueSignal.map(selected => if selected == id then "bg-slate-50 font-medium" else ""),
@@ -167,7 +194,7 @@ object Components:
           )
       },
     )
-  end searchableSelect
+  end combobox
 
   def staticSelect(state: Var[String], opts: List[(String, String)]): HtmlElement =
     selectInput(state, Signal.fromValue(opts))

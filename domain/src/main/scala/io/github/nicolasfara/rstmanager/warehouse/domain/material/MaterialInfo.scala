@@ -29,18 +29,22 @@ type MaterialDescription = DescribedAs[Not[Empty], "La descrizione del materiale
  *   Supplier selling the material under this code.
  * @param description
  *   Optional supplier-side description.
+ * @param expectedUnitCost
+ *   Purchase price per unit the supplier is expected to charge under this code: the cost a delivery note line starts from (it can be overridden).
  */
-final case class Mpn(code: String :| MpnCode, supplierId: SupplierId, description: Option[String]) derives CanEqual:
+final case class Mpn(code: String :| MpnCode, supplierId: SupplierId, description: Option[String], expectedUnitCost: Option[UnitPrice])
+    derives CanEqual:
   /** The identity of the MPN: the same code from another supplier is a different MPN. */
   def key: (SupplierId, String) = (supplierId, code)
 
 object Mpn:
   /** Builds an MPN from raw values, normalizing the code (trimmed, upper case) and dropping a blank description. */
-  def createMpn(code: String, supplierId: SupplierId, description: Option[String]): ValidatedNec[String, Mpn] =
+  def createMpn(code: String, supplierId: SupplierId, description: Option[String], expectedUnitCost: Option[UnitPrice]): ValidatedNec[String, Mpn] =
     (
       MaterialInfo.normalizedCode(code).refineValidatedNec[MpnCode],
       Validated.validNec(supplierId),
       Validated.validNec(MaterialInfo.normalized(description)),
+      Validated.validNec(expectedUnitCost),
     ).mapN(Mpn.apply)
 
 /**
@@ -73,6 +77,9 @@ final case class MaterialInfo(
     customerPrice: UnitPrice,
     mpns: List[Mpn],
 ) derives CanEqual:
+  /** The MPN `code` of `supplierId`, if the material has it. */
+  def mpn(supplierId: SupplierId, code: String): Option[Mpn] = mpns.find(mpn => mpn.supplierId == supplierId && (mpn.code: String) == code)
+
   /** Suppliers of the material, derived from its MPNs, in first-appearance order. */
   def suppliers: List[SupplierId] = mpns.map(_.supplierId).distinct
 

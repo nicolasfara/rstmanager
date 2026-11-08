@@ -37,6 +37,12 @@ object MaterialService extends MaterialAggregate.Service[MaterialService.Command
      * quantity). Sent by the warehouse reconciliation with the orders, never by hand.
      */
     case SetConsumption(ref: ConsumptionRef, quantity: Quantity, on: LocalDate)
+
+    /**
+     * Sets the purchases delivery note `ref` brings to the material to exactly `lines` (absolute: nothing happens when it already brings them; an
+     * empty list removes the note from the material). Sent by the warehouse reconciliation with the delivery notes, never by hand.
+     */
+    case SetDeliveryNotePurchases(ref: DeliveryNoteRef, lines: List[DeliveryNotePurchaseLine])
   end Command
 
   enum Notification derives CanEqual:
@@ -62,6 +68,10 @@ object MaterialService extends MaterialAggregate.Service[MaterialService.Command
     case Command.SetConsumption(ref, quantity, on) =>
       App.state.flatMap(before =>
         decideOnDay(_.setConsumption(ref, quantity, on, _)).flatMap(after => if after == before then App.unit else publishChanged(after)),
+      )
+    case Command.SetDeliveryNotePurchases(ref, lines) =>
+      App.state.flatMap(before =>
+        decideOnDay(_.setDeliveryNotePurchases(ref, lines, _)).flatMap(after => if after == before then App.unit else publishChanged(after)),
       )
   }
 

@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, BusinessCalendar, Quantity, SignedQuantity, UnitPrice, Valuation }
+import io.github.nicolasfara.rstmanager.warehouse.domain.deliverynote.DeliveryNoteId
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.SupplierId
 
 import cats.data.NonEmptyList
@@ -19,8 +20,18 @@ type MovementReason = DescribedAs[Not[Empty], "Il motivo non può essere vuoto"]
  * changed and at which cost, if any.
  */
 enum MovementKind derives CanEqual:
-  /** Bought under the MPN `mpnCode` of `supplierId` at `unitCost` per unit, for `totalCost` (quantity × unit cost, rounded to the cent). */
-  case Purchase(mpnCode: String :| MpnCode, supplierId: SupplierId, unitCost: UnitPrice, totalCost: Amount, note: Option[String])
+  /**
+   * Bought under the MPN `mpnCode` of `supplierId` at `unitCost` per unit, for `totalCost` (quantity × unit cost, rounded to the cent). A purchase
+   * recorded by a delivery note names it in `deliveryNote`: only changing the note changes it, it cannot be voided by hand.
+   */
+  case Purchase(
+      mpnCode: String :| MpnCode,
+      supplierId: SupplierId,
+      unitCost: UnitPrice,
+      totalCost: Amount,
+      note: Option[String],
+      deliveryNote: Option[DeliveryNoteRef],
+  )
 
   /** Taken out of stock by hand for `reason`. */
   case Unload(reason: String :| MovementReason)
@@ -73,7 +84,12 @@ final case class StockMovement(
   /** The order manufacturing of an automatic consumption (or of its reversal). */
   def consumption: Option[ConsumptionRef] = kind match
     case MovementKind.Consumption(ref) => Some(ref)
-    case MovementKind.Purchase(_, _, _, _, _) | MovementKind.Unload(_) | MovementKind.Adjustment(_, _) => None
+    case MovementKind.Purchase(_, _, _, _, _, _) | MovementKind.Unload(_) | MovementKind.Adjustment(_, _) => None
+
+  /** The delivery note a purchase was recorded by. */
+  def deliveryNote: Option[DeliveryNoteRef] = kind match
+    case MovementKind.Purchase(_, _, _, _, _, deliveryNote) => deliveryNote
+    case MovementKind.Unload(_) | MovementKind.Adjustment(_, _) | MovementKind.Consumption(_) => None
 
   /**
    * Whether the movement goes out of stock for the flow reports: every movement with a negative delta, and every consumption, so that a reversal
@@ -89,13 +105,13 @@ final case class StockMovement(
 
   /** The unit cost this movement records for the material, which takes part in the highest cost of its day and later ones. */
   def pricePoint: Option[UnitPrice] = kind match
-    case MovementKind.Purchase(_, _, unitCost, _, _) => Some(unitCost)
+    case MovementKind.Purchase(_, _, unitCost, _, _, _) => Some(unitCost)
     case MovementKind.Adjustment(unitCost, _) if incoming => unitCost
     case MovementKind.Adjustment(_, _) | MovementKind.Unload(_) | MovementKind.Consumption(_) => None
 
   /** The value of an incoming movement at the cost it records: the purchase total, or an incoming adjustment at its unit cost. */
   def recordedValue: Option[Amount] = kind match
-    case MovementKind.Purchase(_, _, _, totalCost, _) => Some(totalCost)
+    case MovementKind.Purchase(_, _, _, totalCost, _, _) => Some(totalCost)
     case MovementKind.Adjustment(Some(unitCost), _) if incoming => Some(Valuation.amount(delta.abs, unitCost))
     case MovementKind.Adjustment(_, _) | MovementKind.Unload(_) | MovementKind.Consumption(_) => None
 end StockMovement
@@ -134,8 +150,15 @@ final case class LedgerLine(movement: StockMovement, balance: SignedQuantity, va
  * @param consumptions
  *   Quantity currently consumed by each order manufacturing (only non-zero ones): the sum of its consumption movements, kept so that an absolute
  *   [[io.github.nicolasfara.rstmanager.warehouse.domain.material.events.MaterialEvent.ConsumptionSet]] can be turned into its delta.
+ * @param deliveryNotes
+ *   What each delivery note currently brings to the material (only notes bringing something), kept so that setting the same purchases again is
+ *   recognized as no change.
  */
-final case class StockLedger(movements: Vector[StockMovement], consumptions: Map[ConsumptionRef, Quantity] = Map.empty) derives CanEqual:
+final case class StockLedger(
+    movements: Vector[StockMovement],
+    consumptions: Map[ConsumptionRef, Quantity] = Map.empty,
+    deliveryNotes: Map[DeliveryNoteId, AppliedDeliveryNote] = Map.empty,
+) derives CanEqual:
   import BusinessCalendar.given
 
   def isEmpty: Boolean = movements.isEmpty
@@ -167,6 +190,28 @@ final case class StockLedger(movements: Vector[StockMovement], consumptions: Map
       if delta.value == 0L then this else appended(StockLedger.consumptionMovementId(ref, movements.size), on, delta, MovementKind.Consumption(ref))
     moved.copy(consumptions = updated)
 
+  /** Whether delivery note `ref` already brings exactly `purchases` (under its current number): nothing to change. */
+  def holdsDeliveryNote(ref: DeliveryNoteRef, purchases: List[DeliveryNotePurchase]): Boolean =
+    AppliedDeliveryNote.holds(deliveryNotes.get(ref.id), ref, purchases)
+
+  /**
+   * The ledger with delivery note `ref` bringing exactly `purchases`: the active movements the note recorded before are voided on `changedOn` ("DDT
+   * modificato"), and each purchase is appended as a new movement on its own day. Their ids are derived from the note and their position, so
+   * replaying the journal gives every movement the same id again.
+   */
+  def deliveryNoteSet(ref: DeliveryNoteRef, purchases: List[DeliveryNotePurchase], changedOn: LocalDate): StockLedger =
+    val voiding = MovementVoid(StockLedger.deliveryNoteChangedReason, changedOn)
+    val cleared = copy(movements = movements.map { movement =>
+      if !movement.voided && movement.deliveryNote.exists(_.id == ref.id) then movement.copy(voiding = Some(voiding)) else movement
+    })
+    val recorded = purchases.foldLeft(cleared) { (ledger, purchase) =>
+      val kind = MovementKind.Purchase(purchase.mpnCode, purchase.supplierId, purchase.unitCost, purchase.totalCost, None, Some(ref))
+      ledger.appended(StockLedger.deliveryNoteMovementId(ref.id, ledger.movements.size), purchase.on, purchase.quantity.toSigned, kind)
+    }
+    val applied = if purchases.isEmpty then deliveryNotes.removed(ref.id) else deliveryNotes.updated(ref.id, AppliedDeliveryNote(ref, purchases))
+    recorded.copy(deliveryNotes = applied)
+  end deliveryNoteSet
+
   /** The movements that count: not voided. */
   def active: Vector[StockMovement] = movements.filterNot(_.voided)
 
@@ -197,7 +242,7 @@ final case class StockLedger(movements: Vector[StockMovement], consumptions: Map
 
   /** What was spent on purchases up to `day`. */
   def purchasedTotalAt(day: LocalDate): Amount =
-    Amount.sum(activeUntil(day).collect { case StockMovement(_, _, _, _, MovementKind.Purchase(_, _, _, totalCost, _), _) => totalCost })
+    Amount.sum(activeUntil(day).collect { case StockMovement(_, _, _, _, MovementKind.Purchase(_, _, _, totalCost, _, _), _) => totalCost })
 
   /** The stock on `day`. */
   def snapshotAt(day: LocalDate): StockSnapshot =
@@ -240,3 +285,15 @@ object StockLedger:
   def consumptionMovementId(ref: ConsumptionRef, sequence: Int): MovementId =
     val name = s"warehouse-consumption-${ref.orderId.value}-${ref.manufacturingId.value}-$sequence"
     MovementId(UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).nn)
+
+  /** Reason of the void of the movements a delivery note recorded before it changed. */
+  val deliveryNoteChangedReason: String :| MovementReason = "DDT modificato"
+
+  /**
+   * Id of the purchase movement of delivery note `id` at position `sequence`: a name-based UUID (version 3), deterministic and distinct from the
+   * random ids (version 4) the service draws for manual movements and from the ids of the consumptions.
+   */
+  def deliveryNoteMovementId(id: DeliveryNoteId, sequence: Int): MovementId =
+    val name = s"warehouse-delivery-note-${id.value}-$sequence"
+    MovementId(UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)).nn)
+end StockLedger

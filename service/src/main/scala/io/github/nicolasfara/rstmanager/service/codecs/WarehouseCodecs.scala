@@ -1,7 +1,17 @@
 package io.github.nicolasfara.rstmanager.service.codecs
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.UnitOfMeasure
-import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ ConsumptionRef, MaterialId, MaterialInfo, MaterialService, Mpn }
+import io.github.nicolasfara.rstmanager.warehouse.domain.deliverynote.{ DeliveryNoteInfo, DeliveryNoteLine, DeliveryNoteService }
+import io.github.nicolasfara.rstmanager.warehouse.domain.deliverynote.events.DeliveryNoteEvent
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{
+  ConsumptionRef,
+  DeliveryNotePurchase,
+  DeliveryNoteRef,
+  MaterialId,
+  MaterialInfo,
+  MaterialService,
+  Mpn,
+}
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.events.MaterialEvent
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ Supplier, SupplierService }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.events.SupplierEvent
@@ -10,7 +20,7 @@ import io.circe.{ Codec, Decoder, Encoder }
 import io.circe.generic.semiauto.deriveCodec
 import io.github.iltotore.iron.circe.given
 
-/** Circe codecs for the warehouse aggregates (suppliers, materials), used to persist their events in the journal. */
+/** Circe codecs for the warehouse aggregates (suppliers, materials, delivery notes), used to persist their events in the journal. */
 object WarehouseCodecs:
   import CommonCodecs.given
 
@@ -28,6 +38,8 @@ object WarehouseCodecs:
   given Codec[Mpn] = deriveCodec
   given Codec[MaterialInfo] = deriveCodec
   given Codec[ConsumptionRef] = deriveCodec
+  given Codec[DeliveryNoteRef] = deriveCodec
+  given Codec[DeliveryNotePurchase] = deriveCodec
 
   /** Current-version data of the material journal; it is persisted through [[MaterialEventSchema]]. */
   val materialEventData: Codec.AsObject[MaterialEvent] = deriveCodec
@@ -42,4 +54,13 @@ object WarehouseCodecs:
     val legacy: Decoder[MaterialService.Notification] =
       Decoder.instance(_.downField("ProductChanged").get[MaterialId]("productId").map(MaterialService.Notification.MaterialChanged(_)))
     Codec.from(derived.or(legacy), derived)
+
+  given Codec[DeliveryNoteLine] = deriveCodec
+  given Codec[DeliveryNoteInfo] = deriveCodec
+
+  /** Current-version data of the delivery note journal; it is persisted through [[DeliveryNoteEventSchema]]. */
+  val deliveryNoteEventData: Codec.AsObject[DeliveryNoteEvent] = deriveCodec
+  given Codec[DeliveryNoteEvent] = EventSchema.codec(DeliveryNoteEventSchema)
+
+  given deliveryNoteNotificationCodec: Codec[DeliveryNoteService.Notification] = deriveCodec
 end WarehouseCodecs

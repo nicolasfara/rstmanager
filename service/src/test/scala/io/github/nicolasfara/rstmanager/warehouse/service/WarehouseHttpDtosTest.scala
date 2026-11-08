@@ -13,6 +13,7 @@ import io.github.nicolasfara.rstmanager.warehouse.service.SupplierHttpApi.{ Supp
 import cats.data.ValidatedNec
 import com.github.nscala_time.time.Imports.LocalDate
 import io.circe.Json
+import io.circe.parser.decode
 import io.circe.syntax.*
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
@@ -33,7 +34,7 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
       None,
       "linear_meters",
       "18.5",
-      List(MpnDto(" ac-152 ", firstSupplier, None), MpnDto("AC-152", secondSupplier, Some("Canvas"))),
+      List(MpnDto(" ac-152 ", firstSupplier, None, None), MpnDto("AC-152", secondSupplier, Some("Canvas"), None)),
     )
 
   "MaterialRequest.toDomain" should "parse the unit, the decimal price, and normalize the codes" in:
@@ -47,7 +48,7 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
     info.suppliers shouldEqual List(SupplierId(firstSupplier), SupplierId(secondSupplier))
 
   it should "report every malformed field at once" in:
-    val bad = request.copy(unit = "litres", customerPrice = "18.50001", mpns = List(MpnDto(" ", firstSupplier, None)))
+    val bad = request.copy(unit = "litres", customerPrice = "18.50001", mpns = List(MpnDto(" ", firstSupplier, None, None)))
     val reported = errors(bad.toDomain(id))
     reported should have size 3
     reported.exists(_.startsWith("Unità di misura:")) shouldEqual true
@@ -55,8 +56,20 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
     reported should contain("MPN riga 1: Il codice MPN non può essere vuoto")
 
   it should "reject the same MPN code twice for the same supplier, once normalized" in:
-    val duplicated = request.copy(mpns = List(MpnDto("x-1", firstSupplier, None), MpnDto(" X-1", firstSupplier, None)))
+    val duplicated = request.copy(mpns = List(MpnDto("x-1", firstSupplier, None, None), MpnDto(" X-1", firstSupplier, None, None)))
     errors(duplicated.toDomain(id)) shouldEqual List("MPN: il codice MPN X-1 compare più volte per lo stesso fornitore")
+
+  "MpnDto" should "parse the expected unit cost, blank as none, and render it with 4 decimals" in:
+    val withCost = valid(MpnDto("ac-1", firstSupplier, None, Some("3.5")).toDomain("MPN riga 1"))
+    withCost.expectedUnitCost.map(_.value) shouldEqual Some(35000L)
+    MpnDto.fromDomain(withCost).expectedUnitCost shouldEqual Some("3.5000")
+    valid(MpnDto("ac-1", firstSupplier, None, Some(" ")).toDomain("MPN riga 1")).expectedUnitCost shouldEqual None
+    errors(MpnDto(" ", firstSupplier, None, Some("x")).toDomain("MPN riga 2")).map(_.takeWhile(_ != ':')) shouldEqual
+      List("MPN riga 2 (prezzo acquisto previsto)", "MPN riga 2")
+
+  it should "decode a request without the expected unit cost" in:
+    decode[MpnDto](s"""{"code":"AC-1","supplierId":"$firstSupplier","description":null}""") shouldEqual
+      Right(MpnDto("AC-1", firstSupplier, None, None))
 
   "MaterialResponse" should "carry the price as a 4-decimal string, the unit wire name, and the derived suppliers" in:
     val info = valid(request.toDomain(id))
@@ -83,7 +96,8 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
   "MaterialHttpApi.suppliersToCheck" should "require active suppliers only for MPNs new to the stored material" in:
     val stored = valid(request.toDomain(id))
     val third = UUID.fromString("00000000-0000-0000-0000-000000000303").nn
-    val edited = valid(request.copy(mpns = request.mpns :+ MpnDto("NEW-1", third, None) :+ MpnDto("AC-999", firstSupplier, None)).toDomain(id))
+    val edited =
+      valid(request.copy(mpns = request.mpns :+ MpnDto("NEW-1", third, None, None) :+ MpnDto("AC-999", firstSupplier, None, None)).toDomain(id))
     MaterialHttpApi.suppliersToCheck(None, stored) shouldEqual List(SupplierId(firstSupplier), SupplierId(secondSupplier))
     MaterialHttpApi.suppliersToCheck(Some(stored), stored) shouldEqual Nil
     MaterialHttpApi.suppliersToCheck(Some(stored), edited) shouldEqual List(SupplierId(third), SupplierId(firstSupplier))

@@ -10,7 +10,14 @@ import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.Plannin
 import io.github.nicolasfara.rstmanager.planning.service.PlanningEndpoints
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ UnitOfMeasure, UnitPrice }
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialCode, MaterialDescription, MaterialId, MaterialInfo, MaterialRecord }
-import io.github.nicolasfara.rstmanager.warehouse.service.{ MaterialHttpApi, StockHttpApi, SupplierHttpApi, WarehouseReportsHttpApi }
+import io.github.nicolasfara.rstmanager.warehouse.service.{
+  DeliveryNoteHttpApi,
+  MaterialHttpApi,
+  StockHttpApi,
+  SupplierHttpApi,
+  WarehouseReportsHttpApi,
+}
+import io.github.nicolasfara.rstmanager.warehouse.service.DeliveryNoteHttpApi.{ CancelDeliveryNoteRequest, DeliveryNoteRequest }
 import io.github.nicolasfara.rstmanager.warehouse.service.MaterialApp.StoredMaterial
 import io.github.nicolasfara.rstmanager.warehouse.service.MaterialHttpApi.MaterialRequest
 import io.github.nicolasfara.rstmanager.warehouse.service.StockHttpApi.{ AdjustmentRequest, PurchaseRequest, UnloadRequest }
@@ -83,6 +90,8 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     validOrFail(PurchaseRequest.example.toDomain)
     validOrFail(UnloadRequest.example.toDomain)
     validOrFail(AdjustmentRequest.example.toDomain)
+    validOrFail(DeliveryNoteRequest.example.parse)
+    validOrFail(CancelDeliveryNoteRequest.example.parse)
 
   they should "render valid ISO date-time examples in the generated OpenAPI document" in:
     val endpoints =
@@ -95,7 +104,8 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
         SupplierHttpApi.endpoints ++
         MaterialHttpApi.endpoints ++
         StockHttpApi.endpoints ++
-        WarehouseReportsHttpApi.endpoints
+        WarehouseReportsHttpApi.endpoints ++
+        DeliveryNoteHttpApi.endpoints
     val yaml = OpenAPIDocsInterpreter().toOpenAPI(endpoints, "RST Manager API", "0.1.0").toYaml
 
     yaml should include("bearerAuth")
@@ -120,6 +130,8 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     yaml should include("25.500")
     yaml should include("/api/v1/orders/{id}/manufacturings/{manufacturingId}/materials")
     yaml should include("12.5000")
+    yaml should include("/api/v1/warehouse/delivery-notes/{id}/cancel")
+    yaml should include("1234/A")
     yaml should not include "00000000-0000-0000-0000-000000000501"
     yaml should not include "startOn: string"
     yaml should not include "creationDate: string"

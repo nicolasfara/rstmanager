@@ -1,7 +1,16 @@
 package io.github.nicolasfara.rstmanager.warehouse.domain.material.events
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, SignedQuantity, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ ConsumptionRef, MaterialInfo, MovementId, MovementReason, MpnCode }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{
+  ConsumptionRef,
+  DeliveryNotePurchase,
+  DeliveryNoteRef,
+  MaterialInfo,
+  MovementId,
+  MovementReason,
+  Mpn,
+  MpnCode,
+}
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.SupplierId
 
 import com.github.nscala_time.time.Imports.LocalDate
@@ -52,4 +61,14 @@ enum MaterialEvent derives CanEqual:
    * `previous - quantity` (an outflow, or a reversal when the quantity shrinks), so replaying it twice or after a missed one keeps the right total.
    */
   case ConsumptionSet(ref: ConsumptionRef, quantity: Quantity, on: LocalDate)
+
+  /** The MPN `mpn` was added to the material on `on` by a delivery note line naming it, with the cost of the line as its expected unit cost. */
+  case MpnAdded(mpn: Mpn, on: LocalDate)
+
+  /**
+   * The delivery note `ref` brings exactly `purchases` to the material from `changedOn` on. The event is absolute: the fold voids the movements the
+   * note recorded before and records `purchases` as new ones (an empty list removes the note from the material), so a changed note is voided and
+   * recorded again, and replaying the event yields the same movements.
+   */
+  case DeliveryNotePurchasesSet(ref: DeliveryNoteRef, purchases: List[DeliveryNotePurchase], changedOn: LocalDate)
 end MaterialEvent

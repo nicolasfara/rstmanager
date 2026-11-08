@@ -77,7 +77,7 @@ object WarehouseExport:
       derives CanEqual:
     /** The supplier of a purchase. */
     def supplierId: Option[SupplierId] = movement.kind match
-      case MovementKind.Purchase(_, supplierId, _, _, _) => Some(supplierId)
+      case MovementKind.Purchase(_, supplierId, _, _, _, _) => Some(supplierId)
       case MovementKind.Unload(_) | MovementKind.Adjustment(_, _) | MovementKind.Consumption(_) => None
 
   /** The name of the downloaded file: `magazzino-YYYY-MM-DD.xlsx`. */
@@ -223,21 +223,22 @@ object WarehouseExport:
 
   /** How the export names a movement: by its kind, telling an automatic consumption from its reversal. */
   def kindLabel(movement: StockMovement): String = movement.kind match
-    case MovementKind.Purchase(_, _, _, _, _) => "Carico"
+    case MovementKind.Purchase(_, _, _, _, _, _) => "Carico"
     case MovementKind.Unload(_) => "Scarico"
     case MovementKind.Adjustment(_, _) => "Rettifica"
     case MovementKind.Consumption(_) => if movement.incoming then "Storno lavorazione" else "Scarico lavorazione"
 
   private def mpnCell(kind: MovementKind): Cell = kind match
-    case MovementKind.Purchase(code, _, _, _, _) => Cell.Text(code)
+    case MovementKind.Purchase(code, _, _, _, _, _) => Cell.Text(code)
     case MovementKind.Unload(_) | MovementKind.Adjustment(_, _) | MovementKind.Consumption(_) => Cell.Blank
 
   /**
-   * The note of a purchase, the reason of a manual movement (empty for a purchase without note), or the order and manufacturing of a consumption
-   * (`Ordine 2026-014 – lavorazione TND-01`; the order id when the order cannot be loaded).
+   * The delivery note of a purchase (`DDT n. 1234`) or its note, the reason of a manual movement (empty for a purchase without note), or the order
+   * and manufacturing of a consumption (`Ordine 2026-014 – lavorazione TND-01`; the order id when the order cannot be loaded).
    */
   private def causeOf(kind: MovementKind, orders: Map[OrderId, OrderLabel]): String = kind match
-    case MovementKind.Purchase(_, _, _, _, note) => note.getOrElse("")
+    case MovementKind.Purchase(_, _, _, _, _, Some(deliveryNote)) => s"DDT n. ${deliveryNote.number}"
+    case MovementKind.Purchase(_, _, _, _, note, None) => note.getOrElse("")
     case MovementKind.Unload(reason) => reason
     case MovementKind.Adjustment(_, reason) => reason
     case MovementKind.Consumption(ref) =>

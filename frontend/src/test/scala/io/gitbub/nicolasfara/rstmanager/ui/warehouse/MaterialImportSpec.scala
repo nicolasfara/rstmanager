@@ -51,6 +51,18 @@ final class MaterialImportSpec extends AnyFunSuite with Matchers:
     ko.phase shouldBe Phase.Rejected(rejected)
     ko.canImport shouldBe false
 
+  test("a check that leaves some materials out still enables the upload of the others"):
+    val chosen = start.choose("file-1", "a.xlsx")
+    val partial = summary.copy(ignored = List("X"), problems = List("Riga 5, PREZZO CLIENTE: obbligatorio"))
+    val checked = chosen.checked(chosen.selection, Right(partial))
+    checked.canImport shouldBe true
+    checked.startImport.map(_._2) shouldBe Some("file-1")
+
+  test("a check where every material has problems does not enable the upload"):
+    val chosen = start.choose("file-1", "a.xlsx")
+    val allIgnored = MaterialImportResponse(true, Nil, Nil, Nil, 0, List("X", "Y"), List("Riga 2, CODICE: …", "Riga 3, CODICE: …"))
+    chosen.checked(chosen.selection, Right(allIgnored)).canImport shouldBe false
+
   test("a check that would create nothing does not enable the upload"):
     val chosen = start.choose("file-1", "a.xlsx")
     val checked = chosen.checked(chosen.selection, Right(nothingNew))
@@ -101,4 +113,13 @@ final class MaterialImportSpec extends AnyFunSuite with Matchers:
     confirmationText(MaterialImportResponse(false, List("A"), List("B", "C"), List("X", "Y"), 0)) shouldBe
       "Caricato 1 materiale (0 MPN). Creati 2 fornitori. 2 codici già presenti saltati."
     confirmationText(MaterialImportResponse(false, List("A", "B"), Nil, Nil, 2)) shouldBe "Caricati 2 materiali (2 MPN)."
+
+  test("ignored materials are counted in the warning and in the confirmation"):
+    val one = summary.copy(ignored = List("X"))
+    val many = summary.copy(created = List("A"), mpns = 1, newSuppliers = Nil, skipped = Nil, ignored = List("X", "Y", "Z"))
+    ignoredText(one) shouldBe "1 materiale non verrà caricato per errori"
+    ignoredText(many) shouldBe "3 materiali non verranno caricati per errori"
+    confirmationText(one) shouldBe
+      "Caricati 2 materiali (3 MPN). Creato 1 fornitore. 1 codice già presente saltato. 1 materiale ignorato per errori."
+    confirmationText(many) shouldBe "Caricato 1 materiale (1 MPN). 3 materiali ignorati per errori."
 end MaterialImportSpec

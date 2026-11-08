@@ -18,9 +18,11 @@ import com.github.nscala_time.time.Imports.LocalDate
 import org.dhatim.fastexcel.reader.{ Cell, CellType, ReadableWorkbook, Row }
 
 /**
- * The bulk load of materials from an Excel workbook (`.xlsx`), all or nothing: the whole sheet is read and checked first, and a single problem
- * rejects the file, listing every problem with its Excel row (`Riga N, COLONNA: …`, or `Righe a, b (CODICE): …` for a material spread over several
- * rows).
+ * The bulk load of materials from an Excel workbook (`.xlsx`). The whole sheet is read and checked before anything is written. A problem of the file
+ * as a whole (not an `.xlsx`, missing headers, no rows, too many rows) rejects it; any other problem ignores the material (CODICE) it belongs to, all
+ * of its rows, while the other materials are loaded. Every problem is listed with its Excel row (`Riga N, COLONNA: …`, or `Righe a, b (CODICE): …`
+ * for a material spread over several rows). A material is never loaded with only part of its rows: once loaded, its code would be skipped when the
+ * fixed file is loaded again.
  *
  * The first sheet has the headers on row 1 ([[Column]]: all required, in any order, extra columns ignored) and one row per MPN of a material: rows
  * with the same CODICE are one material, and must agree on its unit, description, type, customer price, and notes. A code already used by an active
@@ -106,8 +108,25 @@ object MaterialImport:
   /** A material skipped because an active material already has its code. */
   final case class SkippedMaterial(code: String, lines: List[Int]) derives CanEqual
 
-  /** What the import writes: the new suppliers first, then the materials; skipped codes are reported. */
-  final case class ImportPlan(suppliers: List[Supplier], materials: List[PlannedMaterial], skipped: List[SkippedMaterial])
+  /**
+   * What the import writes, the new suppliers first, then the materials, and what it leaves out.
+   *
+   * @param suppliers
+   *   The new suppliers the materials to create use, by name.
+   * @param skipped
+   *   The codes an active material already has.
+   * @param ignored
+   *   The codes (normalized, sorted) left out because of a problem of one of their rows.
+   * @param problems
+   *   Every problem of the file, sorted by row; a problem of a row without a code ignores that row only.
+   */
+  final case class ImportPlan(
+      suppliers: List[Supplier],
+      materials: List[PlannedMaterial],
+      skipped: List[SkippedMaterial],
+      ignored: List[String],
+      problems: List[Problem],
+  )
 
   /** Header text as it is matched: accents removed, upper case, letters and digits only (`Unità di misura` matches `UNITA' DI MISURA`). */
   def headerKey(raw: String): String =
@@ -304,8 +323,24 @@ object MaterialImport:
       mpn: Option[RowMpn],
   )
 
+  /** An MPN of the material `code`, named on Excel row `line`. */
+  private final case class MpnUse(code: String, line: Int, mpn: RowMpn)
+
   private def parseRow(row: ImportRow): Checked[ParsedRow] =
-    val mpn = (
+    (
+      unit(row),
+      text(row, Column.Description),
+      text(row, Column.Category),
+      price(row, Column.CustomerPrice).andThen(_.fold(problem(row.line, Column.CustomerPrice, "il valore è obbligatorio"))(_.validNec)),
+      text(row, Column.Notes),
+      rowMpn(row),
+    ).mapN((parsedUnit, description, materialType, customerPrice, notes, parsedMpn) =>
+      ParsedRow(row.line, parsedUnit, description, materialType, customerPrice, notes, parsedMpn),
+    )
+
+  /** The MPN group of a row: FORNITORE and CODICE MPN together, with the optional DESCRIZIONE FORNITORE and PREZZO FORNITORE. */
+  private def rowMpn(row: ImportRow): Checked[Option[RowMpn]] =
+    (
       text(row, Column.SupplierName),
       text(row, Column.PartNumber),
       text(row, Column.SupplierDescription),
@@ -319,17 +354,6 @@ object MaterialImport:
       case (None, None, _, _) =>
         problem(row.line, Column.PartNumber, "DESCRIZIONE FORNITORE e PREZZO FORNITORE si indicano solo con FORNITORE e CODICE MPN")
     }
-    (
-      unit(row),
-      text(row, Column.Description),
-      text(row, Column.Category),
-      price(row, Column.CustomerPrice).andThen(_.fold(problem(row.line, Column.CustomerPrice, "il valore è obbligatorio"))(_.validNec)),
-      text(row, Column.Notes),
-      mpn,
-    ).mapN((parsedUnit, description, materialType, customerPrice, notes, parsedMpn) =>
-      ParsedRow(row.line, parsedUnit, description, materialType, customerPrice, notes, parsedMpn),
-    )
-  end parseRow
 
   // ---------------------------------------------------------------------------------------------------------------------------------------------
   // Planning
@@ -354,22 +378,30 @@ object MaterialImport:
       case New(_, newName, _) => newName
   end ResolvedSupplier
 
+  /** A problem and the codes it ignores: every code of the rows it is about. */
+  private type Attributed = (Set[String], Problem)
+
+  private def problemsOf[A](checked: Checked[A]): List[Problem] = checked.fold(_.toChain.toList, _ => Nil)
+
   /**
-   * The plan of `rows` against `context`, or every problem of the file: the import writes nothing unless the whole file is valid.
+   * The plan of `rows` against `context`: the materials to create, and the codes ignored because of a problem of one of their rows.
    *
-   *   - Every row has a CODICE; rows with the same code (normalized like [[MaterialInfo.normalizedCode]]) are one material. A code an active material
-   *     already has is skipped, and its rows are not checked further.
+   *   - Every row has a CODICE; rows with the same code (normalized like [[MaterialInfo.normalizedCode]]) are one material. A row without a code is
+   *     reported and left out. A code an active material already has is skipped, and its rows are not checked further.
    *   - The rows of a material agree on the unit, the customer price, and, where they give them, the description, the type (case ignored), and the
    *     notes. A material without a description takes the supplier description of its first row that has one.
-   *   - A type is spelled as an active material already spells it (case ignored), otherwise as the first row of the file that has it.
-   *   - A supplier is matched by name (blanks collapsed, case ignored) among the active ones: two active suppliers with the name are ambiguous, no
-   *     active supplier means a new one.
-   *   - An MPN (supplier, code) belongs to one material: it is neither repeated on another material of the file nor used by an active material.
-   *   - Every material and new supplier passes the decision that creates it, on the empty state.
+   *   - A supplier is matched by name (blanks collapsed, case ignored) among the active ones: two active suppliers with the name are ambiguous (every
+   *     material naming it is ignored), no active supplier means a new one.
+   *   - An MPN (supplier, code) belongs to one material: repeated on several materials of the file it ignores all of them (the rows that are wrong
+   *     for other reasons included, so fixing them does not reveal a new problem); used by an active material it ignores the material.
+   *   - Every material and new supplier passes the decision that creates it, on the empty state; a new supplier is created only when a material to
+   *     create uses it.
+   *   - A type is spelled as an active material already spells it (case ignored), otherwise as the material to create with the first row has it:
+   *     ignored rows have no effect on the materials created.
    */
-  def plan(rows: List[ImportRow], context: ImportContext): Checked[ImportPlan] =
+  def plan(rows: List[ImportRow], context: ImportContext): ImportPlan =
     val coded = rows.map(row => required(row, Column.Code).map(code => row -> MaterialInfo.normalizedCode(code)))
-    val codeProblems = coded.flatMap(_.fold(_.toChain.toList, _ => Nil))
+    val codeProblems = coded.flatMap(problemsOf)
     val groups = coded
       .flatMap(_.toOption)
       .groupMap(_._2)(_._1)
@@ -381,41 +413,55 @@ object MaterialImport:
     val skipped = groups.collect { case (code, grouped) if activeCodes.contains(code) => SkippedMaterial(code, grouped.map(_.line)) }
 
     val parsed = kept.map((code, grouped) => (code, grouped.map(parseRow)))
-    val rowProblems = parsed.flatMap(_._2.flatMap(_.fold(_.toChain.toList, _ => Nil)))
     val parsedRows = parsed.flatMap((code, checked) => checked.flatMap(_.toOption).map(code -> _))
+    // The MPNs of every kept row, also of a row with a problem elsewhere: fixing that problem must not reveal a new one.
+    val uses = kept.flatMap((code, grouped) => grouped.flatMap(row => rowMpn(row).toOption.flatten.map(MpnUse(code, row.line, _))))
+    def usersOf(key: String): Set[String] = uses.filter(use => supplierKey(use.mpn.supplier) == key).map(_.code).toSet
 
-    val suppliers = resolveSuppliers(parsedRows.map(_._2), context)
-    val supplierProblems = suppliers.values.toList.flatMap(_.fold(_.toChain.toList, _ => Nil)).distinct
+    val suppliers = resolveSuppliers(uses, context)
     val resolved = suppliers.view.mapValues(_.toOption).toMap.collect { case (key, Some(supplier)) => key -> supplier }
+    val rowProblems: List[Attributed] =
+      parsed.flatMap((code, checked) => checked.flatMap(problemsOf).map(Set(code) -> _)) ++
+        suppliers.toList.flatMap((key, checked) => problemsOf(checked).map(usersOf(key) -> _)) ++
+        sharedMpns(uses, resolved) ++
+        takenMpns(uses, resolved, context)
 
-    val mpnProblems = sharedMpns(parsedRows, resolved) ++ takenMpns(parsedRows, resolved, context)
-    val spellings = typeSpellings(parsedRows.map(_._2), context)
-
-    val materials = parsed.collect {
-      case (code, checked) if checked.forall(_.isValid) => material(code, checked.flatMap(_.toOption), resolved, spellings, context)
+    val built = parsed.collect {
+      case (code, checked) if checked.forall(_.isValid) => code -> material(code, checked.flatMap(_.toOption), resolved, context)
     }
-    val materialProblems = materials.flatMap(_.fold(_.toChain.toList, _ => Nil))
-    val newSuppliers = resolved.values.toList.distinct.collect { case ResolvedSupplier.New(key, name, id) => (key, name, id) }
-    val created = newSuppliers.map((key, name, id) => newSupplier(key, name, id, parsedRows.map(_._2)))
-    val createdProblems = created.flatMap(_.fold(_.toChain.toList, _ => Nil))
+    val materialProblems: List[Attributed] = built.flatMap((code, checked) => problemsOf(checked).map(Set(code) -> _))
+    val rejected = (rowProblems ++ materialProblems).flatMap(_._1).toSet
+    val candidates = built.flatMap((code, checked) => checked.toOption.filterNot(_ => rejected.contains(code)))
 
-    val problems = codeProblems ++ rowProblems ++ supplierProblems ++ mpnProblems ++ materialProblems ++ createdProblems
-    NonEmptyChain
-      .fromSeq(problems.sortBy(_.line))
-      .fold(
-        ImportPlan(
-          created.flatMap(_.toOption).sortBy(supplier => (supplier.name: String).toLowerCase(Locale.ROOT).nn),
-          materials.flatMap(_.toOption),
-          skipped,
-        ).validNec[Problem],
-      )(_.invalid)
+    val needed = candidates.flatMap(_.info.suppliers).toSet
+    val candidateRows = parsedRows.filter((code, _) => candidates.exists(m => (m.info.internalCode: String) == code)).map(_._2)
+    val newSuppliers = resolved.values.toList.distinct.collect {
+      case ResolvedSupplier.New(key, name, id) if needed.contains(id) => id -> newSupplier(key, name, id, candidateRows)
+    }
+    val supplierProblems: List[Attributed] = newSuppliers.flatMap((id, checked) =>
+      problemsOf(checked).map(candidates.filter(_.info.suppliers.contains(id)).map(m => m.info.internalCode: String).toSet -> _),
+    )
+
+    val ignored = (rowProblems ++ materialProblems ++ supplierProblems).flatMap(_._1).toSet
+    val loaded = candidates.filterNot(m => ignored.contains(m.info.internalCode))
+    val used = loaded.flatMap(_.info.suppliers).toSet
+    val spellings = typeSpellings(loaded.sortBy(_.lines.headOption.getOrElse(0)).flatMap(_.info.materialType), context)
+    ImportPlan(
+      newSuppliers
+        .flatMap((id, checked) => checked.toOption.filter(_ => used.contains(id)))
+        .sortBy(supplier => (supplier.name: String).toLowerCase(Locale.ROOT).nn),
+      loaded.map(m => m.copy(info = m.info.copy(materialType = m.info.materialType.map(spelled => spellings.getOrElse(typeKey(spelled), spelled))))),
+      skipped,
+      ignored.toList.sorted,
+      (codeProblems ++ (rowProblems ++ materialProblems ++ supplierProblems).map(_._2)).distinct.sortBy(_.line),
+    )
   end plan
 
   /** The supplier of every supplier name of `rows`, by [[supplierKey]], or the problem of an ambiguous name or a missing id. */
-  private def resolveSuppliers(rows: List[ParsedRow], context: ImportContext): Map[String, Checked[ResolvedSupplier]] =
+  private def resolveSuppliers(uses: List[MpnUse], context: ImportContext): Map[String, Checked[ResolvedSupplier]] =
     val active = context.suppliers.groupBy(supplier => supplierKey(supplier.name))
-    rows
-      .flatMap(row => row.mpn.map(mpn => (supplierKey(mpn.supplier), mpn.supplier, row.line)))
+    uses
+      .map(use => (supplierKey(use.mpn.supplier), use.mpn.supplier, use.line))
       .groupBy(_._1)
       .map { (key, uses) =>
         val name = uses.minBy(_._3)._2
@@ -438,9 +484,9 @@ object MaterialImport:
   end resolveSuppliers
 
   /** The rows of an MPN (supplier, code) listed for more than one material of the file. */
-  private def sharedMpns(rows: List[(String, ParsedRow)], suppliers: Map[String, ResolvedSupplier]): List[Problem] =
-    rows
-      .flatMap((code, row) => row.mpn.flatMap(mpn => suppliers.get(supplierKey(mpn.supplier)).map(supplier => (supplier, mpn.code, code, row.line))))
+  private def sharedMpns(uses: List[MpnUse], suppliers: Map[String, ResolvedSupplier]): List[Attributed] =
+    uses
+      .flatMap(use => suppliers.get(supplierKey(use.mpn.supplier)).map(supplier => (supplier, use.mpn.code, use.code, use.line)))
       .groupBy((supplier, mpnCode, _, _) => (supplier.id, mpnCode))
       .values
       .toList
@@ -448,25 +494,28 @@ object MaterialImport:
         val materials = uses.sortBy(_._4).map(_._3).distinct
         uses.headOption.filter(_ => materials.sizeIs > 1).map { (supplier, mpnCode, _, _) =>
           val lines = uses.map(_._4).sorted
-          Problem(lines.min, s"${linesLabel(lines)}: MPN $mpnCode di ${supplier.name} indicato per più materiali (${materials.mkString(", ")})")
+          materials.toSet -> Problem(
+            lines.min,
+            s"${linesLabel(lines)}: MPN $mpnCode di ${supplier.name} indicato per più materiali (${materials.mkString(", ")})",
+          )
         }
       }
 
   /** The rows naming an MPN an active material already has: an MPN belongs to one active material. */
-  private def takenMpns(rows: List[(String, ParsedRow)], suppliers: Map[String, ResolvedSupplier], context: ImportContext): List[Problem] =
+  private def takenMpns(uses: List[MpnUse], suppliers: Map[String, ResolvedSupplier], context: ImportContext): List[Attributed] =
     for
-      (_, row) <- rows
-      mpn <- row.mpn.toList
-      supplier <- suppliers.get(supplierKey(mpn.supplier)).toList
-      owner <- context.materials.find(_.mpn(supplier.id, mpn.code).isDefined).toList
-    yield Problem(row.line, s"Riga ${row.line}, CODICE MPN: l'MPN ${mpn.code} di ${supplier.name} è già usato dal materiale ${owner.internalCode}")
+      use <- uses
+      supplier <- suppliers.get(supplierKey(use.mpn.supplier)).toList
+      owner <- context.materials.find(_.mpn(supplier.id, use.mpn.code).isDefined).toList
+    yield Set(use.code) -> Problem(
+      use.line,
+      s"Riga ${use.line}, CODICE MPN: l'MPN ${use.mpn.code} di ${supplier.name} è già usato dal materiale ${owner.internalCode}",
+    )
 
-  /** The spelling of every type (by lower case): the one of an active material, otherwise the first one in the file. */
-  private def typeSpellings(rows: List[ParsedRow], context: ImportContext): Map[String, String] =
+  /** The spelling of every type (by lower case): the one of an active material, otherwise the first of `types`. */
+  private def typeSpellings(types: List[String], context: ImportContext): Map[String, String] =
     val existing = context.materials.flatMap(_.materialType).reverse.map(spelled => typeKey(spelled) -> spelled).toMap
-    rows
-      .sortBy(_.line)
-      .flatMap(_.materialType)
+    types
       .foldLeft(existing)((spellings, spelled) =>
         if spellings.contains(typeKey(spelled)) then spellings else spellings + (typeKey(spelled) -> spelled),
       )
@@ -478,12 +527,11 @@ object MaterialImport:
     case List(line) => s"Riga $line"
     case _ => s"Righe ${lines.mkString(", ")}"
 
-  /** The material of the rows of `code` (all well formed), dry-run on the empty state. */
+  /** The material of the rows of `code` (all well formed), dry-run on the empty state; its type is spelled as its first row has it. */
   private def material(
       code: String,
       rows: List[ParsedRow],
       suppliers: Map[String, ResolvedSupplier],
-      spellings: Map[String, String],
       context: ImportContext,
   ): Checked[PlannedMaterial] =
     val lines = rows.map(_.line)
@@ -508,7 +556,7 @@ object MaterialImport:
       .keys
       .toList match
       case Nil => None.validNec
-      case List(key) => spellings.get(key).validNec
+      case List(_) => rows.flatMap(_.materialType).headOption.validNec
       case _ => fail(s"TIPOLOGIA diverse: ${rows.flatMap(_.materialType).distinctBy(typeKey).mkString(", ")}")
     val notes = single(rows.flatMap(_.notes), "NOTE diverse", identity)
     val mpns = rows.flatTraverse(row =>

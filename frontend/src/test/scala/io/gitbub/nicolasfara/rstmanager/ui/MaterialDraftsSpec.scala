@@ -102,7 +102,7 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
     errors(List(Row(1, fabricId.toString, "-1", "")), context) shouldBe List("Riga 1: quantità non valida (es. 2,5, al massimo 3 decimali)")
     errors(List(Row(1, fabricId.toString, "0,000", "")), context) shouldBe List("Riga 1: la quantità deve essere maggiore di zero")
     errors(List(Row(1, screwId.toString, "2,5", "")), context) shouldBe
-      List("Riga 1: VIT-6 è gestito a pezzi: la quantità deve essere un numero intero")
+      List("Riga 1: VIT-6 è gestito a unità intere: la quantità deve essere un numero intero")
     errors(List(Row(1, screwId.toString, "3,000", "")), context) shouldBe Nil
 
   test("a typed price must be readable with at most 4 decimals"):

@@ -44,23 +44,31 @@ object ApiClient:
     responseCache.clear()
     inFlight.clear()
 
-  /** The fetch options of a request: `method`, the bearer token (when there is one), and a JSON `body`. */
-  private def requestInit(method: dom.HttpMethod, token: Option[String], body: Option[String]): dom.RequestInit =
+  /** A request body with its media type: JSON for most calls, the raw bytes of a file for uploads. */
+  private final case class Payload(contentType: String, content: dom.BodyInit)
+
+  private def jsonPayload(body: Option[String]): Option[Payload] = body.map(json => Payload("application/json", json))
+
+  /** Media type of an Excel workbook (`.xlsx`). */
+  private val xlsxMediaType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+  /** The fetch options of a request: `method`, the bearer token (when there is one), and the `payload` with its `Content-Type`. */
+  private def requestInit(method: dom.HttpMethod, token: Option[String], payload: Option[Payload]): dom.RequestInit =
     val init = new dom.RequestInit {}
     init.method = method
     val headers = new dom.Headers()
     token.foreach(value => headers.append("Authorization", s"Bearer $value"))
-    body.foreach { payload =>
-      headers.append("Content-Type", "application/json")
-      init.body = payload
+    payload.foreach { p =>
+      headers.append("Content-Type", p.contentType)
+      init.body = p.content
     }
     init.headers = headers
     init
 
   /** Token acquisition happens here, past the cache/dedup short-circuits, so `updateToken` runs only when a request actually goes out. */
-  private def authedFetch(method: dom.HttpMethod, path: String, body: Option[String]): Future[(Int, String)] =
+  private def authedFetch(method: dom.HttpMethod, path: String, payload: Option[Payload]): Future[(Int, String)] =
     AuthService.bearerToken().flatMap { tokenOpt =>
-      dom.fetch(baseUrl + path, requestInit(method, tokenOpt, body)).flatMap(response => response.text().map(text => (response.status, text)))
+      dom.fetch(baseUrl + path, requestInit(method, tokenOpt, payload)).flatMap(response => response.text().map(text => (response.status, text)))
     }
 
   /** Backoff for GETs hitting a backend that is (re)starting behind the proxy: ~15s in total, the spinner stays up meanwhile. */
@@ -143,10 +151,13 @@ object ApiClient:
               }
               resultF
     else
-      // On any mutation, evict all cached entries for the same base resource (first path segment).
-      val baseSegment = "/" + path.stripPrefix("/").takeWhile(_ != '/')
-      responseCache.keys.filter(_.startsWith(baseSegment)).toList.foreach(responseCache.remove)
-      authedFetch(method, path, body)
+      evictResource(path)
+      authedFetch(method, path, jsonPayload(body))
+
+  /** On any mutation, evicts all cached entries for the same base resource (first path segment): `/warehouse/...` drops every warehouse read. */
+  private def evictResource(path: String): Unit =
+    val baseSegment = "/" + path.stripPrefix("/").takeWhile(_ != '/')
+    responseCache.keys.filter(_.startsWith(baseSegment)).toList.foreach(responseCache.remove)
 
   private def parseError(status: Int, text: String): ApiError =
     decode[ApiError](text).getOrElse(ApiError("http-error", s"HTTP $status", if text.isEmpty then Nil else List(text)))
@@ -159,13 +170,17 @@ object ApiClient:
   private def handleUnauthorized(status: Int): Unit =
     if status == 401 then AuthService.forceReauth()
 
+  /** A 2xx response decoded as `A`; any other status parsed as an [[Dtos.ApiError]] (a 401 also drops the session). */
+  private def decodeResponse[A: Decoder](status: Int, text: String): Result[A] =
+    if isSuccess(status) then decode[A](text).left.map(err => ApiError("decode-error", s"Cannot decode response: ${err.getMessage}", List(text)))
+    else
+      handleUnauthorized(status)
+      Left(parseError(status, text))
+
   private def sendJson[A: Decoder](method: dom.HttpMethod, path: String, body: Option[String]): Future[Result[A]] =
-    rawSend(method, path, body).map { (status, text) =>
-      if isSuccess(status) then decode[A](text).left.map(err => ApiError("decode-error", s"Cannot decode response: ${err.getMessage}", List(text)))
-      else
-        handleUnauthorized(status)
-        Left(parseError(status, text))
-    }.recover { case err => Left(ApiError("network-error", errorMessage(err), Nil)) }
+    rawSend(method, path, body)
+      .map((status, text) => decodeResponse[A](status, text))
+      .recover { case err => Left(ApiError("network-error", errorMessage(err), Nil)) }
 
   private def sendUnit(method: dom.HttpMethod, path: String, body: Option[String]): Future[Result[Unit]] =
     rawSend(method, path, body).map { (status, text) =>
@@ -288,6 +303,21 @@ object ApiClient:
     sendJson(dom.HttpMethod.POST, "/warehouse/materials", jsonBody(request))
   def updateMaterial(id: UUID, request: MaterialRequest): Future[Result[MaterialResponse]] =
     sendJson(dom.HttpMethod.PUT, s"/warehouse/materials/$id", jsonBody(request))
+
+  /**
+   * Bulk import of materials from an Excel workbook (Admin): the `.xlsx` bytes are the request body, not a multipart form. With `dryRun` the server
+   * only validates the file and says what an upload would do; otherwise it saves everything or, on any problem, nothing (422 `import-rejected` with
+   * one detail per problem). A real import may also create suppliers: both live under `/warehouse`, so the eviction drops every cached warehouse
+   * read. It runs when the response arrives, since the import can take a while and reads cached meanwhile would be stale.
+   */
+  def importMaterials(file: dom.File, dryRun: Boolean): Future[Result[MaterialImportResponse]] =
+    val path = s"/warehouse/materials/import${queryString(List("dryRun" -> Some(dryRun.toString)))}"
+    val bytes: dom.Blob = file
+    val response = authedFetch(dom.HttpMethod.POST, path, Some(Payload(xlsxMediaType, bytes)))
+    if !dryRun then response.onComplete(_ => evictResource(path))
+    response
+      .map((status, text) => decodeResponse[MaterialImportResponse](status, text))
+      .recover { case err => Left(ApiError("network-error", errorMessage(err), Nil)) }
 
   /** `DELETE` on a material archives it: it stays readable (with `includeArchived`) for the warehouse history. */
   def archiveMaterial(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/warehouse/materials/$id", None)

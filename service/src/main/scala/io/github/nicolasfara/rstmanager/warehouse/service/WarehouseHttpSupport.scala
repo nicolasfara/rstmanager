@@ -14,7 +14,8 @@ import cats.data.{ NonEmptyChain, ValidatedNec }
 import cats.effect.IO
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.LocalDate
-import sttp.model.StatusCode
+import sttp.model.{ MediaType, StatusCode }
+import sttp.tapir.{ CodecFormat, EndpointIO, RawBodyType }
 
 /**
  * What the warehouse endpoints share: Italian error payloads (the warehouse UI shows them as they are), the business day of a request, the strict
@@ -41,6 +42,14 @@ object WarehouseHttpSupport:
       .traverse(id => OrderApp.get(orders, id).map(_.flatMap(OrderLabel.of).map(id -> _)))
       .map(_.flatten.toMap)
 
+  /** The `.xlsx` content type as a tapir codec format, so that the body is documented, sent, and served with it. */
+  object XlsxFormat extends CodecFormat:
+    override val mediaType: MediaType = MediaType.unsafeParse(WarehouseExport.mediaType)
+
+  /** The bytes of an `.xlsx` file, as [[WarehouseExport.mediaType]]: the warehouse export, the material import. */
+  val xlsxBody: EndpointIO.Body[Array[Byte], Array[Byte]] =
+    EndpointIO.Body(RawBodyType.ByteArrayBody, sttp.tapir.Codec.byteArray.format(XlsxFormat), EndpointIO.Info.empty)
+
   /** Longest period a report may cover, so a malformed request cannot ask for centuries of buckets. */
   val maxReportYears: Int = 5
 
@@ -66,12 +75,13 @@ object WarehouseHttpSupport:
   /** A day as the messages write it: `DD/MM/YYYY`. */
   def displayDay(day: LocalDate): String = day.toString("dd/MM/yyyy")
 
-  /** Italian short name of a unit of measure, as the UI writes it: `pz`, `m`, `m²`, `kg`. */
+  /** Italian short name of a unit of measure, as the UI writes it: `pz`, `m`, `m²`, `kg`, `cf`. */
   def unitShortLabel(unit: UnitOfMeasure): String = unit match
     case UnitOfMeasure.Pieces => "pz"
     case UnitOfMeasure.LinearMeters => "m"
     case UnitOfMeasure.SquareMeters => "m²"
     case UnitOfMeasure.Kilograms => "kg"
+    case UnitOfMeasure.Packs => "cf"
 
   /** A quantity as the messages write it: Italian separators, no trailing decimal zeros (`2500` is `2,5`, `1234000` is `1.234`). */
   def displayQuantity(quantity: SignedQuantity): String = italianDecimal(quantity.value, SignedQuantity.scale, 0)
@@ -156,7 +166,9 @@ object WarehouseHttpSupport:
         validation(NonEmptyChain.one(s"Data: la data ${displayDay(on)} è successiva a oggi (${displayDay(today)})"))
       case MaterialError.NonPositiveQuantity => validation(NonEmptyChain.one("Quantità: la quantità deve essere diversa da zero"))
       case MaterialError.FractionalPieces =>
-        validation(NonEmptyChain.one(s"Quantità: il materiale $label è gestito a pezzi, la quantità deve essere un numero intero"))
+        validation(
+          NonEmptyChain.one(s"Quantità: il materiale $label è gestito a unità intere (pezzi/confezioni), la quantità deve essere un numero intero"),
+        )
       case MaterialError.CostOnOutgoingAdjustment =>
         validation(NonEmptyChain.one("Costo unitario: il costo unitario si può indicare solo per una rettifica in aumento"))
       case MaterialError.DuplicateMovement(_) => conflict("movement-already-exists", "Esiste già un movimento con questo id.", Nil)

@@ -90,10 +90,15 @@ final class WarehouseFormatsSpec extends AnyFunSuite with Matchers:
     decimalInputText("18.1234", 2, 4) shouldBe "18,1234"
 
   test("unit labels cover every wire name and fall back to the raw name"):
-    MeasureUnit.values.toList.map(u => unitLabel(u.wireName)) shouldBe List("Pezzi", "Metri lineari", "Metri quadri", "Chilogrammi")
-    MeasureUnit.values.toList.map(u => unitShortLabel(u.wireName)) shouldBe List("pz", "m", "m²", "kg")
+    MeasureUnit.values.toList.map(u => unitLabel(u.wireName)) shouldBe List("Pezzi", "Metri lineari", "Metri quadri", "Chilogrammi", "Confezioni")
+    MeasureUnit.values.toList.map(u => unitShortLabel(u.wireName)) shouldBe List("pz", "m", "m²", "kg", "cf")
     unitLabel("barrels") shouldBe "barrels"
-    MeasureUnit.options.map(_._1) shouldBe List("pieces", "linear_meters", "square_meters", "kilograms")
+    MeasureUnit.options.map(_._1) shouldBe List("pieces", "linear_meters", "square_meters", "kilograms", "packs")
+
+  test("packs are counted whole, like pieces"):
+    MeasureUnit.fromWire("packs") shouldBe Some(MeasureUnit.Packs)
+    MeasureUnit.values.toList.filterNot(_.allowsFractions) shouldBe List(MeasureUnit.Pieces, MeasureUnit.Packs)
+    formatQty("12.000", "packs") shouldBe "12 cf"
 
   // ---- round trips -------------------------------------------------------------------------------
 

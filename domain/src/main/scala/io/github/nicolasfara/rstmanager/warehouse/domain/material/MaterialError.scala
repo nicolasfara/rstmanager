@@ -34,7 +34,7 @@ enum MaterialError derives CanEqual:
   /** A purchase or unload quantity, or an adjustment delta, is zero. */
   case NonPositiveQuantity
 
-  /** A quantity of a material counted in pieces is not a whole number. */
+  /** A quantity of a material counted in whole units (pieces, packs) is not a whole number. */
   case FractionalPieces
 
   /** A unit cost was given for an outgoing adjustment: only stock that comes in can record a cost. */

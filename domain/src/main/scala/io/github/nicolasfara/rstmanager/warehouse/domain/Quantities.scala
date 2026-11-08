@@ -32,7 +32,10 @@ object Quantity extends RefinedType[Long, QuantityRange]:
     /** The quantity with exactly 3 decimals (`2500` is `"2.500"`). */
     def toDecimalString: String = FixedPoint.format(quantity.value, scale)
 
-    /** Whether the quantity is a whole number of units, as required for [[UnitOfMeasure.Pieces]]. */
+    /**
+     * Whether the quantity is a whole number of units, as required for the units without fractions ([[UnitOfMeasure.Pieces]],
+     * [[UnitOfMeasure.Packs]]).
+     */
     def isWhole: Boolean = quantity.value % unitsPerOne == 0L
 
     /** The same quantity as a signed delta (always in range: the signed range contains the unsigned one). */
@@ -89,7 +92,10 @@ object SignedQuantity extends RefinedType[Long, SignedQuantityRange]:
     /** The magnitude of the delta, clamped into the [[Quantity]] range. */
     def abs: Quantity = Quantity.applyUnsafe(quantity.value.abs.min(1000000000000L))
 
-    /** Whether the quantity is a whole number of units, as required for [[UnitOfMeasure.Pieces]]. */
+    /**
+     * Whether the quantity is a whole number of units, as required for the units without fractions ([[UnitOfMeasure.Pieces]],
+     * [[UnitOfMeasure.Packs]]).
+     */
     def isWhole: Boolean = quantity.value % Quantity.unitsPerOne == 0L
 end SignedQuantity
 

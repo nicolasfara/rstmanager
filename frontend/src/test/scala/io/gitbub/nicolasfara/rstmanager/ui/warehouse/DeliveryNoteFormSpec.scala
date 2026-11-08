@@ -241,7 +241,7 @@ final class DeliveryNoteFormSpec extends AnyFunSuite with Matchers:
     state.errors(ctx) shouldBe List(
       "Riga 1: Seleziona il materiale",
       "Riga 1: Costo unitario obbligatorio",
-      "Riga 3: Il materiale è gestito a pezzi: la quantità deve essere un numero intero",
+      "Riga 3: Il materiale è gestito a unità intere: la quantità deve essere un numero intero",
       "Riga 4: Quantità obbligatoria",
       "Riga 4: Costo unitario non valido (es. 3,50, al massimo 4 decimali)",
     )

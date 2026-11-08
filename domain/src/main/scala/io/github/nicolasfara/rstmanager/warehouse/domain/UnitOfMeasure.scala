@@ -21,9 +21,12 @@ enum UnitOfMeasure(val wireName: String) derives CanEqual:
   /** Kilograms. */
   case Kilograms extends UnitOfMeasure("kilograms")
 
+  /** Whole packs ("confezioni"): quantities must be whole numbers, as for [[Pieces]]. */
+  case Packs extends UnitOfMeasure("packs")
+
   /** Whether quantities in this unit may have decimals. */
   def allowsFractions: Boolean = this match
-    case Pieces => false
+    case Pieces | Packs => false
     case LinearMeters | SquareMeters | Kilograms => true
 end UnitOfMeasure
 

@@ -17,7 +17,7 @@ import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.LocalDate
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
-import sttp.model.{ HeaderNames, MediaType }
+import sttp.model.HeaderNames
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
 import sttp.tapir.server.ServerEndpoint
@@ -232,14 +232,6 @@ object WarehouseReportsHttpApi:
       .tag("Warehouse")
       .summary("What was bought from each supplier, per MPN")
       .out(jsonBody[SupplierSpendReportResponse])
-
-  /** The `.xlsx` content type as a tapir codec format, so that the body is documented and served with it. */
-  private object XlsxFormat extends CodecFormat:
-    override val mediaType: MediaType = MediaType.unsafeParse(WarehouseExport.mediaType)
-
-  /** The bytes of an `.xlsx` file, served as [[WarehouseExport.mediaType]]. */
-  private val xlsxBody: EndpointIO.Body[Array[Byte], Array[Byte]] =
-    EndpointIO.Body(RawBodyType.ByteArrayBody, sttp.tapir.Codec.byteArray.format(XlsxFormat), EndpointIO.Info.empty)
 
   /** The workbook (bytes) and its `Content-Disposition` header (`attachment; filename="magazzino-YYYY-MM-DD.xlsx"`). */
   val exportXlsx: Secured.SecuredEndpoint[Option[String], (Array[Byte], String)] =

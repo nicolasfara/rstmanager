@@ -105,9 +105,10 @@ lazy val service = project
       "org.http4s" %% "http4s-ember-client" % http4sVersion,
       "org.typelevel" %% "log4cats-slf4j" % log4catsVersion,
       "org.slf4j" % "slf4j-api" % slf4jVersion,
-      // xlsx writer for the warehouse export (Apache-2.0; only depends on opczip); the reader checks the written files in tests.
+      // xlsx writer for the warehouse export (Apache-2.0; only depends on opczip) and reader for the material import (Apache-2.0; aalto-xml,
+      // commons-compress); the tests also read back the written files with it.
       "org.dhatim" % "fastexcel" % fastexcelVersion,
-      "org.dhatim" % "fastexcel-reader" % fastexcelVersion % Test,
+      "org.dhatim" % "fastexcel-reader" % fastexcelVersion,
       "ch.qos.logback" % "logback-classic" % logbackVersion % Runtime
     ) ++ sharedDependencies
   )

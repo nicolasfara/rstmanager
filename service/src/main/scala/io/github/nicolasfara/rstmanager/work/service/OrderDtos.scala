@@ -147,7 +147,8 @@ object OrderDtos:
       (material(path, materialId, kept), quantity(path, line.quantity), price(path, line.unitPrice)).tupled.andThen { (stored, used, explicitPrice) =>
         val counted = stored.forall(_.info.unit.allowsFractions) || used.isWhole
         val unitPrice = explicitPrice.orElse(kept.map(_.unitPrice)).orElse(stored.map(_.info.customerPrice))
-        if !counted then s"$path.quantity: il materiale ${label(materialId)} è gestito a pezzi, la quantità deve essere un numero intero".invalidNec
+        if !counted then
+          s"$path.quantity: il materiale ${label(materialId)} è gestito a unità intere (pezzi/confezioni), la quantità deve essere un numero intero".invalidNec
         else
           unitPrice
             .toValidNec(s"$path.unitPrice: indica il prezzo unitario del materiale ${label(materialId)}")

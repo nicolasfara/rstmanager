@@ -161,7 +161,7 @@ object MaterialDrafts:
         case None => Left("quantità non valida (es. 2,5, al massimo 3 decimali)")
         case Some(quantity) if BigDecimal(quantity).signum <= 0 => Left("la quantità deve essere maggiore di zero")
         case Some(quantity) if material.exists(p => isPieces(p.unit)) && !MovementForm.isIntegral(quantity) =>
-          Left(s"${material.fold("il materiale")(_.internalCode)} è gestito a pezzi: la quantità deve essere un numero intero")
+          Left(s"${material.fold("il materiale")(_.internalCode)} è gestito a unità intere: la quantità deve essere un numero intero")
         case Some(quantity) => Right(quantity)
 
   private def priceOf(text: String): Either[String, Option[String]] =

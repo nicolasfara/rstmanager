@@ -82,7 +82,7 @@ class OrderMaterialDtosTest extends AnyFlatSpecLike:
     )
     errorsOf(resolve(lines, Nil)) shouldEqual List(
       s"materials[0].materialId: il materiale $unknownId non esiste",
-      "materials[1].quantity: il materiale VIT-1 è gestito a pezzi, la quantità deve essere un numero intero",
+      "materials[1].quantity: il materiale VIT-1 è gestito a unità intere (pezzi/confezioni), la quantità deve essere un numero intero",
       "materials[2].quantity: la quantità deve essere maggiore di zero",
       "materials[3].quantity: 'abc' non è un numero decimale (usa cifre e il punto '.' come separatore decimale)",
       "materials[3].unitPrice: '1,5' non è un numero decimale (usa cifre e il punto '.' come separatore decimale)",

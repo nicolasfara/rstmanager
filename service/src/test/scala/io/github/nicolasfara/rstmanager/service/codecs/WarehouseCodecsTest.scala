@@ -21,6 +21,11 @@ class WarehouseCodecsTest extends AnyFlatSpecLike:
     }
     Json.fromString("LinearMeters").as[UnitOfMeasure].isLeft shouldEqual true
 
+  it should "persist packs as \"packs\", next to the units the journals already hold" in:
+    UnitOfMeasure.Packs.asJson shouldEqual Json.fromString("packs")
+    Json.fromString("packs").as[UnitOfMeasure] shouldEqual Right(UnitOfMeasure.Packs)
+    List("pieces", "linear_meters", "square_meters", "kilograms").map(Json.fromString(_).as[UnitOfMeasure].isRight) shouldEqual List.fill(4)(true)
+
   "Fixed-point codecs" should "persist the integer count of units and re-validate it on read" in:
     UnitPrice.applyUnsafe(37000L).asJson shouldEqual Json.fromLong(37000L)
     Json.fromLong(-1L).as[UnitPrice].isLeft shouldEqual true

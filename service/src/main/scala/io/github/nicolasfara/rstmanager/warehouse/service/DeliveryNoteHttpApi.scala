@@ -162,7 +162,7 @@ object DeliveryNoteHttpApi:
         val pieces = Validated.condNec(
           info.unit.allowsFractions || line.quantity.isWhole,
           (),
-          s"Riga ${line.n}: Quantità: il materiale ${info.internalCode} è gestito a pezzi, la quantità deve essere un numero intero",
+          s"Riga ${line.n}: Quantità: il materiale ${info.internalCode} è gestito a unità intere (pezzi/confezioni), la quantità deve essere un numero intero",
         )
         val mpn =
           if info.mpn(parsed.supplierId, code).isDefined then ().validNec

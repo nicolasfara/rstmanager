@@ -20,6 +20,7 @@ class StockLedgerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
   private val today: LocalDate = day(30)
   private val meters: MaterialRecord = MaterialRecord.created(materialInfo(materialId(1), "TES-1", UnitOfMeasure.LinearMeters), base)
   private val pieces: MaterialRecord = MaterialRecord.created(materialInfo(materialId(2), "VIT-1", UnitOfMeasure.Pieces), base)
+  private val packs: MaterialRecord = MaterialRecord.created(materialInfo(materialId(3), "PUNTE-1", UnitOfMeasure.Packs), base)
 
   private type Result = Decision[MaterialError, MaterialEvent, MaterialAggregate]
 
@@ -75,6 +76,14 @@ class StockLedgerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     rejection(MaterialAggregate.Active(pieces).adjust(movementId(1), SignedQuantity.applyUnsafe(2001L), None, reason, day(1), today)) shouldEqual
       List(MaterialError.FractionalPieces)
     accepted(MaterialAggregate.Active(pieces).recordPurchase(movementId(1), mpnCode, firstSupplier, q(2000L), price(1L), None, day(1), today))
+
+  it should "use whole quantities for a material counted in packs" in:
+    rejection(
+      MaterialAggregate.Active(packs).recordPurchase(movementId(1), mpnCode, firstSupplier, q(500L), price(1L), None, day(1), today),
+    ) shouldEqual
+      List(MaterialError.FractionalPieces)
+    rejection(MaterialAggregate.Active(packs).unload(movementId(1), q(250L), reason, day(1), today)) should contain(MaterialError.FractionalPieces)
+    accepted(MaterialAggregate.Active(packs).recordPurchase(movementId(1), mpnCode, firstSupplier, q(3000L), price(1L), None, day(1), today))
 
   it should "need a non-zero quantity and an unused id" in:
     rejection(MaterialAggregate.Active(meters).adjust(movementId(1), SignedQuantity.zero, None, reason, day(1), today)) shouldEqual

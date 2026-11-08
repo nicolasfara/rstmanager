@@ -29,7 +29,7 @@ class MaterialServiceTest extends AnyFlatSpecLike:
 
   private def valid[A](value: ValidatedNec[String, A]): A = value.fold(errors => fail(errors.toChain.toList.mkString(", ")), identity)
 
-  private def mpn(code: String, supplierId: SupplierId): Mpn = valid(Mpn.createMpn(code, supplierId, None))
+  private def mpn(code: String, supplierId: SupplierId): Mpn = valid(Mpn.createMpn(code, supplierId, None, None))
 
   private def info(price: Long, unit: UnitOfMeasure, mpns: List[Mpn]): MaterialInfo =
     valid(

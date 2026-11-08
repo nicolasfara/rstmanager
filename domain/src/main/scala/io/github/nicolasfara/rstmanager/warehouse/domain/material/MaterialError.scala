@@ -57,4 +57,7 @@ enum MaterialError derives CanEqual:
 
   /** The movement is an automatic consumption of an order manufacturing: only the reconciliation with the order changes it. */
   case ConsumptionNotVoidable(movementId: MovementId)
+
+  /** The movement is a purchase of a delivery note: it is corrected by changing or cancelling the note, never voided by hand. */
+  case DeliveryNoteMovementNotVoidable(movementId: MovementId)
 end MaterialError

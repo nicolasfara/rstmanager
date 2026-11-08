@@ -5,9 +5,11 @@ import io.github.nicolasfara.rstmanager.warehouse.domain.material.events.Materia
 
 class MaterialEventSchemaTest
     extends JournalGoldenSuite[MaterialEvent]("material-events", MaterialEventSchema, JournalGoldenSuite.caseNames[MaterialEvent]):
-  def current: List[String] = v1Counterparts.values.toList.map("v2-" + _)
+  def current: List[String] =
+    v1Counterparts.values.toList.map("v3-" + _) ++
+      List("v3-material-created-expected-cost", "v3-mpn-added", "v3-delivery-note-purchases-set", "v3-delivery-note-purchases-set-removed")
 
-  /** Every v1 fixture (written while the warehouse items were products) with its v2 counterpart. */
+  /** Every v1 fixture (written while the warehouse items were products) with its v2 and v3 counterpart. */
   private def v1Counterparts: Map[String, String] = Map(
     "product-created" -> "material-created",
     "product-created-minimal" -> "material-created-minimal",
@@ -24,6 +26,10 @@ class MaterialEventSchemaTest
     "consumption-set-reversal" -> "consumption-set-reversal",
   )
 
-  /** The journal was versioned from its first release: the legacy rows are the v1 ones, with the product names. */
-  def legacy: List[(String, String)] = v1Counterparts.toList.map((v1, v2) => s"v1-$v1" -> s"v2-$v2")
+  /**
+   * The journal was versioned from its first release: the legacy rows are the v1 ones, with the product names, and the v2 ones, whose MPNs have no
+   * expected unit cost.
+   */
+  def legacy: List[(String, String)] =
+    v1Counterparts.toList.flatMap((v1, name) => List(s"v1-$v1" -> s"v3-$name", s"v2-$name" -> s"v3-$name"))
 end MaterialEventSchemaTest

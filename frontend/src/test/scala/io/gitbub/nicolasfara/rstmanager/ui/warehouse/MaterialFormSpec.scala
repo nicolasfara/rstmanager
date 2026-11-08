@@ -26,7 +26,7 @@ final class MaterialFormSpec extends AnyFunSuite with Matchers:
   private val valid: State =
     MaterialForm.empty.copy(internalCode = " tes-001 ", description = " Tessuto blu ", unit = "linear_meters", customerPrice = "18,5")
 
-  private def row(key: Int, supplier: String, code: String): MpnRow = MpnRow(key, supplier, code, "")
+  private def row(key: Int, supplier: String, code: String): MpnRow = MpnRow(key, supplier, code, "", "")
 
   // ---- request building --------------------------------------------------------------------------
 
@@ -36,9 +36,28 @@ final class MaterialFormSpec extends AnyFunSuite with Matchers:
 
   test("request maps filled MPN rows and ignores rows left completely blank"):
     val state =
-      valid.copy(mpns = List(MpnRow(0, supplierA.toString, " ac-152 ", " Acrylic "), MpnRow(1, "", " ", ""), MpnRow(2, supplierB.toString, "X9", "")))
+      valid.copy(mpns =
+        List(MpnRow(0, supplierA.toString, " ac-152 ", " Acrylic ", ""), MpnRow(1, "", " ", "", " "), MpnRow(2, supplierB.toString, "X9", "", "")),
+      )
     state.errors shouldBe Nil
     state.request.map(_.mpns) shouldBe Some(List(MpnDto("ac-152", supplierA, Some("Acrylic")), MpnDto("X9", supplierB, None)))
+
+  test("request maps the expected purchase price of an MPN row, blank as absent"):
+    val state = valid.copy(mpns = List(MpnRow(0, supplierA.toString, "A1", "", " 3,5 "), MpnRow(1, supplierB.toString, "B1", "", "")))
+    state.errors shouldBe Nil
+    state.request.map(_.mpns) shouldBe Some(List(MpnDto("A1", supplierA, None, Some("3.5000")), MpnDto("B1", supplierB, None, None)))
+
+  test("an unreadable expected purchase price is reported with the MPN row position"):
+    val state = valid.copy(mpns = List(row(0, supplierA.toString, "A1"), MpnRow(1, supplierB.toString, "B1", "", "1,23456")))
+    state.errors shouldBe List("Prezzo acquisto previsto non valido nella riga MPN 2 (es. 3,50, al massimo 4 decimali)")
+    state.request shouldBe None
+
+  test("a row with only an expected price is not blank"):
+    MpnRow(0, "", "", "", "2").isBlank shouldBe false
+    valid.copy(mpns = List(MpnRow(0, "", "", "", "2"))).errors shouldBe List(
+      "Fornitore mancante nella riga MPN 1",
+      "Codice mancante nella riga MPN 1",
+    )
 
   test("request is None while the form has errors"):
     valid.copy(internalCode = "").request shouldBe None
@@ -107,7 +126,7 @@ final class MaterialFormSpec extends AnyFunSuite with Matchers:
       None,
       "linear_meters",
       "1234.5000",
-      List(MpnDto("AC-152", supplierA, Some("Acrylic")), MpnDto("X9", supplierB, None)),
+      List(MpnDto("AC-152", supplierA, Some("Acrylic"), Some("3.5000")), MpnDto("X9", supplierB, None)),
       List(MaterialSupplierDto(supplierA, "A", true), MaterialSupplierDto(supplierB, "B", false)),
       "2026-10-01",
       false,
@@ -121,7 +140,7 @@ final class MaterialFormSpec extends AnyFunSuite with Matchers:
     state.customerPrice shouldBe "1234,50"
     state.materialType shouldBe "Tessuti"
     state.notes shouldBe ""
-    state.mpns shouldBe List(MpnRow(0, supplierA.toString, "AC-152", "Acrylic"), MpnRow(1, supplierB.toString, "X9", ""))
+    state.mpns shouldBe List(MpnRow(0, supplierA.toString, "AC-152", "Acrylic", "3,50"), MpnRow(1, supplierB.toString, "X9", "", ""))
     state.addRow.mpns.map(_.key) shouldBe List(0, 1, 2)
 
   test("fromResponse -> request round-trips the stored material"):

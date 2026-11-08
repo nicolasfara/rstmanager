@@ -182,8 +182,29 @@ object WarehouseHttpSupport:
             "riapri la lavorazione o modificane i materiali, il magazzino si riallinea da solo.",
           Nil,
         )
+      case MaterialError.DeliveryNoteMovementNotVoidable(_) =>
+        conflict(
+          "delivery-note-movement-not-voidable",
+          "Il movimento è un carico registrato da un DDT e non si può annullare a mano: modifica o annulla il DDT, il magazzino si riallinea da solo.",
+          Nil,
+        )
     end match
   end materialFailure
 
   def duplicateMpnMessage(code: String): String = s"MPN: il codice MPN $code compare più volte per lo stesso fornitore"
+
+  /**
+   * A rejected material decision as one line of a validation detail: the problems of a validation failure, otherwise the message followed by its
+   * details. Used where several materials are checked at once (the lines of a delivery note).
+   */
+  def materialProblems(error: MaterialError, id: UUID, material: Option[MaterialInfo]): List[String] =
+    val (_, failure) = materialFailure(error, id, material)
+    if failure.code == "invalid-request" then failure.details
+    else List(if failure.details.isEmpty then failure.message else s"${failure.message} (${failure.details.mkString("; ")})")
+
+  /** Prefixes every problem of `value` with the field `name` (the label the UI gives it). */
+  def field[A](name: String, value: ValidatedNec[String, A]): ValidatedNec[String, A] = value.leftMap(_.map(error => s"$name: $error"))
+
+  /** An optional text as stored: no surrounding blanks, blank is absent. */
+  def normalized(value: Option[String]): Option[String] = value.map(_.trim.nn).filter(_.nonEmpty)
 end WarehouseHttpSupport

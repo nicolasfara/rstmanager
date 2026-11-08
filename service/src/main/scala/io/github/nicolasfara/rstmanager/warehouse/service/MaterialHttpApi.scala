@@ -31,14 +31,20 @@ object MaterialHttpApi:
   import ApiError.ApiFailure
   import WarehouseHttpSupport.*
 
-  /** A manufacturer part number: the same shape in requests and responses. */
-  final case class MpnDto(code: String, supplierId: UUID, description: Option[String]):
+  /**
+   * A manufacturer part number: the same shape in requests and responses. `expectedUnitCost` (4 decimals) is the purchase price the supplier is
+   * expected to charge, which a delivery note line starts from; absent (or blank) when there is none.
+   */
+  final case class MpnDto(code: String, supplierId: UUID, description: Option[String], expectedUnitCost: Option[String]):
     /** The MPN, each problem prefixed with `label` (the row of the MPN editor, `MPN riga 2`). */
     def toDomain(label: String): ValidatedNec[String, Mpn] =
-      Mpn.createMpn(code, SupplierId(supplierId), description).leftMap(_.map(error => s"$label: $error"))
+      (
+        normalized(expectedUnitCost).traverse(cost => field(s"$label (prezzo acquisto previsto)", UnitPrice.fromDecimalString(cost).toValidatedNec)),
+        Mpn.createMpn(code, SupplierId(supplierId), description, None).leftMap(_.map(error => s"$label: $error")),
+      ).mapN((cost, mpn) => mpn.copy(expectedUnitCost = cost))
 
   object MpnDto:
-    def fromDomain(mpn: Mpn): MpnDto = MpnDto(mpn.code, mpn.supplierId.value, mpn.description)
+    def fromDomain(mpn: Mpn): MpnDto = MpnDto(mpn.code, mpn.supplierId.value, mpn.description, mpn.expectedUnitCost.map(_.toDecimalString))
 
   final case class MaterialRequest(
       internalCode: String,
@@ -71,7 +77,9 @@ object MaterialHttpApi:
         Some("Per tendalini e capottine"),
         UnitOfMeasure.LinearMeters.wireName,
         "18.5000",
-        List(MpnDto("AC-152-NAVY", UUID.fromString("00000000-0000-0000-0000-000000000301").nn, Some("Acrylic canvas 152 cm navy"))),
+        List(
+          MpnDto("AC-152-NAVY", UUID.fromString("00000000-0000-0000-0000-000000000301").nn, Some("Acrylic canvas 152 cm navy"), Some("3.5000")),
+        ),
       )
 
   /** A supplier of the material, derived from its MPNs; `active` is false for a supplier deleted after the MPN was added. */

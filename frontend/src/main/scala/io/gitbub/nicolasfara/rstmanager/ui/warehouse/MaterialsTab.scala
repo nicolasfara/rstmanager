@@ -134,6 +134,14 @@ object MaterialsTab:
             "Descrizione fornitore",
             textInput(rowSignal(row).map(_.description), Observer[String](v => updateRow(row.key)(_.copy(description = v))), "Opzionale"),
           ),
+          field(
+            "Prezzo acquisto previsto (€)",
+            div(
+              textInput(rowSignal(row).map(_.expectedUnitCost), Observer[String](v => updateRow(row.key)(_.copy(expectedUnitCost = v))), "Opzionale")
+                .amend(inputMode := "decimal"),
+              div(cls := "mt-1 text-xs text-slate-400", "Proposto come costo unitario nelle righe DDT"),
+            ),
+          ),
         ),
       )
 

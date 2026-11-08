@@ -45,13 +45,16 @@ object StockFixtures:
         None,
         unit,
         UnitPrice.applyUnsafe(50000L),
-        List(valid(Mpn.createMpn(mpnCode, firstSupplier, None)), valid(Mpn.createMpn(mpnCode, secondSupplier, None))),
+        List(valid(Mpn.createMpn(mpnCode, firstSupplier, None, None)), valid(Mpn.createMpn(mpnCode, secondSupplier, None, None))),
       ),
     )
 
   def purchase(quantity: Long, cost: Long, supplierId: SupplierId): (SignedQuantity, MovementKind) =
     val parsed = SignedQuantity.applyUnsafe(quantity)
-    (parsed, MovementKind.Purchase(mpnCode, supplierId, UnitPrice.applyUnsafe(cost), Valuation.amount(parsed.abs, UnitPrice.applyUnsafe(cost)), None))
+    (
+      parsed,
+      MovementKind.Purchase(mpnCode, supplierId, UnitPrice.applyUnsafe(cost), Valuation.amount(parsed.abs, UnitPrice.applyUnsafe(cost)), None, None),
+    )
 
   /** A raw movement for the generators: day offset, delta, kind, and whether it ends up voided. */
   final case class RawMovement(offset: Int, delta: SignedQuantity, kind: MovementKind, voided: Boolean)

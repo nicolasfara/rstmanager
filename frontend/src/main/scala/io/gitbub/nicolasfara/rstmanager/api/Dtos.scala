@@ -375,8 +375,11 @@ object Dtos:
       notes: Option[String],
   )
 
-  /** A manufacturer part number of a material, bought from `supplierId`: the same shape in requests and responses. */
-  final case class MpnDto(code: String, supplierId: UUID, description: Option[String])
+  /**
+   * A manufacturer part number of a material, bought from `supplierId`: the same shape in requests and responses. `expectedUnitCost` (4 decimals) is
+   * the expected purchase price, prefilled as the unit cost of a delivery note line; absent when unknown (and in payloads predating it).
+   */
+  final case class MpnDto(code: String, supplierId: UUID, description: Option[String], expectedUnitCost: Option[String] = None)
 
   /**
    * Material registry entry (create/replace payload). `unit` is the wire name (`pieces`, `linear_meters`, `square_meters`, `kilograms`);
@@ -437,7 +440,8 @@ object Dtos:
    * A movement in the list: `kind` is `purchase`, `unload`, `adjustment`, or `consumption` (automatic consumption by an order manufacturing: an
    * outflow, or its reversal when `delta` is positive); `quantity` the magnitude, `delta` the signed change, `value` the signed value (absent without
    * a cost), `balance` the running balance after it (a voided movement leaves it unchanged). A consumption names its `orderId`/`manufacturingId`,
-   * with the order number and manufacturing code when the server can still resolve them; the four are absent for the other kinds.
+   * with the order number and manufacturing code when the server can still resolve them; the four are absent for the other kinds. A purchase loaded
+   * by a delivery note names it (`deliveryNoteId`/`deliveryNoteNumber`): it is corrected by editing the delivery note, never voided by hand.
    */
   final case class MovementResponse(
       id: UUID,
@@ -460,6 +464,8 @@ object Dtos:
       manufacturingId: Option[UUID] = None,
       orderNumber: Option[String] = None,
       manufacturingCode: Option[String] = None,
+      deliveryNoteId: Option[UUID] = None,
+      deliveryNoteNumber: Option[String] = None,
   )
 
   /** The movements of a material from `from` to `to` (inclusive, both optional) with the balance before the first day and after the last. */
@@ -471,6 +477,51 @@ object Dtos:
       openingBalance: String,
       closingBalance: String,
       movements: List[MovementResponse],
+  )
+
+  // ---- Warehouse: delivery notes (DDT) ----------------------------------------------------------
+
+  /**
+   * A line of a delivery note request: `quantity` (3 decimals) of `materialId` bought under `mpnCode` of the note's supplier at `unitCost` (4
+   * decimals). With `newMpn` the code is not an MPN of the material yet: the server adds it, with the line cost as its expected price.
+   */
+  final case class DeliveryNoteLineRequest(materialId: UUID, mpnCode: String, newMpn: Boolean, quantity: String, unitCost: String)
+
+  /** Registers (`POST`) or replaces (`PUT`) a delivery note: header (`date` as `YYYY-MM-DD`) and at least one line (Operator). */
+  final case class DeliveryNoteRequest(number: String, date: String, supplierId: UUID, note: Option[String], lines: List[DeliveryNoteLineRequest])
+
+  /** `POST /warehouse/delivery-notes/{id}/cancel` (Admin): the stock it loaded is removed; `reason` must not be blank. */
+  final case class CancelDeliveryNoteRequest(reason: String)
+
+  /** A line as read back, with the material master data and `total` (2 decimals); `applied` is false while its stock load is still pending. */
+  final case class DeliveryNoteLineResponse(
+      materialId: UUID,
+      internalCode: String,
+      description: String,
+      unit: String,
+      mpnCode: String,
+      quantity: String,
+      unitCost: String,
+      total: String,
+      applied: Boolean,
+  )
+
+  /** A delivery note as read back: `status` is `registered` or `cancelled`; days as `YYYY-MM-DD`; `total` the sum of the line totals. */
+  final case class DeliveryNoteResponse(
+      id: UUID,
+      number: String,
+      date: String,
+      supplierId: UUID,
+      supplierName: String,
+      supplierActive: Boolean,
+      note: Option[String],
+      status: String,
+      registeredOn: String,
+      changedOn: Option[String],
+      cancelledOn: Option[String],
+      cancelReason: Option[String],
+      lines: List[DeliveryNoteLineResponse],
+      total: String,
   )
 
   // ---- Warehouse: reports ------------------------------------------------------------------------
@@ -601,7 +652,7 @@ object Dtos:
 
   given Codec[SupplierRequest] = deriveCodec
   given Codec[SupplierResponse] = deriveCodec
-  given Codec[MpnDto] = deriveCodec
+  given Codec[MpnDto] = ConfiguredCodec.derived(using withDefaults)
   given Codec[MaterialRequest] = deriveCodec
   given Codec[MaterialSupplierDto] = deriveCodec
   given Codec[StockDto] = deriveCodec
@@ -612,6 +663,11 @@ object Dtos:
   given Codec[MovementRecordedResponse] = deriveCodec
   given Codec[MovementResponse] = ConfiguredCodec.derived(using withDefaults)
   given Codec[MovementsResponse] = deriveCodec
+  given Codec[DeliveryNoteLineRequest] = deriveCodec
+  given Codec[DeliveryNoteRequest] = deriveCodec
+  given Codec[CancelDeliveryNoteRequest] = deriveCodec
+  given Codec[DeliveryNoteLineResponse] = deriveCodec
+  given Codec[DeliveryNoteResponse] = deriveCodec
   given Codec[StateRowResponse] = deriveCodec
   given Codec[StateTotalsResponse] = deriveCodec
   given Codec[WarehouseStateResponse] = deriveCodec

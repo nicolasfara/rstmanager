@@ -1,15 +1,39 @@
 package io.gitbub.nicolasfara.rstmanager.ui.warehouse
 
+import scala.math.BigDecimal.RoundingMode
 import scala.util.Try
 
-import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ FlowBucketResponse, MovementResponse, StateRowResponse }
-import io.gitbub.nicolasfara.rstmanager.ui.{ Formats, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ DeliveryNoteResponse, FlowBucketResponse, MovementResponse, StateRowResponse }
+import io.gitbub.nicolasfara.rstmanager.ui.{ Formats, SearchTerms, WarehouseFormats }
 
 /**
- * Pure (DOM-free) derivations behind the warehouse history ("Storico") and flows ("Entrate/Uscite") tabs and the movements list: report periods, day
- * navigation, bucket labels, bar scaling, and row filtering. The pages only render what these return.
+ * Pure (DOM-free) derivations behind the warehouse history ("Storico"), flows ("Entrate/Uscite"), and delivery notes ("DDT") tabs and the movements
+ * list: report periods, day navigation, bucket labels, bar scaling, and row filtering. The pages only render what these return.
  */
 object WarehouseViews:
+
+  // ---- Delivery notes (DDT) ----------------------------------------------------------------------
+
+  /** True for a delivery note that was cancelled: it no longer loads any stock and cannot be changed. */
+  def isCancelled(note: DeliveryNoteResponse): Boolean = note.status == "cancelled"
+
+  /** True for a registered delivery note with a line whose stock load the server has not applied yet. */
+  def hasPendingLines(note: DeliveryNoteResponse): Boolean = !isCancelled(note) && note.lines.exists(!_.applied)
+
+  /** The delivery notes whose number matches `query` (every blank-separated term, case-insensitive); a blank query keeps all of them. */
+  def filterDeliveryNotes(notes: List[DeliveryNoteResponse], query: String): List[DeliveryNoteResponse] =
+    notes.filter(note => SearchTerms.matches(query, note.number))
+
+  /** The total of the delivery notes that are not cancelled (2 decimals). */
+  def deliveryNotesTotal(notes: List[DeliveryNoteResponse]): String =
+    notes
+      .filterNot(isCancelled)
+      .flatMap(note => Try(BigDecimal(note.total.trim.nn)).toOption)
+      .sum
+      .setScale(2, RoundingMode.HALF_UP)
+      .bigDecimal
+      .toPlainString
+      .nn
 
   // ---- Report periods ----------------------------------------------------------------------------
 
@@ -149,13 +173,8 @@ object WarehouseViews:
    * material type. A blank query keeps every row.
    */
   def filterRows(rows: List[StateRowResponse], query: String): List[StateRowResponse] =
-    val terms = query.trim.nn.toLowerCase.nn.split("\\s+").nn.toList.map(_.nn).filter(_.nonEmpty)
-    if terms.isEmpty then rows
-    else
-      rows.filter { row =>
-        val haystack = List(row.internalCode, row.description, row.materialType.getOrElse("")).map(_.toLowerCase.nn)
-        terms.forall(term => haystack.exists(_.contains(term)))
-      }
+    if SearchTerms.terms(query).isEmpty then rows
+    else rows.filter(row => SearchTerms.matchesAny(query, List(row.internalCode, row.description, row.materialType.getOrElse(""))))
 
   // ---- Movements ---------------------------------------------------------------------------------
 
@@ -185,6 +204,16 @@ object WarehouseViews:
       val order = movement.orderNumber.orElse(movement.orderId.map(Formats.shortId)).getOrElse("?")
       movement.manufacturingCode.orElse(movement.manufacturingId.map(Formats.shortId)).fold(s"Ordine $order")(code => s"Ordine $order – $code")
     }
+
+  /** True for a purchase loaded by a delivery note: it follows the delivery note (edited or cancelled there), so it cannot be voided by hand. */
+  def isFromDeliveryNote(movement: MovementResponse): Boolean = movement.deliveryNoteId.isDefined || movement.deliveryNoteNumber.isDefined
+
+  /** The delivery note a purchase comes from: `DDT n. <number>`, falling back to the short id; `None` for a movement recorded by hand. */
+  def deliveryNoteSource(movement: MovementResponse): Option[String] =
+    movement.deliveryNoteNumber.orElse(movement.deliveryNoteId.map(Formats.shortId)).map(number => s"DDT n. $number")
+
+  /** True for a movement an Admin may void by hand: neither voided already, nor a consumption, nor loaded by a delivery note. */
+  def isVoidable(movement: MovementResponse): Boolean = !movement.voided && !isConsumption(movement) && !isFromDeliveryNote(movement)
 
   /** Sign of a canonical decimal (0 for text that is not one). */
   def signOf(value: String): Int = Try(BigDecimal(value.trim.nn).signum).getOrElse(0)

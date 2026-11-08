@@ -45,6 +45,9 @@ final case class MaterialRecord(
       if before.lastOption.exists(_.price == info.customerPrice) then before else before :+ CustomerPricePoint(on, info.customerPrice)
     copy(info = info, customerPrices = prices)
 
+  /** The record with `mpn` added to the MPNs of the material. */
+  def withMpn(mpn: Mpn): MaterialRecord = copy(info = info.copy(mpns = info.mpns :+ mpn))
+
   /** The record with its ledger changed by `change`. */
   def withLedger(change: StockLedger => StockLedger): MaterialRecord = copy(ledger = change(ledger))
 end MaterialRecord

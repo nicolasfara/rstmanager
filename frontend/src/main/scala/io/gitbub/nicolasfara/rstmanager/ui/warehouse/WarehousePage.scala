@@ -5,11 +5,15 @@ import com.raquo.laminar.api.L.*
 /** A section of the warehouse page. */
 enum WarehouseTab(val label: String) derives CanEqual:
   case Materials extends WarehouseTab("Materiali")
+  case DeliveryNotes extends WarehouseTab("DDT")
   case Suppliers extends WarehouseTab("Fornitori")
   case History extends WarehouseTab("Storico")
   case Flows extends WarehouseTab("Entrate/Uscite")
 
-/** Warehouse ("Magazzino"): a pill tab bar over the material and supplier registries, the day-by-day history, and the flows report. */
+/**
+ * Warehouse ("Magazzino"): a pill tab bar over the material registry, the delivery notes ("DDT"), the supplier registry, the day-by-day history, and
+ * the flows report.
+ */
 object WarehousePage:
 
   /**
@@ -29,6 +33,7 @@ object WarehousePage:
 
   private def render(tab: WarehouseTab): HtmlElement = tab match
     case WarehouseTab.Materials => MaterialsTab()
+    case WarehouseTab.DeliveryNotes => DeliveryNotesTab()
     case WarehouseTab.Suppliers => SuppliersTab()
     case WarehouseTab.History => HistoryTab()
     case WarehouseTab.Flows => FlowsTab()

@@ -47,7 +47,7 @@ object MovementForm:
 
   private def signum(canonical: String): Int = BigDecimal(canonical).signum
 
-  private val piecesError = "Il materiale è gestito a pezzi: la quantità deve essere un numero intero"
+  private val piecesError = "Il materiale è gestito a unità intere: la quantità deve essere un numero intero"
 
   /** A positive quantity in `unit` as the API expects it (`"2,5"` → `"2.500"`), or the message to show. */
   def parseQuantity(text: String, unit: String): Either[String, String] =

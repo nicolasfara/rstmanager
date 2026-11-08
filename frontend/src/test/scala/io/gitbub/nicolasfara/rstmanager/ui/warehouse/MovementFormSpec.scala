@@ -52,10 +52,12 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
     parseQuantity("1,2345", "linear_meters").isLeft shouldBe true
     parseQuantity("-1", "linear_meters").isLeft shouldBe true
 
-  test("parseQuantity requires whole numbers for pieces"):
+  test("parseQuantity requires whole numbers for pieces and packs"):
     parseQuantity("3", "pieces") shouldBe Right("3.000")
     parseQuantity("3,000", "pieces") shouldBe Right("3.000")
-    parseQuantity("2,5", "pieces") shouldBe Left("Il materiale è gestito a pezzi: la quantità deve essere un numero intero")
+    parseQuantity("2,5", "pieces") shouldBe Left("Il materiale è gestito a unità intere: la quantità deve essere un numero intero")
+    parseQuantity("4", "packs") shouldBe Right("4.000")
+    parseQuantity("2,5", "packs") shouldBe Left("Il materiale è gestito a unità intere: la quantità deve essere un numero intero")
 
   test("parseDelta accepts a sign and rejects zero and fractional pieces"):
     parseDelta("-2,5", "linear_meters") shouldBe Right("-2.500")
@@ -103,7 +105,7 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
     state.totalPreview shouldBe None
     state.errors shouldBe List(
       "Seleziona l'MPN acquistato",
-      "Il materiale è gestito a pezzi: la quantità deve essere un numero intero",
+      "Il materiale è gestito a unità intere: la quantità deve essere un numero intero",
       "Costo unitario non valido (es. 3,50, al massimo 4 decimali)",
       "La data non può essere successiva a oggi",
     )

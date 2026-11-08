@@ -382,7 +382,7 @@ object Dtos:
   final case class MpnDto(code: String, supplierId: UUID, description: Option[String], expectedUnitCost: Option[String] = None)
 
   /**
-   * Material registry entry (create/replace payload). `unit` is the wire name (`pieces`, `linear_meters`, `square_meters`, `kilograms`);
+   * Material registry entry (create/replace payload). `unit` is the wire name (`pieces`, `linear_meters`, `square_meters`, `kilograms`, `packs`);
    * `customerPrice` a canonical decimal string with `.` and up to 4 decimals (see `WarehouseFormats.parseDecimal`).
    */
   final case class MaterialRequest(
@@ -420,6 +420,13 @@ object Dtos:
       archivedOn: Option[String],
       stock: StockDto,
   )
+
+  /**
+   * Outcome of a bulk material import from an Excel workbook (Admin). On a dry run nothing is saved and the lists say what an upload would do:
+   * `created` are the internal codes of the new materials, `skipped` the codes already present among the active materials (left untouched),
+   * `newSuppliers` the names of the suppliers created on the fly, and `mpns` the number of MPNs of the new materials. Codes are sorted.
+   */
+  final case class MaterialImportResponse(dryRun: Boolean, created: List[String], skipped: List[String], newSuppliers: List[String], mpns: Int)
 
   // ---- Warehouse: stock movements ----------------------------------------------------------------
   // Quantities are decimal strings with 3 decimals, unit costs with 4, amounts with 2; days are `YYYY-MM-DD`. An omitted `on` is "today" server-side.
@@ -657,6 +664,7 @@ object Dtos:
   given Codec[MaterialSupplierDto] = deriveCodec
   given Codec[StockDto] = deriveCodec
   given Codec[MaterialResponse] = deriveCodec
+  given Codec[MaterialImportResponse] = deriveCodec
   given Codec[PurchaseRequest] = deriveCodec
   given Codec[UnloadRequest] = deriveCodec
   given Codec[AdjustmentRequest] = deriveCodec

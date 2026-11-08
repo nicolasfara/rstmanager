@@ -92,5 +92,9 @@ class QuantitiesTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
     UnitOfMeasure.values.foreach(unit => UnitOfMeasure.fromWireName(unit.wireName) shouldEqual Right(unit))
     UnitOfMeasure.fromWireName(" Square_Meters ") shouldEqual Right(UnitOfMeasure.SquareMeters)
     UnitOfMeasure.fromWireName("litres").isLeft shouldEqual true
-    UnitOfMeasure.values.map(_.wireName).toList shouldEqual List("pieces", "linear_meters", "square_meters", "kilograms")
+    UnitOfMeasure.values.map(_.wireName).toList shouldEqual List("pieces", "linear_meters", "square_meters", "kilograms", "packs")
+
+  it should "count packs in whole units, like pieces" in:
+    UnitOfMeasure.fromWireName(" Packs ") shouldEqual Right(UnitOfMeasure.Packs)
+    UnitOfMeasure.values.filterNot(_.allowsFractions).toList shouldEqual List(UnitOfMeasure.Pieces, UnitOfMeasure.Packs)
 end QuantitiesTest

@@ -67,7 +67,7 @@ object SupplierHttpApi:
 
   private def supplierNotFound(id: UUID): ApiFailure = notFound("Il fornitore richiesto non esiste.", List(id.toString))
 
-  private def failure(error: SupplierError, id: UUID): ApiFailure = error match
+  private[service] def failure(error: SupplierError, id: UUID): ApiFailure = error match
     case SupplierError.SupplierAlreadyExists => conflict("supplier-already-exists", "Esiste già un fornitore con questo id.", Nil)
     case SupplierError.SupplierNotFound => supplierNotFound(id)
     case SupplierError.SupplierIdMismatch =>

@@ -19,7 +19,8 @@ import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MaterialForm.MpnRow
  * material suppliers are derived from the MPNs. Removing a material archives it, so it stays available to the history.
  *
  * The table also shows today's stock and value of each material, with the stock actions of a row: purchase, unload, and adjustment (Operator) and the
- * movements list (Viewer), in the dialogs of [[StockDialogs]].
+ * movements list (Viewer), in the dialogs of [[StockDialogs]]. Admins can also load many materials at once from an Excel workbook, in the
+ * [[MaterialImportDialog]]; the outcome of the last upload stays above the table until dismissed.
  */
 object MaterialsTab:
 
@@ -33,6 +34,8 @@ object MaterialsTab:
     val stockDialog = Var(Option.empty[StockDialog])
     // Suppliers of the material being edited, so an MPN of a supplier deleted meanwhile still shows a name in its row.
     val editedSuppliers = Var(List.empty[MaterialSupplierDto])
+    val importOpen = Var(false)
+    val lastImport = Var(Option.empty[MaterialImportResponse])
 
     val materials = loadable(AppBus.warehouseTicks.combineWith(showArchived.signal))(() => ApiClient.listMaterials(showArchived.now()))
     val suppliers = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
@@ -326,13 +329,35 @@ object MaterialsTab:
       card(
         cls := "overflow-hidden",
         div(
-          cls := "flex items-center justify-end border-b border-slate-100 px-4 py-2",
+          cls := "flex flex-wrap items-center justify-end gap-3 border-b border-slate-100 px-4 py-2",
+          roleGated(Role.Admin)(
+            button(
+              tpe := "button",
+              cls := btnSmall,
+              "Carica materiali da Excel",
+              onClick --> (_ =>
+                lastImport.set(None); importOpen.set(true)
+              ),
+            ),
+          ),
           label(
             cls := "inline-flex items-center gap-2 text-xs font-medium text-slate-600",
             input(typ := "checkbox", checked <-- showArchived.signal, onChange.mapToChecked --> showArchived),
             "Mostra archiviati",
           ),
         ),
+        child.maybe <-- lastImport.signal.map(_.map { summary =>
+          div(
+            cls := "flex items-start justify-between gap-3 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800",
+            span(MaterialImport.confirmationText(summary)),
+            button(
+              tpe := "button",
+              cls := "shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100",
+              "Chiudi",
+              onClick --> (_ => lastImport.set(None)),
+            ),
+          )
+        }),
         renderResult(materials) { list =>
           if list.isEmpty then emptyState("Nessun materiale in magazzino.")
           else
@@ -367,6 +392,7 @@ object MaterialsTab:
       tableCard,
       confirmArchiveModal,
       StockDialogs(stockDialog),
+      MaterialImportDialog(importOpen, summary => lastImport.set(Some(summary))),
     )
   end apply
 end MaterialsTab

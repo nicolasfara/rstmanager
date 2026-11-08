@@ -132,7 +132,7 @@ object StockDialogs:
       }
 
   private def piecesHint(unit: String): Modifier[HtmlElement] =
-    Option.when(WarehouseFormats.MeasureUnit.fromWire(unit).exists(!_.allowsFractions))(hint("Gestito a pezzi: solo quantità intere"))
+    Option.when(WarehouseFormats.MeasureUnit.fromWire(unit).exists(!_.allowsFractions))(hint("Solo quantità intere"))
 
   // ---- Purchase ----------------------------------------------------------------------------------
 

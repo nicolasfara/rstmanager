@@ -85,6 +85,12 @@ class MaterialServiceTest extends AnyFlatSpecLike:
     state shouldEqual MaterialAggregate.Active(MaterialRecord(material, romeDay, List(CustomerPricePoint(romeDay, material.customerPrice))))
     notifications shouldEqual List(Notification.MaterialChanged(materialId))
 
+  it should "create a material counted in packs" in:
+    val packs = info(5000L, UnitOfMeasure.Packs, List(mpn("cf-10", firstSupplier)))
+    val (state, events, _) = accepted(run(Command.Create(packs), MaterialAggregate.Empty))
+    events shouldEqual List(MaterialEvent.MaterialCreated(packs, romeDay))
+    state shouldEqual MaterialAggregate.Active(MaterialRecord(packs, romeDay, List(CustomerPricePoint(romeDay, packs.customerPrice))))
+
   it should "reject the same MPN code twice for one supplier, normalized" in:
     val duplicated = info(1L, UnitOfMeasure.Pieces, List(mpn("x-1", firstSupplier), mpn(" X-1 ", firstSupplier), mpn("X-1", secondSupplier)))
     rejection(run(Command.Create(duplicated), MaterialAggregate.Empty)) shouldEqual List(MaterialError.DuplicateMpn(firstSupplier, "X-1"))

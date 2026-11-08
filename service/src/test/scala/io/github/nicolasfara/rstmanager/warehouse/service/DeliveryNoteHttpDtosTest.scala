@@ -112,7 +112,7 @@ class DeliveryNoteHttpDtosTest extends AnyFlatSpecLike:
       "Riga 1: MPN: l'MPN NOPE del fornitore non è fra gli MPN del materiale TES-001",
       "Riga 2: MPN: l'MPN VIT-M8-20 del fornitore è già usato dal materiale VIT-M8",
       "Riga 3: il materiale indicato non esiste",
-      "Riga 4: Quantità: il materiale VIT-M6 è gestito a pezzi, la quantità deve essere un numero intero",
+      "Riga 4: Quantità: il materiale VIT-M6 è gestito a unità intere (pezzi/confezioni), la quantità deve essere un numero intero",
     )
 
   it should "reject a deleted supplier, a future day, and a number already used by the supplier that year" in:

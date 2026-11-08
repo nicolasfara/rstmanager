@@ -10,7 +10,7 @@ import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /**
- * Day-by-day history of the warehouse ("Storico"): the state at the end of a chosen day — every product existing then, with its stock, highest
+ * Day-by-day history of the warehouse ("Storico"): the state at the end of a chosen day — every material existing then, with its stock, highest
  * purchase cost, value, and the customer price in effect — plus the totals of that day. Days are browsed with a date picker and previous/next arrows
  * (never past today); a client-side search narrows the rows. "Esporta Excel" downloads the workbook of the day on screen (`GET
  * /warehouse/export.xlsx?at=`).
@@ -97,7 +97,7 @@ object HistoryTab:
     def totals(t: StateTotalsResponse): HtmlElement =
       div(
         cls := "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5",
-        totalCard("N° prodotti", t.products.toString, "text-slate-800", None),
+        totalCard("N° materiali", t.materials.toString, "text-slate-800", None),
         totalCard("Valore magazzino", WarehouseFormats.formatEuro(t.value), "text-slate-800", Some("Giacenza × costo unitario d'acquisto più alto")),
         totalCard(
           "Costo totale acquisti",
@@ -106,16 +106,16 @@ object HistoryTab:
           Some("Speso in acquisti fino a questo giorno"),
         ),
         totalCard(
-          "Prodotti in negativo",
-          t.negativeProducts.toString,
-          if t.negativeProducts > 0 then "text-rose-700" else "text-slate-800",
-          Some("Prodotti con giacenza negativa: anomalia da verificare"),
+          "Materiali in negativo",
+          t.negativeMaterials.toString,
+          if t.negativeMaterials > 0 then "text-rose-700" else "text-slate-800",
+          Some("Materiali con giacenza negativa: anomalia da verificare"),
         ),
         totalCard(
           "Non valorizzati",
-          t.unvaluedProducts.toString,
-          if t.unvaluedProducts > 0 then "text-amber-700" else "text-slate-800",
-          Some("Prodotti senza alcun costo d'acquisto registrato: il loro valore non è conteggiato"),
+          t.unvaluedMaterials.toString,
+          if t.unvaluedMaterials > 0 then "text-amber-700" else "text-slate-800",
+          Some("Materiali senza alcun costo d'acquisto registrato: il loro valore non è conteggiato"),
         ),
       )
 
@@ -135,7 +135,7 @@ object HistoryTab:
           Option.when(row.archived)(div(cls := "mt-1", badge("Archiviato", "bg-slate-100 text-slate-500 border-slate-200"))),
         ),
         td(cls := "px-4 py-2 text-slate-700", row.description),
-        td(cls := "px-4 py-2 text-slate-500", row.productType.getOrElse("—")),
+        td(cls := "px-4 py-2 text-slate-500", row.materialType.getOrElse("—")),
         td(cls := "px-4 py-2 text-slate-500", title := WarehouseFormats.unitLabel(row.unit), WarehouseFormats.unitShortLabel(row.unit)),
         td(
           cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums",
@@ -157,12 +157,12 @@ object HistoryTab:
           span(s"Situazione a fine giornata del ${IsoDay.display(report.at)}"),
           child.text <-- search.signal.map { query =>
             val shown = WarehouseViews.filterRows(report.rows, query).size
-            if shown == report.rows.size then s"${report.rows.size} prodotti" else s"$shown di ${report.rows.size} prodotti"
+            if shown == report.rows.size then s"${report.rows.size} materiali" else s"$shown di ${report.rows.size} materiali"
           },
         ),
         child <-- search.signal.map(WarehouseViews.filterRows(report.rows, _)).map { rows =>
-          if report.rows.isEmpty then div(cls := "p-4", emptyState("Nessun prodotto esistente in questa data."))
-          else if rows.isEmpty then div(cls := "p-4", emptyState("Nessun prodotto corrisponde alla ricerca."))
+          if report.rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale esistente in questa data."))
+          else if rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale corrisponde alla ricerca."))
           else
             div(
               cls := "overflow-x-auto",

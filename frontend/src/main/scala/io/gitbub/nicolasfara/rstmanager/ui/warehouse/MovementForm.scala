@@ -5,7 +5,7 @@ import java.util.UUID
 import scala.math.BigDecimal.RoundingMode
 
 import io.gitbub.nicolasfara.rstmanager.Equality.given
-import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ AdjustmentRequest, ProductResponse, PurchaseRequest, UnloadRequest }
+import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ AdjustmentRequest, MaterialResponse, PurchaseRequest, UnloadRequest }
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
 
@@ -13,7 +13,7 @@ import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
  * Pure (DOM-free) state of the stock movement forms — purchase ("Carico"), unload ("Scarico"), and adjustment ("Rettifica") — with their validation
  * messages and request building.
  *
- * Each state carries what it is validated against (the product unit, its MPNs, and "today"), fixed when the form opens, so the page only keeps one
+ * Each state carries what it is validated against (the material unit, its MPNs, and "today"), fixed when the form opens, so the page only keeps one
  * state in a `Var` and every rule is unit-testable without Laminar. The server re-checks everything (and the stock non-negativity, which needs the
  * full ledger).
  */
@@ -25,13 +25,13 @@ object MovementForm:
   /** Decimals of a unit cost on the API (ten-thousandths of a euro). */
   val costScale: Int = 4
 
-  /** An MPN the product can be bought as: `key` identifies it in the select, `label` shows code and supplier. */
+  /** An MPN the material can be bought as: `key` identifies it in the select, `label` shows code and supplier. */
   final case class MpnOption(key: String, code: String, supplierId: UUID, label: String) derives CanEqual
 
-  /** The purchase options of `product`: one per MPN, labelled `CODE — Supplier` (a deleted supplier is marked). */
-  def mpnOptions(product: ProductResponse): List[MpnOption] =
-    product.mpns.map { mpn =>
-      val supplierName = product.suppliers.find(_.id == mpn.supplierId) match
+  /** The purchase options of `material`: one per MPN, labelled `CODE — Supplier` (a deleted supplier is marked). */
+  def mpnOptions(material: MaterialResponse): List[MpnOption] =
+    material.mpns.map { mpn =>
+      val supplierName = material.suppliers.find(_.id == mpn.supplierId) match
         case Some(supplier) if supplier.active => supplier.name
         case Some(supplier) => s"${supplier.name} (eliminato)"
         case None => mpn.supplierId.toString.take(8)
@@ -47,7 +47,7 @@ object MovementForm:
 
   private def signum(canonical: String): Int = BigDecimal(canonical).signum
 
-  private val piecesError = "Il prodotto è gestito a pezzi: la quantità deve essere un numero intero"
+  private val piecesError = "Il materiale è gestito a pezzi: la quantità deve essere un numero intero"
 
   /** A positive quantity in `unit` as the API expects it (`"2,5"` → `"2.500"`), or the message to show. */
   def parseQuantity(text: String, unit: String): Either[String, String] =
@@ -112,7 +112,7 @@ object MovementForm:
     def pristine: Boolean = quantity.trim.nn.isEmpty && unitCost.trim.nn.isEmpty
 
     private def mpnCheck: Either[String, MpnOption] =
-      if mpns.isEmpty then Left("Il prodotto non ha MPN: aggiungine uno in anagrafica prima di registrare un carico")
+      if mpns.isEmpty then Left("Il materiale non ha MPN: aggiungine uno in anagrafica prima di registrare un carico")
       else selectedMpn.toRight("Seleziona l'MPN acquistato")
 
     def errors: List[String] = errorsOf(mpnCheck, parseQuantity(quantity, unit), parseCost(unitCost), parseDay(on, today))
@@ -133,13 +133,13 @@ object MovementForm:
       yield PurchaseRequest(mpn.code, mpn.supplierId, q, c, Some(day), opt(note))).toOption
   end PurchaseState
 
-  /** A fresh purchase of `product` dated `today`; a product with a single MPN has it preselected. */
-  def purchase(product: ProductResponse, today: String): PurchaseState =
-    val options = mpnOptions(product)
+  /** A fresh purchase of `material` dated `today`; a material with a single MPN has it preselected. */
+  def purchase(material: MaterialResponse, today: String): PurchaseState =
+    val options = mpnOptions(material)
     val preselected = options match
       case only :: Nil => only.key
       case _ => ""
-    PurchaseState(product.unit, options, today, preselected, "", "", today, "")
+    PurchaseState(material.unit, options, today, preselected, "", "", today, "")
 
   // ---- Unload ------------------------------------------------------------------------------------
 
@@ -155,7 +155,7 @@ object MovementForm:
         why <- parseReason(reason)
       yield UnloadRequest(q, Some(day), why)).toOption
 
-  def unload(product: ProductResponse, today: String): UnloadState = UnloadState(product.unit, today, "", today, "")
+  def unload(material: MaterialResponse, today: String): UnloadState = UnloadState(material.unit, today, "", today, "")
 
   // ---- Adjustment --------------------------------------------------------------------------------
 
@@ -180,5 +180,5 @@ object MovementForm:
       yield AdjustmentRequest(d, cost, Some(day), why)).toOption
   end AdjustmentState
 
-  def adjustment(product: ProductResponse, today: String): AdjustmentState = AdjustmentState(product.unit, today, "", "", today, "")
+  def adjustment(material: MaterialResponse, today: String): AdjustmentState = AdjustmentState(material.unit, today, "", "", today, "")
 end MovementForm

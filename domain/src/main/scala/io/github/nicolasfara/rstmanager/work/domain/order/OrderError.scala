@@ -1,6 +1,6 @@
 package io.github.nicolasfara.rstmanager.work.domain.order
 
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturingError, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
 import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.ScheduledTaskId
@@ -29,9 +29,9 @@ enum OrderError derives CanEqual:
   case OrderIdMismatch
   case RepeatedCatalogTasks(manufacturingId: ScheduledManufacturingId, taskIds: Set[TaskId])
 
-  /** The materials of a manufacturing list these products more than once: each product is one line, with its total quantity. */
-  case DuplicateMaterials(manufacturingId: ScheduledManufacturingId, productIds: Set[ProductId])
+  /** The material lines of a manufacturing list these materials more than once: each material is one line, with its total quantity. */
+  case DuplicateMaterials(manufacturingId: ScheduledManufacturingId, materialIds: Set[MaterialId])
 
-  /** The materials of a manufacturing give these products a zero quantity: a material that is not used is removed instead. */
-  case NonPositiveMaterialQuantity(manufacturingId: ScheduledManufacturingId, productIds: Set[ProductId])
+  /** The material lines of a manufacturing give these materials a zero quantity: a material that is not used is removed instead. */
+  case NonPositiveMaterialQuantity(manufacturingId: ScheduledManufacturingId, materialIds: Set[MaterialId])
 end OrderError

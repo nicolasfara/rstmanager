@@ -92,12 +92,12 @@ final class WarehouseViewsSpec extends AnyFunSuite with Matchers:
 
   // ---- rows --------------------------------------------------------------------------------------
 
-  private def row(code: String, description: String, productType: Option[String]): StateRowResponse =
+  private def row(code: String, description: String, materialType: Option[String]): StateRowResponse =
     StateRowResponse(
       UUID.fromString("00000000-0000-0000-0000-0000000000f1").nn,
       code,
       description,
-      productType,
+      materialType,
       None,
       "pieces",
       None,
@@ -145,7 +145,7 @@ final class WarehouseViewsSpec extends AnyFunSuite with Matchers:
       "10.000",
       Some("3.5000"),
       Some("35.00"),
-      Some(ProductSupplierDto(UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn, "Tessiture Rossi", true)),
+      Some(MaterialSupplierDto(UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn, "Tessiture Rossi", true)),
       Some("AC-152"),
       None,
       None,

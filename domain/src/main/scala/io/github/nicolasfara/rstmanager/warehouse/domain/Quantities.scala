@@ -7,7 +7,7 @@ import io.github.iltotore.iron.constraint.all.*
 type QuantityRange = DescribedAs[GreaterEqual[0L] & LessEqual[1000000000000L], "La quantità deve essere compresa fra 0 e 1.000.000.000"]
 
 /**
- * A non-negative amount of a product, in thousandths of its [[UnitOfMeasure]] (`2500` is 2.5 m, 2.5 kg, …). Fixed point, so sums and comparisons are
+ * A non-negative amount of a material, in thousandths of its [[UnitOfMeasure]] (`2500` is 2.5 m, 2.5 kg, …). Fixed point, so sums and comparisons are
  * exact; whole pieces are multiples of `1000`.
  */
 type Quantity = Quantity.T
@@ -46,7 +46,7 @@ type SignedQuantityRange =
     "La variazione di quantità deve essere compresa fra -1.000.000.000.000 e 1.000.000.000.000",
   ]
 
-/** A signed amount of a product, in thousandths of its unit of measure: a stock movement delta or a balance that may be negative. */
+/** A signed amount of a material, in thousandths of its unit of measure: a stock movement delta or a balance that may be negative. */
 type SignedQuantity = SignedQuantity.T
 
 /** Refined type companion for [[SignedQuantity]], with exact decimal-string conversions (3 decimals). */
@@ -175,7 +175,7 @@ object Valuation:
   /**
    * The value of `quantity` at `unitPrice`, in cents rounded HALF_UP (`0.333 × 0.1000 €` = 0.0333 € → 3 cents; `x.xx5` rounds up).
    *
-   * Computed on `BigInt`, so the product never overflows. The result is always an [[Amount]]: at most `10^12 × 10^10 / 10^5 = 10^17` cents, within
+   * Computed on `BigInt`, so the material never overflows. The result is always an [[Amount]]: at most `10^12 × 10^10 / 10^5 = 10^17` cents, within
    * the amount range.
    */
   def amount(quantity: Quantity, unitPrice: UnitPrice): Amount =

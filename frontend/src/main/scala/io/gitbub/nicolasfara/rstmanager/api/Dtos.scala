@@ -151,21 +151,21 @@ object Dtos:
   )
 
   /**
-   * A material line of a request: a warehouse product and the quantity used (canonical decimal string, at most 3 decimals). An absent `unitPrice` (4
-   * decimals) keeps the price already frozen for the product in the manufacturing, or else lets the server freeze the product's current customer
+   * A material line of a request: a warehouse material and the quantity used (canonical decimal string, at most 3 decimals). An absent `unitPrice` (4
+   * decimals) keeps the price already frozen for the material in the manufacturing, or else lets the server freeze the material's current customer
    * price.
    */
-  final case class MaterialDto(productId: UUID, quantity: String, unitPrice: Option[String])
+  final case class MaterialLineDto(materialId: UUID, quantity: String, unitPrice: Option[String])
 
   /** `PUT /orders/{id}/manufacturings/{manufacturingId}/materials`: replaces the material lines of a manufacturing. */
-  final case class MaterialsUpdateRequest(materials: List[MaterialDto])
+  final case class MaterialsUpdateRequest(materials: List[MaterialLineDto])
 
   /**
-   * A material line of a manufacturing as read back: the frozen `unitPrice` (4 decimals), the `lineCost` (2 decimals), and the product master data as
-   * the warehouse knows it now (absent for a product it no longer knows; `unit` is the wire name).
+   * A material line of a manufacturing as read back: the frozen `unitPrice` (4 decimals), the `lineCost` (2 decimals), and the material master data
+   * as the warehouse knows it now (absent for a material it no longer knows; `unit` is the wire name).
    */
-  final case class MaterialResponse(
-      productId: UUID,
+  final case class MaterialLineResponse(
+      materialId: UUID,
       internalCode: Option[String],
       description: Option[String],
       unit: Option[String],
@@ -188,7 +188,7 @@ object Dtos:
       pauseReason: Option[String],
       description: Option[String] = None,
       preferredEmployeeId: Option[UUID] = None,
-      materials: Option[List[MaterialDto]] = None,
+      materials: Option[List[MaterialLineDto]] = None,
   )
 
   final case class ManufacturingResponse(
@@ -203,7 +203,7 @@ object Dtos:
       dependencies: List[TaskDependencyDto],
       description: Option[String],
       preferredEmployeeId: Option[UUID] = None,
-      materials: List[MaterialResponse] = Nil,
+      materials: List[MaterialLineResponse] = Nil,
       materialsCost: String = "0.00",
   )
 
@@ -375,43 +375,43 @@ object Dtos:
       notes: Option[String],
   )
 
-  /** A manufacturer part number of a product, bought from `supplierId`: the same shape in requests and responses. */
+  /** A manufacturer part number of a material, bought from `supplierId`: the same shape in requests and responses. */
   final case class MpnDto(code: String, supplierId: UUID, description: Option[String])
 
   /**
-   * Product registry entry (create/replace payload). `unit` is the wire name (`pieces`, `linear_meters`, `square_meters`, `kilograms`);
+   * Material registry entry (create/replace payload). `unit` is the wire name (`pieces`, `linear_meters`, `square_meters`, `kilograms`);
    * `customerPrice` a canonical decimal string with `.` and up to 4 decimals (see `WarehouseFormats.parseDecimal`).
    */
-  final case class ProductRequest(
+  final case class MaterialRequest(
       internalCode: String,
       description: String,
-      productType: Option[String],
+      materialType: Option[String],
       notes: Option[String],
       unit: String,
       customerPrice: String,
       mpns: List[MpnDto],
   )
 
-  /** A supplier of the product, derived from its MPNs; `active` is false for a supplier deleted after the MPN was added. */
-  final case class ProductSupplierDto(id: UUID, name: String, active: Boolean)
+  /** A supplier of the material, derived from its MPNs; `active` is false for a supplier deleted after the MPN was added. */
+  final case class MaterialSupplierDto(id: UUID, name: String, active: Boolean)
 
   /**
-   * Stock of a product on a day: signed quantity with 3 decimals (negative only as an anomaly), the highest unit cost recorded so far (4 decimals),
+   * Stock of a material on a day: signed quantity with 3 decimals (negative only as an anomaly), the highest unit cost recorded so far (4 decimals),
    * the value `quantity × maxUnitCost` (2 decimals; absent while no cost is known), and the total spent on purchases up to that day.
    */
   final case class StockDto(quantity: String, maxUnitCost: Option[String], value: Option[String], purchasedTotal: String, negative: Boolean)
 
-  /** A product as read back: prices with exactly 4 decimals (`"18.5000"`), days as `YYYY-MM-DD`, `stock` as of today. */
-  final case class ProductResponse(
+  /** A material as read back: prices with exactly 4 decimals (`"18.5000"`), days as `YYYY-MM-DD`, `stock` as of today. */
+  final case class MaterialResponse(
       id: UUID,
       internalCode: String,
       description: String,
-      productType: Option[String],
+      materialType: Option[String],
       notes: Option[String],
       unit: String,
       customerPrice: String,
       mpns: List[MpnDto],
-      suppliers: List[ProductSupplierDto],
+      suppliers: List[MaterialSupplierDto],
       createdOn: String,
       archived: Boolean,
       archivedOn: Option[String],
@@ -421,7 +421,7 @@ object Dtos:
   // ---- Warehouse: stock movements ----------------------------------------------------------------
   // Quantities are decimal strings with 3 decimals, unit costs with 4, amounts with 2; days are `YYYY-MM-DD`. An omitted `on` is "today" server-side.
 
-  /** A purchase under one of the product's MPNs (Operator). */
+  /** A purchase under one of the material's MPNs (Operator). */
   final case class PurchaseRequest(mpnCode: String, supplierId: UUID, quantity: String, unitCost: String, on: Option[String], note: Option[String])
 
   /** Stock taken out by hand (Operator); refused with 409 `insufficient-stock` when the balance would go below zero on `on` or later. */
@@ -430,8 +430,8 @@ object Dtos:
   /** A signed correction of the stock (Operator); `unitCost` only for a positive `delta` (it then counts as a price point). */
   final case class AdjustmentRequest(delta: String, unitCost: Option[String], on: Option[String], reason: String)
 
-  /** The movement just recorded and the product with its updated stock. */
-  final case class MovementRecordedResponse(movementId: UUID, product: ProductResponse)
+  /** The movement just recorded and the material with its updated stock. */
+  final case class MovementRecordedResponse(movementId: UUID, material: MaterialResponse)
 
   /**
    * A movement in the list: `kind` is `purchase`, `unload`, `adjustment`, or `consumption` (automatic consumption by an order manufacturing: an
@@ -448,7 +448,7 @@ object Dtos:
       delta: String,
       unitCost: Option[String],
       value: Option[String],
-      supplier: Option[ProductSupplierDto],
+      supplier: Option[MaterialSupplierDto],
       mpnCode: Option[String],
       reason: Option[String],
       note: Option[String],
@@ -462,9 +462,9 @@ object Dtos:
       manufacturingCode: Option[String] = None,
   )
 
-  /** The movements of a product from `from` to `to` (inclusive, both optional) with the balance before the first day and after the last. */
+  /** The movements of a material from `from` to `to` (inclusive, both optional) with the balance before the first day and after the last. */
   final case class MovementsResponse(
-      productId: UUID,
+      materialId: UUID,
       unit: String,
       from: Option[String],
       to: Option[String],
@@ -475,22 +475,22 @@ object Dtos:
 
   // ---- Warehouse: reports ------------------------------------------------------------------------
 
-  /** A product in the state of a day, with the customer price in effect on that day and its stock at the end of it. */
+  /** A material in the state of a day, with the customer price in effect on that day and its stock at the end of it. */
   final case class StateRowResponse(
-      productId: UUID,
+      materialId: UUID,
       internalCode: String,
       description: String,
-      productType: Option[String],
+      materialType: Option[String],
       notes: Option[String],
       unit: String,
       customerPrice: Option[String],
       stock: StockDto,
       archived: Boolean,
-      suppliers: List[ProductSupplierDto],
+      suppliers: List[MaterialSupplierDto],
       mpns: List[MpnDto],
   )
 
-  final case class StateTotalsResponse(products: Int, value: String, purchasedTotal: String, negativeProducts: Int, unvaluedProducts: Int)
+  final case class StateTotalsResponse(materials: Int, value: String, purchasedTotal: String, negativeMaterials: Int, unvaluedMaterials: Int)
 
   /** `GET /warehouse/state?at=`: the warehouse at the end of day `at`. */
   final case class WarehouseStateResponse(at: String, rows: List[StateRowResponse], totals: StateTotalsResponse)
@@ -507,9 +507,9 @@ object Dtos:
   /** `GET /warehouse/flows?from&to&granularity`. */
   final case class FlowReportResponse(from: String, to: String, granularity: String, buckets: List[FlowBucketResponse], totals: FlowTotalsResponse)
 
-  /** What was bought under one MPN of one product. */
+  /** What was bought under one MPN of one material. */
   final case class MpnSpendResponse(
-      productId: UUID,
+      materialId: UUID,
       internalCode: String,
       description: String,
       mpnCode: String,
@@ -563,9 +563,9 @@ object Dtos:
   given Codec[ManufacturingDependencyDto] = deriveCodec
   given Codec[ManufacturingDependencyByIndexDto] = deriveCodec
   given Codec[ScheduledTaskDto] = deriveCodec
-  given Codec[MaterialDto] = deriveCodec
+  given Codec[MaterialLineDto] = deriveCodec
   given Codec[MaterialsUpdateRequest] = deriveCodec
-  given Codec[MaterialResponse] = deriveCodec
+  given Codec[MaterialLineResponse] = deriveCodec
   given Codec[ManufacturingDto] = deriveCodec
   given Codec[ManufacturingResponse] = ConfiguredCodec.derived(using withDefaults)
   given Codec[SetPreferredEmployeeRequest] = deriveCodec
@@ -602,10 +602,10 @@ object Dtos:
   given Codec[SupplierRequest] = deriveCodec
   given Codec[SupplierResponse] = deriveCodec
   given Codec[MpnDto] = deriveCodec
-  given Codec[ProductRequest] = deriveCodec
-  given Codec[ProductSupplierDto] = deriveCodec
+  given Codec[MaterialRequest] = deriveCodec
+  given Codec[MaterialSupplierDto] = deriveCodec
   given Codec[StockDto] = deriveCodec
-  given Codec[ProductResponse] = deriveCodec
+  given Codec[MaterialResponse] = deriveCodec
   given Codec[PurchaseRequest] = deriveCodec
   given Codec[UnloadRequest] = deriveCodec
   given Codec[AdjustmentRequest] = deriveCodec

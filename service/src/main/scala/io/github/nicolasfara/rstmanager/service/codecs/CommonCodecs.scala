@@ -6,7 +6,7 @@ import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId, WeeklyHours }
 import io.github.nicolasfara.rstmanager.planning.PlanningRequestId
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, SignedQuantity, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ MovementId, ProductId }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialId, MovementId }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.SupplierId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
@@ -61,7 +61,7 @@ object CommonCodecs:
   given Codec[ScheduledManufacturingId] = idCodec(ScheduledManufacturingId(_), _.value)
   given Codec[PlanningRequestId] = idCodec(PlanningRequestId(_), _.value)
   given Codec[SupplierId] = idCodec(SupplierId(_), _.value)
-  given Codec[ProductId] = idCodec(ProductId(_), _.value)
+  given Codec[MaterialId] = idCodec(MaterialId(_), _.value)
   given Codec[MovementId] = idCodec(MovementId(_), _.value)
 
   // Identifiers used as JSON object keys (per-task maps).

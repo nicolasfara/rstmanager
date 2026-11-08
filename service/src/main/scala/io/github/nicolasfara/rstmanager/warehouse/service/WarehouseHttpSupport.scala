@@ -5,7 +5,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.service.http.ApiError
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, BusinessCalendar, SignedQuantity, UnitOfMeasure, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ ProductError, ProductInfo, StockLedger, StockMovement }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialError, MaterialInfo, StockLedger, StockMovement }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderId }
 import io.github.nicolasfara.rstmanager.work.service.OrderApp
@@ -50,7 +50,7 @@ object WarehouseHttpSupport:
 
   def notFound(message: String, details: List[String]): ApiFailure = StatusCode.NotFound -> ApiError("not-found", message, details)
 
-  def productNotFound(id: UUID): ApiFailure = notFound("Il prodotto richiesto non esiste.", List(id.toString))
+  def materialNotFound(id: UUID): ApiFailure = notFound("Il materiale richiesto non esiste.", List(id.toString))
 
   def conflict(code: String, message: String, details: List[String]): ApiFailure = ApiError.conflict(code, message, details)
 
@@ -126,56 +126,56 @@ object WarehouseHttpSupport:
   def periodReversed(start: LocalDate, end: LocalDate): String =
     s"Dal: la data di inizio (${displayDay(start)}) è successiva a quella di fine (${displayDay(end)})"
 
-  /** A quantity of `product` in messages, with its unit when the product is known. */
-  private def productQuantity(quantity: SignedQuantity, product: Option[ProductInfo]): String =
-    product.fold(displayQuantity(quantity))(info => displayQuantity(quantity, info.unit))
+  /** A quantity of `material` in messages, with its unit when the material is known. */
+  private def materialQuantity(quantity: SignedQuantity, material: Option[MaterialInfo]): String =
+    material.fold(displayQuantity(quantity))(info => displayQuantity(quantity, info.unit))
 
-  /** How a product is named in messages: its internal code, or a generic name when it is not known. */
-  def productLabel(product: Option[ProductInfo]): String = product.fold("richiesto")(info => info.internalCode: String)
+  /** How a material is named in messages: its internal code, or a generic name when it is not known. */
+  def materialLabel(material: Option[MaterialInfo]): String = material.fold("richiesto")(info => info.internalCode: String)
 
-  /** The Italian error for a rejected product decision; `product` (when loaded) names it in the message. */
-  def productFailure(error: ProductError, id: UUID, product: Option[ProductInfo]): ApiFailure =
-    val label = productLabel(product)
+  /** The Italian error for a rejected material decision; `material` (when loaded) names it in the message. */
+  def materialFailure(error: MaterialError, id: UUID, material: Option[MaterialInfo]): ApiFailure =
+    val label = materialLabel(material)
     error match
-      case ProductError.ProductAlreadyExists => conflict("product-already-exists", "Esiste già un prodotto con questo id.", Nil)
-      case ProductError.ProductNotFound => productNotFound(id)
-      case ProductError.ProductIsArchived =>
-        conflict("product-archived", s"Il prodotto $label è archiviato e non può più essere modificato.", Nil)
-      case ProductError.DuplicateMpn(_, code) => validation(NonEmptyChain.one(duplicateMpnMessage(code)))
-      case ProductError.UnitChangeWithMovements =>
+      case MaterialError.MaterialAlreadyExists => conflict("material-already-exists", "Esiste già un materiale con questo id.", Nil)
+      case MaterialError.MaterialNotFound => materialNotFound(id)
+      case MaterialError.MaterialIsArchived =>
+        conflict("material-archived", s"Il materiale $label è archiviato e non può più essere modificato.", Nil)
+      case MaterialError.DuplicateMpn(_, code) => validation(NonEmptyChain.one(duplicateMpnMessage(code)))
+      case MaterialError.UnitChangeWithMovements =>
         conflict(
-          "product-unit-locked",
-          s"L'unità di misura del prodotto $label non può cambiare: sono già registrati movimenti di magazzino.",
+          "material-unit-locked",
+          s"L'unità di misura del materiale $label non può cambiare: sono già registrati movimenti di magazzino.",
           Nil,
         )
-      case ProductError.ProductIdMismatch =>
-        conflict("product-id-mismatch", "L'id del prodotto non corrisponde al prodotto indicato nel percorso.", Nil)
-      case ProductError.UnknownMpn(_, code) =>
-        validation(NonEmptyChain.one(s"MPN: l'MPN $code del fornitore indicato non è fra gli MPN del prodotto $label"))
-      case ProductError.MovementInFuture(on, today) =>
+      case MaterialError.MaterialIdMismatch =>
+        conflict("material-id-mismatch", "L'id del materiale non corrisponde al materiale indicato nel percorso.", Nil)
+      case MaterialError.UnknownMpn(_, code) =>
+        validation(NonEmptyChain.one(s"MPN: l'MPN $code del fornitore indicato non è fra gli MPN del materiale $label"))
+      case MaterialError.MovementInFuture(on, today) =>
         validation(NonEmptyChain.one(s"Data: la data ${displayDay(on)} è successiva a oggi (${displayDay(today)})"))
-      case ProductError.NonPositiveQuantity => validation(NonEmptyChain.one("Quantità: la quantità deve essere diversa da zero"))
-      case ProductError.FractionalPieces =>
-        validation(NonEmptyChain.one(s"Quantità: il prodotto $label è gestito a pezzi, la quantità deve essere un numero intero"))
-      case ProductError.CostOnOutgoingAdjustment =>
+      case MaterialError.NonPositiveQuantity => validation(NonEmptyChain.one("Quantità: la quantità deve essere diversa da zero"))
+      case MaterialError.FractionalPieces =>
+        validation(NonEmptyChain.one(s"Quantità: il materiale $label è gestito a pezzi, la quantità deve essere un numero intero"))
+      case MaterialError.CostOnOutgoingAdjustment =>
         validation(NonEmptyChain.one("Costo unitario: il costo unitario si può indicare solo per una rettifica in aumento"))
-      case ProductError.DuplicateMovement(_) => conflict("movement-already-exists", "Esiste già un movimento con questo id.", Nil)
-      case ProductError.InsufficientStock(on, available) =>
+      case MaterialError.DuplicateMovement(_) => conflict("movement-already-exists", "Esiste già un movimento con questo id.", Nil)
+      case MaterialError.InsufficientStock(on, available) =>
         conflict(
           "insufficient-stock",
-          s"Giacenza insufficiente per il prodotto $label: dal ${displayDay(on)} in poi la giacenza non può scendere sotto zero.",
-          List(s"Disponibile dal ${displayDay(on)}: ${productQuantity(available, product)}"),
+          s"Giacenza insufficiente per il materiale $label: dal ${displayDay(on)} in poi la giacenza non può scendere sotto zero.",
+          List(s"Disponibile dal ${displayDay(on)}: ${materialQuantity(available, material)}"),
         )
-      case ProductError.StockLimitExceeded =>
+      case MaterialError.StockLimitExceeded =>
         conflict(
           "stock-limit-exceeded",
-          s"La giacenza del prodotto $label supererebbe il massimo consentito (${productQuantity(StockLedger.maxBalance, product)}).",
+          s"La giacenza del materiale $label supererebbe il massimo consentito (${materialQuantity(StockLedger.maxBalance, material)}).",
           Nil,
         )
-      case ProductError.MovementNotFound(movementId) =>
-        notFound(s"Il movimento richiesto non esiste per il prodotto $label.", List(movementId.value.toString))
-      case ProductError.MovementAlreadyVoided(_) => conflict("movement-already-voided", "Il movimento è già stato annullato.", Nil)
-      case ProductError.ConsumptionNotVoidable(_) =>
+      case MaterialError.MovementNotFound(movementId) =>
+        notFound(s"Il movimento richiesto non esiste per il materiale $label.", List(movementId.value.toString))
+      case MaterialError.MovementAlreadyVoided(_) => conflict("movement-already-voided", "Il movimento è già stato annullato.", Nil)
+      case MaterialError.ConsumptionNotVoidable(_) =>
         conflict(
           "consumption-not-voidable",
           "Il movimento è uno scarico automatico di una lavorazione d'ordine e non si può annullare a mano: " +
@@ -183,7 +183,7 @@ object WarehouseHttpSupport:
           Nil,
         )
     end match
-  end productFailure
+  end materialFailure
 
   def duplicateMpnMessage(code: String): String = s"MPN: il codice MPN $code compare più volte per lo stesso fornitore"
 end WarehouseHttpSupport

@@ -15,8 +15,8 @@ import MaterialDrafts.*
 final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
 
   // strictEquality: `shouldBe` compares these DTOs structurally, so it needs CanEqual instances.
-  private given CanEqual[MaterialDto, MaterialDto] = CanEqual.derived
-  private given CanEqual[MaterialResponse, MaterialResponse] = CanEqual.derived
+  private given CanEqual[MaterialLineDto, MaterialLineDto] = CanEqual.derived
+  private given CanEqual[MaterialLineResponse, MaterialLineResponse] = CanEqual.derived
 
   private def uuid(s: String): UUID = UUID.fromString(s).nn
 
@@ -26,8 +26,8 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
   private val goneId = uuid("00000000-0000-0000-0000-0000000000f4")
 
   // Base fixture; tests derive their variant via `.copy` (project style forbids method default args).
-  private val fabric: ProductResponse =
-    ProductResponse(
+  private val fabric: MaterialResponse =
+    MaterialResponse(
       fabricId,
       "TES-001",
       "Tessuto blu",
@@ -43,12 +43,12 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
       StockDto("10.000", None, None, "0.00", false),
     )
 
-  private val screws: ProductResponse =
+  private val screws: MaterialResponse =
     fabric.copy(id = screwId, internalCode = "VIT-6", description = "Viti inox", unit = "pieces", customerPrice = "0.1235")
 
   /** A current line of the manufacturing, frozen at `unitPrice`. */
-  private def line(productId: UUID, code: Option[String], unit: Option[String], archived: Boolean, quantity: String, unitPrice: String) =
-    MaterialResponse(productId, code, code.map(c => s"Descrizione $c"), unit, archived, quantity, unitPrice, "0.00")
+  private def line(materialId: UUID, code: Option[String], unit: Option[String], archived: Boolean, quantity: String, unitPrice: String) =
+    MaterialLineResponse(materialId, code, code.map(c => s"Descrizione $c"), unit, archived, quantity, unitPrice, "0.00")
 
   private val context: Context = Context.of(List(screws, fabric), Nil)
 
@@ -58,19 +58,19 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
 
   // ---- context -----------------------------------------------------------------------------------
 
-  test("the context offers the active products by code, then the current lines' products not among them"):
+  test("the context offers the active materials by code, then the current lines' materials not among them"):
     val current = List(
       line(fabricId, Some("TES-001"), Some("linear_meters"), false, "1.000", "17.0000"),
       line(archivedId, Some("OLD-1"), Some("kilograms"), true, "2.000", "4.0000"),
       line(goneId, None, None, false, "1.000", "1.0000"),
     )
-    val archivedProduct = fabric.copy(id = archivedId, internalCode = "AAA-0", archived = true)
-    val ctx = Context.of(List(screws, archivedProduct, fabric), current)
+    val archivedMaterial = fabric.copy(id = archivedId, internalCode = "AAA-0", archived = true)
+    val ctx = Context.of(List(screws, archivedMaterial, fabric), current)
     ctx.options shouldBe List(
       fabricId.toString -> "TES-001 — Tessuto blu",
       screwId.toString -> "VIT-6 — Viti inox",
       archivedId.toString -> "OLD-1 — Descrizione OLD-1 (archiviato)",
-      goneId.toString -> "00000000 — Prodotto non più in magazzino",
+      goneId.toString -> "00000000 — Materiale non più in magazzino",
     )
     ctx.frozen shouldBe Map(fabricId -> "17.0000", archivedId -> "4.0000", goneId -> "1.0000")
 
@@ -82,18 +82,18 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
 
   test("valid rows become request lines in order, with canonical quantities and typed prices"):
     val rows = List(Row(1, fabricId.toString, "2,5", ""), Row(2, screwId.toString, "12", "0,2"))
-    request(rows, context) shouldBe Right(List(MaterialDto(fabricId, "2.500", None), MaterialDto(screwId, "12.000", Some("0.2000"))))
+    request(rows, context) shouldBe Right(List(MaterialLineDto(fabricId, "2.500", None), MaterialLineDto(screwId, "12.000", Some("0.2000"))))
     errors(rows, context) shouldBe Nil
 
   test("blank rows are ignored"):
     request(List(Row.empty(1), Row(2, fabricId.toString, "1", ""), Row(3, " ", "  ", "")), context) shouldBe
-      Right(List(MaterialDto(fabricId, "1.000", None)))
+      Right(List(MaterialLineDto(fabricId, "1.000", None)))
     request(Nil, context) shouldBe Right(Nil)
 
-  test("a missing or unavailable product is reported with its row number"):
-    errors(List(Row(1, "", "2", "")), context) shouldBe List("Riga 1: seleziona un prodotto")
-    errors(List(Row(1, archivedId.toString, "2", "")), context) shouldBe List("Riga 1: il prodotto selezionato non è più disponibile")
-    errors(List(Row(1, "garbage", "2", "")), context) shouldBe List("Riga 1: il prodotto selezionato non è più disponibile")
+  test("a missing or unavailable material is reported with its row number"):
+    errors(List(Row(1, "", "2", "")), context) shouldBe List("Riga 1: seleziona un materiale")
+    errors(List(Row(1, archivedId.toString, "2", "")), context) shouldBe List("Riga 1: il materiale selezionato non è più disponibile")
+    errors(List(Row(1, "garbage", "2", "")), context) shouldBe List("Riga 1: il materiale selezionato non è più disponibile")
 
   test("quantities must be present, readable, positive, and whole for pieces"):
     errors(List(Row(1, fabricId.toString, "", "1")), context) shouldBe List("Riga 1: indica la quantità")
@@ -111,7 +111,7 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
     errors(List(Row(1, fabricId.toString, "1", "-3")), context) shouldBe
       List("Riga 1: prezzo unitario non valido (es. 3,50, al massimo 4 decimali)")
 
-  test("every message of a row is reported, and a repeated product is flagged after its first row"):
+  test("every message of a row is reported, and a repeated material is flagged after its first row"):
     val rows = List(Row(1, fabricId.toString, "1", ""), Row(2, screwId.toString, "1", ""), Row(3, fabricId.toString, "x", "y"))
     errors(rows, context) shouldBe List(
       "Riga 3: quantità non valida (es. 2,5, al massimo 3 decimali)",
@@ -121,37 +121,37 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
     request(rows, context).isLeft shouldBe true
 
   test("row numbers count the blank rows too, so they match the screen"):
-    errors(List(Row.empty(1), Row(2, "", "1", "")), context) shouldBe List("Riga 2: seleziona un prodotto")
+    errors(List(Row.empty(1), Row(2, "", "1", "")), context) shouldBe List("Riga 2: seleziona un materiale")
 
-  test("lines already in the manufacturing keep an archived or unknown product"):
+  test("lines already in the manufacturing keep an archived or unknown material"):
     val current =
       List(line(archivedId, Some("OLD-1"), Some("kilograms"), true, "2.000", "4.0000"), line(goneId, None, None, false, "1.000", "1.0000"))
     val ctx = Context.of(List(fabric), current)
     val rows = rowsOf(current, keys())
-    request(rows, ctx) shouldBe Right(List(MaterialDto(archivedId, "2.000", None), MaterialDto(goneId, "1.000", None)))
+    request(rows, ctx) shouldBe Right(List(MaterialLineDto(archivedId, "2.000", None), MaterialLineDto(goneId, "1.000", None)))
 
   // ---- price freezing ----------------------------------------------------------------------------
 
-  test("a new product without a typed price previews the customer price and is sent without one"):
+  test("a new material without a typed price previews the customer price and is sent without one"):
     val row = Row(1, fabricId.toString, "2", "")
     pricePreview(row, context) shouldBe Some(PricePreview("18.5000", PriceSource.Catalog))
-    request(List(row), context) shouldBe Right(List(MaterialDto(fabricId, "2.000", None)))
+    request(List(row), context) shouldBe Right(List(MaterialLineDto(fabricId, "2.000", None)))
     priceNote(PricePreview("18.5000", PriceSource.Catalog)) shouldBe "Prezzo di listino: 18,50 € (congelato al salvataggio)"
 
   test("a line already in the manufacturing previews its frozen price, not the current customer price, and keeps it by sending none"):
     val ctx = Context.of(List(fabric), List(line(fabricId, Some("TES-001"), Some("linear_meters"), false, "1.000", "17.0000")))
     val row = Row(1, fabricId.toString, "1", "")
     pricePreview(row, ctx) shouldBe Some(PricePreview("17.0000", PriceSource.Frozen))
-    request(List(row), ctx) shouldBe Right(List(MaterialDto(fabricId, "1.000", None)))
+    request(List(row), ctx) shouldBe Right(List(MaterialLineDto(fabricId, "1.000", None)))
     priceNote(PricePreview("17.0000", PriceSource.Frozen)) shouldBe "Prezzo congelato: 17,00 €"
 
   test("a typed price wins over the frozen and the customer price and is sent"):
     val ctx = Context.of(List(fabric), List(line(fabricId, Some("TES-001"), Some("linear_meters"), false, "1.000", "17.0000")))
     val row = Row(1, fabricId.toString, "1", "20")
     pricePreview(row, ctx) shouldBe Some(PricePreview("20.0000", PriceSource.Manual))
-    request(List(row), ctx) shouldBe Right(List(MaterialDto(fabricId, "1.000", Some("20.0000"))))
+    request(List(row), ctx) shouldBe Right(List(MaterialLineDto(fabricId, "1.000", Some("20.0000"))))
 
-  test("no preview without a product or with an unreadable price"):
+  test("no preview without a material or with an unreadable price"):
     pricePreview(Row(1, "", "1", ""), context) shouldBe None
     pricePreview(Row(1, fabricId.toString, "1", "x"), context) shouldBe None
 
@@ -172,8 +172,8 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
   // ---- wire format -------------------------------------------------------------------------------
 
   test("request lines encode an absent price as null, which the server reads as 'freeze or keep'"):
-    MaterialsUpdateRequest(List(MaterialDto(fabricId, "2.500", None))).asJson.noSpaces shouldBe
-      s"""{"materials":[{"productId":"$fabricId","quantity":"2.500","unitPrice":null}]}"""
+    MaterialsUpdateRequest(List(MaterialLineDto(fabricId, "2.500", None))).asJson.noSpaces shouldBe
+      s"""{"materials":[{"materialId":"$fabricId","quantity":"2.500","unitPrice":null}]}"""
 
   test("order responses without the material fields still decode (no materials, zero cost)"):
     val json =
@@ -191,12 +191,12 @@ final class MaterialDraftsSpec extends AnyFunSuite with Matchers:
          |"deliveryDate":"2026-11-01","promisedDeliveryDate":null,"description":null,"dependencies":[],"materialsCost":"46.25",
          |"manufacturings":[{"id":"$archivedId","code":"COP-01","completionDate":"2026-10-20","status":"not_started","startedAt":null,
          |"endedAt":null,"pauseReason":null,"tasks":[],"dependencies":[],"description":null,"preferredEmployeeId":null,"materialsCost":"46.25",
-         |"materials":[{"productId":"$fabricId","internalCode":"TES-001","description":"Tessuto blu","unit":"linear_meters","archived":false,
+         |"materials":[{"materialId":"$fabricId","internalCode":"TES-001","description":"Tessuto blu","unit":"linear_meters","archived":false,
          |"quantity":"2.500","unitPrice":"18.5000","lineCost":"46.25"}]}]}""".stripMargin
     val order = decode[OrderResponse](json)
     order.map(_.materialsCost) shouldBe Right("46.25")
     order.map(_.manufacturings.flatMap(_.materials)) shouldBe
-      Right(List(MaterialResponse(fabricId, Some("TES-001"), Some("Tessuto blu"), Some("linear_meters"), false, "2.500", "18.5000", "46.25")))
+      Right(List(MaterialLineResponse(fabricId, Some("TES-001"), Some("Tessuto blu"), Some("linear_meters"), false, "2.500", "18.5000", "46.25")))
 
   test("movement responses without the consumption fields still decode"):
     val json =

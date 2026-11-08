@@ -30,4 +30,17 @@ class UpcastsTest extends AnyFlatSpecLike:
   it should "leave data without matching objects unchanged" in:
     addMaterials("""{"manufacturingId":"a","changedOn":"b","list":[1,"two",null]}""").data shouldEqual
       data("""{"manufacturingId":"a","changedOn":"b","list":[1,"two",null]}""")
+
+  "rename" should "rename the tag and every listed key, at any depth, keeping the order of the keys, and advance the version" in:
+    val upcast = Upcasts
+      .rename(1, Map("Old" -> "New"), Map("oldId" -> "newId"))(
+        EventEnvelope("Old", 1, data("""{"oldId":1,"list":[{"x":{"oldId":2,"y":3}}],"z":4}""")),
+      )
+      .fold(failure => fail(failure.message), identity)
+
+    upcast shouldEqual EventEnvelope("New", 2, data("""{"newId":1,"list":[{"x":{"newId":2,"y":3}}],"z":4}"""))
+    upcast.data.keys.toList shouldEqual List("newId", "list", "z")
+
+  it should "keep a tag that is not listed" in:
+    Upcasts.rename(1, Map("Old" -> "New"), Map.empty)(EventEnvelope("Other", 1, data("{}"))).map(_.tag) shouldEqual Right("Other")
 end UpcastsTest

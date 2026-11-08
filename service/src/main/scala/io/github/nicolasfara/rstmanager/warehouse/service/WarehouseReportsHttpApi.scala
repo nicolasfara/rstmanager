@@ -5,9 +5,9 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.warehouse.domain.*
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.SupplierId
-import io.github.nicolasfara.rstmanager.warehouse.service.ProductHttpApi.{ MpnDto, ProductSupplierDto, StockDto }
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialHttpApi.{ MaterialSupplierDto, MpnDto, StockDto }
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierApp.StoredSupplier
 import io.github.nicolasfara.rstmanager.work.service.OrderApp
 
@@ -27,46 +27,46 @@ import sttp.tapir.server.ServerEndpoint
  * Excel export (`/warehouse/export.xlsx`), the incoming and outgoing flows per week or month (`/warehouse/flows`), and the spend per supplier
  * (`/warehouse/supplier-spend`).
  *
- * The figures are computed by the pure [[WarehouseReports]] over every product, archived ones included; this layer only parses the period and names
- * products and suppliers. Error messages are in Italian.
+ * The figures are computed by the pure [[WarehouseReports]] over every material, archived ones included; this layer only parses the period and names
+ * materials and suppliers. Error messages are in Italian.
  */
 object WarehouseReportsHttpApi:
   import ApiError.ApiFailure
   import WarehouseHttpSupport.*
 
-  /** A product in the state of a day, with the customer price in effect on that day and its stock at the end of it. */
+  /** A material in the state of a day, with the customer price in effect on that day and its stock at the end of it. */
   final case class StateRowResponse(
-      productId: UUID,
+      materialId: UUID,
       internalCode: String,
       description: String,
-      productType: Option[String],
+      materialType: Option[String],
       notes: Option[String],
       unit: String,
       customerPrice: Option[String],
       stock: StockDto,
       archived: Boolean,
-      suppliers: List[ProductSupplierDto],
+      suppliers: List[MaterialSupplierDto],
       mpns: List[MpnDto],
   )
 
   object StateRowResponse:
     def fromDomain(row: StateRow, suppliers: Map[SupplierId, StoredSupplier]): StateRowResponse =
-      val info = row.product.record.info
+      val info = row.material.record.info
       StateRowResponse(
         info.id.value,
         info.internalCode,
         info.description,
-        info.productType,
+        info.materialType,
         info.notes,
         info.unit.wireName,
         row.customerPrice.map(_.toDecimalString),
         StockDto.fromDomain(row.stock),
         row.archived,
-        info.suppliers.map(ProductSupplierDto.of(_, suppliers)),
+        info.suppliers.map(MaterialSupplierDto.of(_, suppliers)),
         info.mpns.map(MpnDto.fromDomain),
       )
 
-  final case class StateTotalsResponse(products: Int, value: String, purchasedTotal: String, negativeProducts: Int, unvaluedProducts: Int)
+  final case class StateTotalsResponse(materials: Int, value: String, purchasedTotal: String, negativeMaterials: Int, unvaluedMaterials: Int)
 
   final case class WarehouseStateResponse(at: String, rows: List[StateRowResponse], totals: StateTotalsResponse)
 
@@ -76,11 +76,11 @@ object WarehouseReportsHttpApi:
         formatDay(state.at),
         state.rows.map(StateRowResponse.fromDomain(_, suppliers)),
         StateTotalsResponse(
-          state.totals.products,
+          state.totals.materials,
           state.totals.value.toDecimalString,
           state.totals.purchasedTotal.toDecimalString,
-          state.totals.negativeProducts,
-          state.totals.unvaluedProducts,
+          state.totals.negativeMaterials,
+          state.totals.unvaluedMaterials,
         ),
       )
 
@@ -125,9 +125,9 @@ object WarehouseReportsHttpApi:
         FlowTotalsResponse.fromDomain(report.totals),
       )
 
-  /** What was bought under one MPN of one product. */
+  /** What was bought under one MPN of one material. */
   final case class MpnSpendResponse(
-      productId: UUID,
+      materialId: UUID,
       internalCode: String,
       description: String,
       mpnCode: String,
@@ -152,7 +152,7 @@ object WarehouseReportsHttpApi:
   object SupplierSpendReportResponse:
     def fromDomain(
         report: SupplierSpendReport,
-        products: Map[ProductId, ReportedProduct],
+        materials: Map[MaterialId, ReportedMaterial],
         suppliers: Map[SupplierId, StoredSupplier],
     ): SupplierSpendReportResponse =
       SupplierSpendReportResponse(
@@ -160,7 +160,7 @@ object WarehouseReportsHttpApi:
         formatDay(report.to),
         report.total.toDecimalString,
         report.suppliers.map { spend =>
-          val supplier = ProductSupplierDto.of(spend.supplierId, suppliers)
+          val supplier = MaterialSupplierDto.of(spend.supplierId, suppliers)
           SupplierSpendResponse(
             supplier.id,
             supplier.name,
@@ -168,11 +168,11 @@ object WarehouseReportsHttpApi:
             spend.amount.toDecimalString,
             spend.purchases,
             spend.mpns.map { mpn =>
-              val info = products.get(mpn.productId).map(_.record.info)
+              val info = materials.get(mpn.materialId).map(_.record.info)
               MpnSpendResponse(
-                mpn.productId.value,
-                info.fold(mpn.productId.value.toString)(product => product.internalCode: String),
-                info.fold("")(product => product.description: String),
+                mpn.materialId.value,
+                info.fold(mpn.materialId.value.toString)(material => material.internalCode: String),
+                info.fold("")(material => material.description: String),
                 mpn.mpnCode,
                 mpn.unit.wireName,
                 mpn.quantity.toDecimalString,
@@ -253,12 +253,17 @@ object WarehouseReportsHttpApi:
 
   def endpoints: List[AnyEndpoint] = List(state, exportXlsx, flows, supplierSpend)
 
-  def routes(products: ProductApp.Store, suppliers: SupplierApp.Store, orders: OrderApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] =
+  def routes(
+      materials: MaterialApp.Store,
+      suppliers: SupplierApp.Store,
+      orders: OrderApp.Store,
+      security: ApiSecurity,
+  ): List[ServerEndpoint[Any, IO]] =
     List(
-      security.secure(state, Role.Viewer)(stateLogic(products, suppliers)),
-      security.secure(exportXlsx, Role.Viewer)(exportLogic(products, suppliers, orders)),
-      security.secure(flows, Role.Viewer)(flowsLogic(products)),
-      security.secure(supplierSpend, Role.Viewer)(supplierSpendLogic(products, suppliers)),
+      security.secure(state, Role.Viewer)(stateLogic(materials, suppliers)),
+      security.secure(exportXlsx, Role.Viewer)(exportLogic(materials, suppliers, orders)),
+      security.secure(flows, Role.Viewer)(flowsLogic(materials)),
+      security.secure(supplierSpend, Role.Viewer)(supplierSpendLogic(materials, suppliers)),
     )
 
   /** The day of a state or of an export: `at`, or `today` when absent; never after `today`. */
@@ -272,36 +277,36 @@ object WarehouseReportsHttpApi:
   /** `attachment; filename="name"`: the browser saves the response as `name`. */
   def contentDisposition(fileName: String): String = s"attachment; filename=\"$fileName\""
 
-  private def stateLogic(products: ProductApp.Store, suppliers: SupplierApp.Store)(
+  private def stateLogic(materials: MaterialApp.Store, suppliers: SupplierApp.Store)(
       at: Option[String],
   ): IO[Either[ApiFailure, WarehouseStateResponse]] =
     today.flatMap { day =>
       parseStateDay(at, day).toEither match
         case Left(errors) => IO.pure(validation(errors).asLeft)
         case Right(requested) =>
-          report(products) { reported =>
+          report(materials) { reported =>
             val warehouse = WarehouseReports.stateAt(reported, requested)
-            ProductHttpApi
-              .suppliersById(suppliers, warehouse.rows.flatMap(_.product.record.info.suppliers))
+            MaterialHttpApi
+              .suppliersById(suppliers, warehouse.rows.flatMap(_.material.record.info.suppliers))
               .map(WarehouseStateResponse.fromDomain(warehouse, _))
           }
     }
 
   /** The workbook of the state at the end of `at` (default today), with the movements up to that day, as an attachment. */
-  private def exportLogic(products: ProductApp.Store, suppliers: SupplierApp.Store, orders: OrderApp.Store)(
+  private def exportLogic(materials: MaterialApp.Store, suppliers: SupplierApp.Store, orders: OrderApp.Store)(
       at: Option[String],
   ): IO[Either[ApiFailure, (Array[Byte], String)]] =
     IO.realTimeInstant.flatMap { now =>
       parseStateDay(at, BusinessCalendar.day(now)).toEither match
         case Left(errors) => IO.pure(validation(errors).asLeft)
         case Right(day) =>
-          report(products) { reported =>
+          report(materials) { reported =>
             val warehouse = WarehouseReports.stateAt(reported, day)
             val movements = WarehouseExport.movementsUntil(reported, day)
             for
-              named <- ProductHttpApi.suppliersById(
+              named <- MaterialHttpApi.suppliersById(
                 suppliers,
-                warehouse.rows.flatMap(_.product.record.info.suppliers) ++ movements.flatMap(_.supplierId),
+                warehouse.rows.flatMap(_.material.record.info.suppliers) ++ movements.flatMap(_.supplierId),
               )
               labels <- orderLabels(orders, movements.map(_.movement))
               bytes <- WarehouseExport.write(WarehouseExport.workbook(warehouse, movements, named, labels, now))
@@ -309,7 +314,7 @@ object WarehouseReportsHttpApi:
           }
     }
 
-  private def flowsLogic(products: ProductApp.Store)(
+  private def flowsLogic(materials: MaterialApp.Store)(
       from: Option[String],
       to: Option[String],
       granularity: Option[String],
@@ -325,23 +330,23 @@ object WarehouseReportsHttpApi:
     parsed.toEither match
       case Left(errors) => IO.pure(validation(errors).asLeft)
       case Right(((start, end), parsedGranularity)) =>
-        report(products)(reported => IO.pure(FlowReportResponse.fromDomain(WarehouseReports.flows(reported, start, end, parsedGranularity))))
+        report(materials)(reported => IO.pure(FlowReportResponse.fromDomain(WarehouseReports.flows(reported, start, end, parsedGranularity))))
 
-  private def supplierSpendLogic(products: ProductApp.Store, suppliers: SupplierApp.Store)(
+  private def supplierSpendLogic(materials: MaterialApp.Store, suppliers: SupplierApp.Store)(
       from: Option[String],
       to: Option[String],
   ): IO[Either[ApiFailure, SupplierSpendReportResponse]] =
     parsePeriod(from, to).toEither match
       case Left(errors) => IO.pure(validation(errors).asLeft)
       case Right((start, end)) =>
-        report(products) { reported =>
+        report(materials) { reported =>
           val spend = WarehouseReports.supplierSpend(reported, start, end)
-          ProductHttpApi
+          MaterialHttpApi
             .suppliersById(suppliers, spend.suppliers.map(_.supplierId))
-            .map(SupplierSpendReportResponse.fromDomain(spend, reported.map(product => product.record.info.id -> product).toMap, _))
+            .map(SupplierSpendReportResponse.fromDomain(spend, reported.map(material => material.record.info.id -> material).toMap, _))
         }
 
-  /** Runs `build` on every product, archived ones included; unexpected failures become a 500. */
-  private def report[R](products: ProductApp.Store)(build: List[ReportedProduct] => IO[R]): IO[Either[ApiFailure, R]] =
-    ProductApp.listAll(products).flatMap(stored => build(stored.map(_.reported))).attempt.map(_.leftMap(internal))
+  /** Runs `build` on every material, archived ones included; unexpected failures become a 500. */
+  private def report[R](materials: MaterialApp.Store)(build: List[ReportedMaterial] => IO[R]): IO[Either[ApiFailure, R]] =
+    MaterialApp.listAll(materials).flatMap(stored => build(stored.map(_.reported))).attempt.map(_.leftMap(internal))
 end WarehouseReportsHttpApi

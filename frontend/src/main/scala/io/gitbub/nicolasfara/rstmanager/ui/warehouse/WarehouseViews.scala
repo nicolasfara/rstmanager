@@ -146,14 +146,14 @@ object WarehouseViews:
 
   /**
    * The rows matching a free-text search: every blank-separated term must appear (case-insensitive) in the internal code, the description, or the
-   * product type. A blank query keeps every row.
+   * material type. A blank query keeps every row.
    */
   def filterRows(rows: List[StateRowResponse], query: String): List[StateRowResponse] =
     val terms = query.trim.nn.toLowerCase.nn.split("\\s+").nn.toList.map(_.nn).filter(_.nonEmpty)
     if terms.isEmpty then rows
     else
       rows.filter { row =>
-        val haystack = List(row.internalCode, row.description, row.productType.getOrElse("")).map(_.toLowerCase.nn)
+        val haystack = List(row.internalCode, row.description, row.materialType.getOrElse("")).map(_.toLowerCase.nn)
         terms.forall(term => haystack.exists(_.contains(term)))
       }
 

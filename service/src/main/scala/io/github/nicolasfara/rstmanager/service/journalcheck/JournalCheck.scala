@@ -14,8 +14,8 @@ import io.github.nicolasfara.rstmanager.service.codecs.RegistryCodecs.given
 import io.github.nicolasfara.rstmanager.service.codecs.WarehouseCodecs.given
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
 import io.github.nicolasfara.rstmanager.service.registry.{ EntityRegistry, EntityRegistryEvent, EntityRegistryService }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ ProductAggregate, ProductService }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.events.ProductEvent
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialAggregate, MaterialService }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.events.MaterialEvent
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ SupplierAggregate, SupplierService }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.events.SupplierEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingAggregate, ManufacturingService }
@@ -78,8 +78,8 @@ object JournalCheck extends IOApp:
       ),
       CheckedNamespace(
         "products",
-        RowCheck.journal(ProductAggregate, Decoder[ProductEvent]),
-        RowCheck.outbox(Decoder[ProductService.Notification]),
+        RowCheck.journal(MaterialAggregate, Decoder[MaterialEvent]),
+        RowCheck.outbox(Decoder[MaterialService.Notification]),
       ),
       registry("customer_index"),
       registry("employee_index"),

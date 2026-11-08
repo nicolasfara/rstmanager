@@ -5,7 +5,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.{ EmployeeId, EmployeeService }
 import io.github.nicolasfara.rstmanager.planning.PlanningTrigger
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ ProductError, ProductId, ProductRecord, ProductService }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialError, MaterialId, MaterialRecord, MaterialService }
 import io.github.nicolasfara.rstmanager.warehouse.service.{ WarehouseConsumptionGateway, WarehouseConsumptionReconciler }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderId, OrderService }
 
@@ -74,16 +74,16 @@ class PlanningDependencyConsumerTest extends AnyFlatSpecLike:
       seen.update(_ :+ cause.trigger) >>
         (if failing then IO.raiseError(new RuntimeException("planning down")) else IO.pure(PlanningRecalculationResult.skipped))
 
-  /** A warehouse gateway without orders or products, recording the orders the reconciliation loads. */
+  /** A warehouse gateway without orders or materials, recording the orders the reconciliation loads. */
   private final class RecordingGateway(loaded: Ref[IO, List[OrderId]]) extends WarehouseConsumptionGateway:
     override def orderIds: IO[List[OrderId]] = IO.pure(Nil)
     override def loadOrder(id: OrderId): IO[Option[Order]] = loaded.update(_ :+ id).as(None)
-    override def listProducts: IO[List[ProductRecord]] = IO.pure(Nil)
+    override def listMaterials: IO[List[MaterialRecord]] = IO.pure(Nil)
     override def setConsumption(
-        productId: ProductId,
-        command: ProductService.Command.SetConsumption,
+        materialId: MaterialId,
+        command: MaterialService.Command.SetConsumption,
         commandId: String,
-    ): IO[Either[ProductError, Unit]] =
+    ): IO[Either[MaterialError, Unit]] =
       IO.pure(Right(()))
 
   it should "send an order notification both to the planning recalculation and to the warehouse reconciliation" in:

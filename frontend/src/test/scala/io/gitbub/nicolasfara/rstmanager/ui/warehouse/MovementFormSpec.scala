@@ -23,8 +23,8 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
   private val today = "2026-11-01"
 
   // Base fixture; tests derive their variant via `.copy` (project style forbids method default args).
-  private val product: ProductResponse =
-    ProductResponse(
+  private val material: MaterialResponse =
+    MaterialResponse(
       uuid("00000000-0000-0000-0000-0000000000f1"),
       "TES-001",
       "Tessuto blu",
@@ -33,14 +33,14 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
       "linear_meters",
       "18.5000",
       List(MpnDto("AC-152", supplierA, None), MpnDto("X9", supplierB, None)),
-      List(ProductSupplierDto(supplierA, "Tessiture Rossi", true), ProductSupplierDto(supplierB, "Vecchio", false)),
+      List(MaterialSupplierDto(supplierA, "Tessiture Rossi", true), MaterialSupplierDto(supplierB, "Vecchio", false)),
       "2026-10-01",
       false,
       None,
       StockDto("10.000", Some("3.5000"), Some("35.00"), "35.00", false),
     )
 
-  private val pieces = product.copy(unit = "pieces")
+  private val pieces = material.copy(unit = "pieces")
 
   // ---- shared field rules ------------------------------------------------------------------------
 
@@ -55,7 +55,7 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
   test("parseQuantity requires whole numbers for pieces"):
     parseQuantity("3", "pieces") shouldBe Right("3.000")
     parseQuantity("3,000", "pieces") shouldBe Right("3.000")
-    parseQuantity("2,5", "pieces") shouldBe Left("Il prodotto è gestito a pezzi: la quantità deve essere un numero intero")
+    parseQuantity("2,5", "pieces") shouldBe Left("Il materiale è gestito a pezzi: la quantità deve essere un numero intero")
 
   test("parseDelta accepts a sign and rejects zero and fractional pieces"):
     parseDelta("-2,5", "linear_meters") shouldBe Right("-2.500")
@@ -81,16 +81,16 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
   // ---- purchase ----------------------------------------------------------------------------------
 
   test("mpnOptions label each MPN with its supplier, marking deleted ones"):
-    mpnOptions(product).map(_.label) shouldBe List("AC-152 — Tessiture Rossi", "X9 — Vecchio (eliminato)")
+    mpnOptions(material).map(_.label) shouldBe List("AC-152 — Tessiture Rossi", "X9 — Vecchio (eliminato)")
 
   test("purchase starts dated today and preselects the only MPN"):
-    val fresh = purchase(product, today)
+    val fresh = purchase(material, today)
     fresh.on shouldBe today
     fresh.mpnKey shouldBe ""
-    purchase(product.copy(mpns = product.mpns.take(1)), today).selectedMpn.map(_.code) shouldBe Some("AC-152")
+    purchase(material.copy(mpns = material.mpns.take(1)), today).selectedMpn.map(_.code) shouldBe Some("AC-152")
 
   test("purchase request carries the selected MPN, canonical decimals, the day, and a trimmed note"):
-    val base = purchase(product, today)
+    val base = purchase(material, today)
     val state = base.copy(mpnKey = base.mpns(1).key, quantity = "25,5", unitCost = "3,5", on = "2026-10-20", note = " DDT 12 ")
     state.errors shouldBe Nil
     state.request shouldBe Some(PurchaseRequest("X9", supplierB, "25.500", "3.5000", Some("2026-10-20"), Some("DDT 12")))
@@ -103,23 +103,23 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
     state.totalPreview shouldBe None
     state.errors shouldBe List(
       "Seleziona l'MPN acquistato",
-      "Il prodotto è gestito a pezzi: la quantità deve essere un numero intero",
+      "Il materiale è gestito a pezzi: la quantità deve essere un numero intero",
       "Costo unitario non valido (es. 3,50, al massimo 4 decimali)",
       "La data non può essere successiva a oggi",
     )
 
-  test("purchase of a product without MPNs explains why it cannot be recorded"):
-    val state = purchase(product.copy(mpns = Nil), today).copy(quantity = "1", unitCost = "1")
-    state.errors shouldBe List("Il prodotto non ha MPN: aggiungine uno in anagrafica prima di registrare un carico")
+  test("purchase of a material without MPNs explains why it cannot be recorded"):
+    val state = purchase(material.copy(mpns = Nil), today).copy(quantity = "1", unitCost = "1")
+    state.errors shouldBe List("Il materiale non ha MPN: aggiungine uno in anagrafica prima di registrare un carico")
 
   test("purchase is pristine until a quantity or a cost is typed"):
-    purchase(product, today).pristine shouldBe true
-    purchase(product, today).copy(unitCost = "1").pristine shouldBe false
+    purchase(material, today).pristine shouldBe true
+    purchase(material, today).copy(unitCost = "1").pristine shouldBe false
 
   // ---- unload ------------------------------------------------------------------------------------
 
   test("unload requires a positive quantity, a day, and a reason"):
-    val state = unload(product, today)
+    val state = unload(material, today)
     state.errors shouldBe List("Quantità obbligatoria", "Motivo obbligatorio")
     state.copy(quantity = "2", reason = " campionatura ").request shouldBe Some(UnloadRequest("2.000", Some(today), "campionatura"))
 
@@ -129,19 +129,19 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
   // ---- adjustment --------------------------------------------------------------------------------
 
   test("adjustment allows a unit cost only for a positive delta"):
-    val base = adjustment(product, today).copy(reason = "inventario", unitCost = "3,2")
+    val base = adjustment(material, today).copy(reason = "inventario", unitCost = "3,2")
     base.copy(delta = "40").costEnabled shouldBe true
     base.copy(delta = "40").request shouldBe Some(AdjustmentRequest("40.000", Some("3.2000"), Some(today), "inventario"))
     base.copy(delta = "-2").costEnabled shouldBe false
     base.copy(delta = "-2").request shouldBe Some(AdjustmentRequest("-2.000", None, Some(today), "inventario"))
 
   test("adjustment cost is optional, but must be valid when given"):
-    val base = adjustment(product, today).copy(delta = "5", reason = "inventario")
+    val base = adjustment(material, today).copy(delta = "5", reason = "inventario")
     base.request.map(_.unitCost) shouldBe Some(None)
     base.copy(unitCost = "x").errors shouldBe List("Costo unitario non valido (es. 3,50, al massimo 4 decimali)")
     base.copy(delta = "-5", unitCost = "x").errors shouldBe Nil
 
   test("adjustment rejects zero, fractional pieces, and a missing reason"):
-    adjustment(product, today).copy(delta = "0").errors shouldBe List("La variazione non può essere zero", "Motivo obbligatorio")
+    adjustment(material, today).copy(delta = "0").errors shouldBe List("La variazione non può essere zero", "Motivo obbligatorio")
     adjustment(pieces, today).copy(delta = "-1,5", reason = "x").request shouldBe None
 end MovementFormSpec

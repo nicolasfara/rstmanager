@@ -3,10 +3,10 @@ package io.github.nicolasfara.rstmanager.warehouse.service
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ UnitOfMeasure, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ ProductId, ProductRecord }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialId, MaterialRecord }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ Supplier, SupplierId }
-import io.github.nicolasfara.rstmanager.warehouse.service.ProductApp.StoredProduct
-import io.github.nicolasfara.rstmanager.warehouse.service.ProductHttpApi.{ MpnDto, ProductRequest, ProductResponse, ProductSupplierDto, StockDto }
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialApp.StoredMaterial
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialHttpApi.{ MaterialRequest, MaterialResponse, MaterialSupplierDto, MpnDto, StockDto }
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierApp.StoredSupplier
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierHttpApi.{ SupplierRequest, SupplierResponse }
 
@@ -25,8 +25,8 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
   private def valid[A](value: ValidatedNec[String, A]): A = value.fold(errors => fail(errors.toChain.toList.mkString(", ")), identity)
   private def errors[A](value: ValidatedNec[String, A]): List[String] = value.fold(_.toChain.toList, result => fail(s"Unexpectedly valid: $result"))
 
-  private val request: ProductRequest =
-    ProductRequest(
+  private val request: MaterialRequest =
+    MaterialRequest(
       " tes-001 ",
       "Tessuto acrilico",
       Some(" "),
@@ -36,11 +36,11 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
       List(MpnDto(" ac-152 ", firstSupplier, None), MpnDto("AC-152", secondSupplier, Some("Canvas"))),
     )
 
-  "ProductRequest.toDomain" should "parse the unit, the decimal price, and normalize the codes" in:
+  "MaterialRequest.toDomain" should "parse the unit, the decimal price, and normalize the codes" in:
     val info = valid(request.toDomain(id))
-    info.id shouldEqual ProductId(id)
+    info.id shouldEqual MaterialId(id)
     (info.internalCode: String) shouldEqual "TES-001"
-    info.productType shouldEqual None
+    info.materialType shouldEqual None
     info.unit shouldEqual UnitOfMeasure.LinearMeters
     info.customerPrice.value shouldEqual 185000L
     info.mpns.map(mpn => mpn.code: String) shouldEqual List("AC-152", "AC-152")
@@ -58,12 +58,12 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
     val duplicated = request.copy(mpns = List(MpnDto("x-1", firstSupplier, None), MpnDto(" X-1", firstSupplier, None)))
     errors(duplicated.toDomain(id)) shouldEqual List("MPN: il codice MPN X-1 compare più volte per lo stesso fornitore")
 
-  "ProductResponse" should "carry the price as a 4-decimal string, the unit wire name, and the derived suppliers" in:
+  "MaterialResponse" should "carry the price as a 4-decimal string, the unit wire name, and the derived suppliers" in:
     val info = valid(request.toDomain(id))
     val supplier = valid(Supplier.createSupplier(SupplierId(firstSupplier), "Tessuti Nautici", None, None, None, None, None))
     val created = LocalDate.parse("2026-06-15")
-    val response = ProductResponse.fromDomain(
-      StoredProduct(ProductRecord.created(info, created), Some(LocalDate.parse("2026-07-01"))),
+    val response = MaterialResponse.fromDomain(
+      StoredMaterial(MaterialRecord.created(info, created), Some(LocalDate.parse("2026-07-01"))),
       Map(SupplierId(firstSupplier) -> StoredSupplier(supplier, deleted = true)),
       LocalDate.parse("2026-07-02"),
     )
@@ -73,20 +73,20 @@ class WarehouseHttpDtosTest extends AnyFlatSpecLike:
     response.archived shouldEqual true
     response.archivedOn shouldEqual Some("2026-07-01")
     response.suppliers shouldEqual List(
-      ProductSupplierDto(firstSupplier, "Tessuti Nautici", active = false),
-      ProductSupplierDto(secondSupplier, secondSupplier.toString, active = false),
+      MaterialSupplierDto(firstSupplier, "Tessuti Nautici", active = false),
+      MaterialSupplierDto(secondSupplier, secondSupplier.toString, active = false),
     )
     response.asJson.hcursor.downField("customerPrice").focus shouldEqual Some(Json.fromString("18.5000"))
     UnitPrice.fromDecimalString(response.customerPrice).map(_.value) shouldEqual Right(info.customerPrice.value)
     response.stock shouldEqual StockDto("0.000", None, None, "0.00", negative = false)
 
-  "ProductHttpApi.suppliersToCheck" should "require active suppliers only for MPNs new to the stored product" in:
+  "MaterialHttpApi.suppliersToCheck" should "require active suppliers only for MPNs new to the stored material" in:
     val stored = valid(request.toDomain(id))
     val third = UUID.fromString("00000000-0000-0000-0000-000000000303").nn
     val edited = valid(request.copy(mpns = request.mpns :+ MpnDto("NEW-1", third, None) :+ MpnDto("AC-999", firstSupplier, None)).toDomain(id))
-    ProductHttpApi.suppliersToCheck(None, stored) shouldEqual List(SupplierId(firstSupplier), SupplierId(secondSupplier))
-    ProductHttpApi.suppliersToCheck(Some(stored), stored) shouldEqual Nil
-    ProductHttpApi.suppliersToCheck(Some(stored), edited) shouldEqual List(SupplierId(third), SupplierId(firstSupplier))
+    MaterialHttpApi.suppliersToCheck(None, stored) shouldEqual List(SupplierId(firstSupplier), SupplierId(secondSupplier))
+    MaterialHttpApi.suppliersToCheck(Some(stored), stored) shouldEqual Nil
+    MaterialHttpApi.suppliersToCheck(Some(stored), edited) shouldEqual List(SupplierId(third), SupplierId(firstSupplier))
 
   "SupplierRequest.toDomain" should "normalize the supplier and render it back" in:
     val supplier = valid(SupplierRequest(" Ferramenta ", Some("it 123"), Some("info@ferramenta.it"), None, None, Some("")).toDomain(firstSupplier))

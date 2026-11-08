@@ -13,28 +13,28 @@ import io.gitbub.nicolasfara.rstmanager.ui.MaterialDrafts.{ Context, Row }
  * The materials ("Materiali") of an order manufacturing: the read-only lines with their frozen prices and cost, the Operator-gated editor modal of an
  * existing manufacturing (`PUT …/materials`), and the inline editor of a manufacturing draft in the create-order form.
  *
- * Every rule (parsing, validation, price freezing, costs) lives in the pure [[MaterialDrafts]]; this object only binds it to Laminar. The products
- * offered are the active warehouse products, loaded on demand and refreshed on [[AppBus.warehouseTicks]].
+ * Every rule (parsing, validation, price freezing, costs) lives in the pure [[MaterialDrafts]]; this object only binds it to Laminar. The materials
+ * offered are the active warehouse materials, loaded on demand and refreshed on [[AppBus.warehouseTicks]].
  */
 object MaterialsEditor:
 
   private def hint(text: String): HtmlElement = div(cls := "mt-1 text-xs text-slate-400", text)
 
-  /** The active warehouse products, loaded when the returned signal is first observed. */
-  private def activeProducts(): Signal[Option[ApiClient.Result[List[ProductResponse]]]] =
-    loadable(AppBus.warehouseTicks)(() => ApiClient.listProducts(false))
+  /** The active warehouse materials, loaded when the returned signal is first observed. */
+  private def activeMaterials(): Signal[Option[ApiClient.Result[List[MaterialResponse]]]] =
+    loadable(AppBus.warehouseTicks)(() => ApiClient.listMaterials(false))
 
-  /** The context of a manufacturing with the `current` lines: the loaded products (none while loading or after a failure) plus the current ones. */
-  private def contextOf(products: Signal[Option[ApiClient.Result[List[ProductResponse]]]], current: List[MaterialResponse]): Signal[Context] =
-    products.map {
+  /** The context of a manufacturing with the `current` lines: the loaded materials (none while loading or after a failure) plus the current ones. */
+  private def contextOf(materials: Signal[Option[ApiClient.Result[List[MaterialResponse]]]], current: List[MaterialLineResponse]): Signal[Context] =
+    materials.map {
       case Some(Right(list)) => Context.of(list, current)
       case _ => Context.of(Nil, current)
     }
 
-  /** A loading hint or the error of the product list; nothing once loaded. */
-  private def productsStatus(products: Signal[Option[ApiClient.Result[List[ProductResponse]]]]): Modifier[HtmlElement] =
-    child.maybe <-- products.map {
-      case None => Some(hint("Caricamento prodotti…"))
+  /** A loading hint or the error of the material list; nothing once loaded. */
+  private def materialsStatus(materials: Signal[Option[ApiClient.Result[List[MaterialResponse]]]]): Modifier[HtmlElement] =
+    child.maybe <-- materials.map {
+      case None => Some(hint("Caricamento materiali…"))
       case Some(Left(err)) => Some(div(cls := "mb-2", errorBanner(err)))
       case Some(Right(_)) => None
     }
@@ -42,7 +42,7 @@ object MaterialsEditor:
   // ---- Rows editor -------------------------------------------------------------------------------
 
   /**
-   * The editable lines bound to `rows`, checked against `context`: per line the product (searchable), the quantity, an optional price override (the
+   * The editable lines bound to `rows`, checked against `context`: per line the material (searchable), the quantity, an optional price override (the
    * placeholder shows the price that applies otherwise), and the line cost; "+ Materiale" adds a line, the footer shows the total and the validation
    * messages. Blank lines are ignored.
    */
@@ -57,8 +57,8 @@ object MaterialsEditor:
       div(
         cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-2 sm:grid-cols-[minmax(0,1fr)_7.5rem_8.5rem_6.5rem_auto] sm:items-start",
         field(
-          "Prodotto",
-          searchableSelect(rowSignal.map(_.productId), Observer[String](v => update(key)(_.copy(productId = v))), options, "Cerca prodotto…", 20),
+          "Materiale",
+          searchableSelect(rowSignal.map(_.materialId), Observer[String](v => update(key)(_.copy(materialId = v))), options, "Cerca materiale…", 20),
         ),
         field(
           "Quantità",
@@ -68,7 +68,7 @@ object MaterialsEditor:
               cls := "mt-1 text-xs text-slate-400",
               child.text <-- withContext.map((row, ctx) =>
                 MaterialDrafts
-                  .productOf(row, ctx)
+                  .materialOf(row, ctx)
                   .fold("")(p => WarehouseFormats.unitLabel(p.unit) + (if MaterialDrafts.isPieces(p.unit) then " (interi)" else "")),
               ),
             ),
@@ -126,8 +126,8 @@ object MaterialsEditor:
   // ---- Create-order draft ------------------------------------------------------------------------
 
   /**
-   * The materials of a manufacturing draft in the create-order form. The products are loaded only once a line is added; the loaded context is also
-   * written to `contextSink`, which the form validates the lines against on submit.
+   * The materials of a manufacturing draft in the create-order form. The warehouse materials are loaded only once a line is added; the loaded context
+   * is also written to `contextSink`, which the form validates the lines against on submit.
    */
   def draftEditor(rows: Var[List[Row]], nextKey: () => Int, contextSink: Observer[Context]): HtmlElement =
     div(
@@ -141,28 +141,28 @@ object MaterialsEditor:
             span(cls := "text-xs text-slate-400", "Nessun materiale (si possono aggiungere anche dopo la creazione)"),
           )
         else
-          val products = activeProducts()
-          val context = contextOf(products, Nil)
+          val materials = activeMaterials()
+          val context = contextOf(materials, Nil)
           div(
             context --> contextSink,
-            productsStatus(products),
+            materialsStatus(materials),
             rowsEditor(rows, context, nextKey),
-            hint("Senza un prezzo inserito si congela il prezzo di listino del prodotto alla creazione dell'ordine."),
+            hint("Senza un prezzo inserito si congela il prezzo di listino del materiale alla creazione dell'ordine."),
           )
       },
     )
 
   // ---- Existing manufacturing --------------------------------------------------------------------
 
-  private def quantityText(line: MaterialResponse): String =
+  private def quantityText(line: MaterialLineResponse): String =
     line.unit.fold(WarehouseFormats.formatDecimal(line.quantity, 0, MaterialDrafts.quantityScale))(WarehouseFormats.formatQty(line.quantity, _))
 
-  private def renderLine(line: MaterialResponse): HtmlElement =
+  private def renderLine(line: MaterialLineResponse): HtmlElement =
     div(
       cls := "flex flex-col gap-0.5 py-1.5 text-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-3",
       div(
         cls := "min-w-0",
-        span(cls := "font-medium text-slate-800", line.internalCode.getOrElse(Formats.shortId(line.productId))),
+        span(cls := "font-medium text-slate-800", line.internalCode.getOrElse(Formats.shortId(line.materialId))),
         line.description.map(d => span(cls := "text-slate-600", s" – $d")),
         Option.when(line.archived || line.internalCode.isEmpty)(
           span(cls := "ml-2", badge(if line.archived then "Archiviato" else "Non in magazzino", "bg-slate-100 text-slate-500 border-slate-200")),
@@ -224,8 +224,8 @@ object MaterialsEditor:
       keyCounter
     val rows = Var(MaterialDrafts.rowsOf(manufacturing.materials, () => nextKey()))
     val tracker = DirtyTracker(rows.now(), rows)
-    val products = activeProducts()
-    val context = contextOf(products, manufacturing.materials)
+    val materials = activeMaterials()
+    val context = contextOf(materials, manufacturing.materials)
     val currentContext = Var(Context.of(Nil, manufacturing.materials))
     val error = Var(Option.empty[ApiError])
     val saving = Var(false)
@@ -265,9 +265,9 @@ object MaterialsEditor:
           "La lavorazione è completata: salvando, lo scarico dei materiali in magazzino viene aggiornato automaticamente.",
         ),
       ),
-      productsStatus(products),
+      materialsStatus(materials),
       rowsEditor(rows, context, () => nextKey()),
-      hint("Senza un prezzo inserito, una riga già presente mantiene il prezzo congelato; un nuovo prodotto congela il prezzo di listino attuale."),
+      hint("Senza un prezzo inserito, una riga già presente mantiene il prezzo congelato; un nuovo materiale congela il prezzo di listino attuale."),
       child.maybe <-- error.signal.map(_.map(errorBanner)),
       div(
         cls := "flex justify-end gap-2 border-t border-slate-100 pt-3",

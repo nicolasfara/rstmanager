@@ -67,6 +67,6 @@ object AppBus:
   /** Reports a successful manufacturing-catalog mutation: refreshes manufacturings immediately. */
   def mutatedManufacturings(): Unit = manufacturingsVersion.update(_ + 1)
 
-  /** Reports a successful warehouse mutation (suppliers, products): refreshes the warehouse immediately. */
+  /** Reports a successful warehouse mutation (suppliers, materials): refreshes the warehouse immediately. */
   def mutatedWarehouse(): Unit = warehouseVersion.update(_ + 1)
 end AppBus

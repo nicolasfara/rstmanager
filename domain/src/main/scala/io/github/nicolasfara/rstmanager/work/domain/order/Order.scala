@@ -158,7 +158,7 @@ enum Order derives CanEqual:
     edit(ManufacturingStatusChanged(manufacturingId, newStatus, reason, now))
 
   /**
-   * Replaces the materials of a manufacturing inside an active or suspended order: products distinct, quantities positive. The manufacturing keeps
+   * Replaces the materials of a manufacturing inside an active or suspended order: materials distinct, quantities positive. The manufacturing keeps
    * its lifecycle state, so a completed one can be corrected without reopening it (the warehouse reconciles its consumption with the new quantities).
    */
   def changeManufacturingMaterials(

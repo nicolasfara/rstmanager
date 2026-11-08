@@ -9,10 +9,10 @@ import io.github.nicolasfara.rstmanager.hr.service.EmployeeHttpApi.EmployeeReque
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.PlanningAttemptRequest
 import io.github.nicolasfara.rstmanager.planning.service.PlanningEndpoints
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ UnitOfMeasure, UnitPrice }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ ProductCode, ProductDescription, ProductId, ProductInfo, ProductRecord }
-import io.github.nicolasfara.rstmanager.warehouse.service.{ ProductHttpApi, StockHttpApi, SupplierHttpApi, WarehouseReportsHttpApi }
-import io.github.nicolasfara.rstmanager.warehouse.service.ProductApp.StoredProduct
-import io.github.nicolasfara.rstmanager.warehouse.service.ProductHttpApi.ProductRequest
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialCode, MaterialDescription, MaterialId, MaterialInfo, MaterialRecord }
+import io.github.nicolasfara.rstmanager.warehouse.service.{ MaterialHttpApi, StockHttpApi, SupplierHttpApi, WarehouseReportsHttpApi }
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialApp.StoredMaterial
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialHttpApi.MaterialRequest
 import io.github.nicolasfara.rstmanager.warehouse.service.StockHttpApi.{ AdjustmentRequest, PurchaseRequest, UnloadRequest }
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierHttpApi.SupplierRequest
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
@@ -42,22 +42,22 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
   private val generatedManufacturingId: UUID = UUID.fromString("00000000-0000-0000-0000-000000000998").nn
   private val now: DateTime = DateTime.parse("2026-06-14T09:30:00.000Z")
 
-  /** The products the material examples name, active and priced at 18.5000 €. */
+  /** The warehouse materials named by the material examples, active and priced at 18.5000 €. */
   private val exampleCatalog: MaterialCatalog =
     MaterialCatalog(
       List("00000000-0000-0000-0000-000000000c01", "00000000-0000-0000-0000-000000000c02").map { raw =>
-        val productId = ProductId(UUID.fromString(raw).nn)
-        val info = ProductInfo(
-          productId,
-          "PRD-1".refineUnsafe[ProductCode],
-          "Profilo in alluminio".refineUnsafe[ProductDescription],
+        val materialId = MaterialId(UUID.fromString(raw).nn)
+        val info = MaterialInfo(
+          materialId,
+          "PRD-1".refineUnsafe[MaterialCode],
+          "Profilo in alluminio".refineUnsafe[MaterialDescription],
           None,
           None,
           UnitOfMeasure.LinearMeters,
           UnitPrice(185000L),
           Nil,
         )
-        productId -> StoredProduct(ProductRecord.created(info, LocalDate.parse("2026-06-01")), None)
+        materialId -> StoredMaterial(MaterialRecord.created(info, LocalDate.parse("2026-06-01")), None)
       }.toMap,
     )
 
@@ -79,7 +79,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     validOrFail(TaskRequest.example.toDomain(id))
     validOrFail(ManufacturingRequest.example.toDomain(id))
     validOrFail(SupplierRequest.example.toDomain(id))
-    validOrFail(ProductRequest.example.toDomain(id))
+    validOrFail(MaterialRequest.example.toDomain(id))
     validOrFail(PurchaseRequest.example.toDomain)
     validOrFail(UnloadRequest.example.toDomain)
     validOrFail(AdjustmentRequest.example.toDomain)
@@ -93,7 +93,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
         OrderHttpApi.endpoints ++
         EmployeeHttpApi.endpoints ++
         SupplierHttpApi.endpoints ++
-        ProductHttpApi.endpoints ++
+        MaterialHttpApi.endpoints ++
         StockHttpApi.endpoints ++
         WarehouseReportsHttpApi.endpoints
     val yaml = OpenAPIDocsInterpreter().toOpenAPI(endpoints, "RST Manager API", "0.1.0").toYaml
@@ -105,11 +105,11 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     yaml should include("2026-01-01T00:00:00.000Z")
     yaml should include("MFG-2026-001")
     yaml should include("/api/v1/warehouse/suppliers/{id}")
-    yaml should include("/api/v1/warehouse/products/{id}")
+    yaml should include("/api/v1/warehouse/materials/{id}")
     yaml should include("includeArchived")
     yaml should include("18.5000")
-    yaml should include("/api/v1/warehouse/products/{id}/purchases")
-    yaml should include("/api/v1/warehouse/products/{id}/movements/{movementId}")
+    yaml should include("/api/v1/warehouse/materials/{id}/purchases")
+    yaml should include("/api/v1/warehouse/materials/{id}/movements/{movementId}")
     yaml should include("/api/v1/warehouse/state")
     yaml should include("/api/v1/warehouse/flows")
     yaml should include("/api/v1/warehouse/supplier-spend")

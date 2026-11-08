@@ -3,9 +3,9 @@ package io.github.nicolasfara.rstmanager.warehouse.service
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.*
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.*
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.{ Supplier, SupplierId }
-import io.github.nicolasfara.rstmanager.warehouse.service.ProductHttpApi.ProductSupplierDto
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialHttpApi.MaterialSupplierDto
 import io.github.nicolasfara.rstmanager.warehouse.service.StockHttpApi.*
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierApp.StoredSupplier
 import io.github.nicolasfara.rstmanager.warehouse.service.WarehouseHttpSupport.OrderLabel
@@ -29,7 +29,7 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
 
   "PurchaseRequest.toDomain" should "parse the decimals, normalize the MPN code, and keep an omitted day for the server" in:
     val command = valid(PurchaseRequest(" ac-152 ", supplierId, "2.5", "3.7", None, Some("  ")).toDomain)(movementId)
-    command shouldEqual ProductService.Command.RecordPurchase(
+    command shouldEqual MaterialService.Command.RecordPurchase(
       movementId,
       "AC-152",
       SupplierId(supplierId),
@@ -39,7 +39,7 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
       None,
     )
     valid(PurchaseRequest.example.toDomain)(movementId) match
-      case purchase: ProductService.Command.RecordPurchase => purchase.on shouldEqual Some(LocalDate.parse("2026-10-20"))
+      case purchase: MaterialService.Command.RecordPurchase => purchase.on shouldEqual Some(LocalDate.parse("2026-10-20"))
       case other => fail(s"Unexpected command: $other")
 
   it should "report every malformed field at once, in Italian" in:
@@ -52,7 +52,7 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
     errors(UnloadRequest("1", None, "  ").toDomain) shouldEqual List("Motivo: Il motivo non può essere vuoto")
     errors(AdjustmentRequest("x", Some("-1"), None, "Sfrido").toDomain).map(_.takeWhile(_ != ':')) shouldEqual List("Variazione", "Costo unitario")
     valid(AdjustmentRequest("-1.5", Some(" "), Some("2026-10-01"), " Sfrido ").toDomain)(movementId) shouldEqual
-      ProductService.Command.Adjust(movementId, SignedQuantity.applyUnsafe(-1500L), None, reason, Some(LocalDate.parse("2026-10-01")))
+      MaterialService.Command.Adjust(movementId, SignedQuantity.applyUnsafe(-1500L), None, reason, Some(LocalDate.parse("2026-10-01")))
     valid(AdjustmentRequest.example.toDomain)
     valid(UnloadRequest.example.toDomain)
 
@@ -70,7 +70,7 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
       ("unload", "0.500", "-0.500", Some("3.0000"), Some("-1.50"), "1.500", false),
       ("adjustment", "0.100", "0.100", None, None, "1.500", true),
     )
-    responses.headOption.flatMap(_.supplier) shouldEqual Some(ProductSupplierDto(supplierId, "Tessuti Nautici", active = true))
+    responses.headOption.flatMap(_.supplier) shouldEqual Some(MaterialSupplierDto(supplierId, "Tessuti Nautici", active = true))
     responses.lastOption.flatMap(_.voidedOn) shouldEqual Some("2026-10-03")
     responses.headOption.map(_.asJson.hcursor.downField("delta").as[String]) shouldEqual Some(Right("2.000"))
 
@@ -89,7 +89,7 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
     responses.map(r => (r.orderId, r.manufacturingId, r.orderNumber, r.manufacturingCode)).distinct shouldEqual
       List((Some(ref.orderId.value), Some(ref.manufacturingId.value), Some("2026-014"), Some("TND-01")))
     ledger.lines.lift(1).map(MovementResponse.fromDomain(_, ledger, Map.empty, Map.empty).orderNumber) shouldEqual Some(None)
-    val failure = WarehouseHttpSupport.productFailure(ProductError.ConsumptionNotVoidable(movementId), supplierId, None)
+    val failure = WarehouseHttpSupport.materialFailure(MaterialError.ConsumptionNotVoidable(movementId), supplierId, None)
     failure._1.code shouldEqual 409
     failure._2.code shouldEqual "consumption-not-voidable"
     failure._2.message should include("scarico automatico")
@@ -106,12 +106,12 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
     errors(WarehouseHttpSupport.parsePeriod(Some("2020-01-01"), Some("2025-01-01"))) shouldEqual List("Al: il periodo non può superare 5 anni")
     WarehouseHttpSupport.parsePeriod(Some("2020-01-01"), Some("2024-12-31")).isValid shouldEqual true
 
-  it should "explain stock rejections in Italian, naming the product" in:
-    val info = ProductInfo
-      .createProductInfo(ProductId(supplierId), "tes-1", "Tessuto", None, None, UnitOfMeasure.LinearMeters, UnitPrice.zero, Nil)
+  it should "explain stock rejections in Italian, naming the material" in:
+    val info = MaterialInfo
+      .createMaterialInfo(MaterialId(supplierId), "tes-1", "Tessuto", None, None, UnitOfMeasure.LinearMeters, UnitPrice.zero, Nil)
       .toOption
-    val failure = WarehouseHttpSupport.productFailure(
-      ProductError.InsufficientStock(LocalDate.parse("2026-10-20"), SignedQuantity.applyUnsafe(2000L)),
+    val failure = WarehouseHttpSupport.materialFailure(
+      MaterialError.InsufficientStock(LocalDate.parse("2026-10-20"), SignedQuantity.applyUnsafe(2000L)),
       supplierId,
       info,
     )
@@ -121,18 +121,18 @@ class StockHttpDtosTest extends AnyFlatSpecLike:
     body.message should include("TES-1")
     body.details shouldEqual List("Disponibile dal 20/10/2026: 2 m")
     WarehouseHttpSupport
-      .productFailure(ProductError.InsufficientStock(LocalDate.parse("2026-10-20"), SignedQuantity.applyUnsafe(1234500L)), supplierId, info)
+      .materialFailure(MaterialError.InsufficientStock(LocalDate.parse("2026-10-20"), SignedQuantity.applyUnsafe(1234500L)), supplierId, info)
       ._2
       .details shouldEqual List("Disponibile dal 20/10/2026: 1.234,5 m")
     WarehouseHttpSupport
-      .productFailure(ProductError.InsufficientStock(LocalDate.parse("2026-10-20"), SignedQuantity.applyUnsafe(2500L)), supplierId, None)
+      .materialFailure(MaterialError.InsufficientStock(LocalDate.parse("2026-10-20"), SignedQuantity.applyUnsafe(2500L)), supplierId, None)
       ._2
       .details shouldEqual List("Disponibile dal 20/10/2026: 2,5")
-    WarehouseHttpSupport.productFailure(ProductError.StockLimitExceeded, supplierId, info)._2.message should include("(1.000.000.000 m)")
-    WarehouseHttpSupport.productFailure(ProductError.NonPositiveQuantity, supplierId, info)._2.details shouldEqual
+    WarehouseHttpSupport.materialFailure(MaterialError.StockLimitExceeded, supplierId, info)._2.message should include("(1.000.000.000 m)")
+    WarehouseHttpSupport.materialFailure(MaterialError.NonPositiveQuantity, supplierId, info)._2.details shouldEqual
       List("Quantità: la quantità deve essere diversa da zero")
-    WarehouseHttpSupport.productFailure(ProductError.ProductIsArchived, supplierId, info)._2.message shouldEqual
-      "Il prodotto TES-1 è archiviato e non può più essere modificato."
+    WarehouseHttpSupport.materialFailure(MaterialError.MaterialIsArchived, supplierId, info)._2.message shouldEqual
+      "Il materiale TES-1 è archiviato e non può più essere modificato."
 
   "WarehouseHttpSupport formatting" should "write quantities, units, and euro the Italian way" in:
     import WarehouseHttpSupport.*

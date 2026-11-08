@@ -255,9 +255,9 @@ object ApiClient:
 
   /**
    * Replaces the material lines of a manufacturing (Operator; only while the order is in progress or suspended, 409 `order-not-editable` otherwise).
-   * A line without `unitPrice` keeps its frozen price, or a new line freezes the product's current customer price.
+   * A line without `unitPrice` keeps its frozen price, or a new line freezes the material's current customer price.
    */
-  def setManufacturingMaterials(orderId: UUID, manufacturingId: UUID, materials: List[MaterialDto]): Future[Result[OrderResponse]] =
+  def setManufacturingMaterials(orderId: UUID, manufacturingId: UUID, materials: List[MaterialLineDto]): Future[Result[OrderResponse]] =
     sendJson(dom.HttpMethod.PUT, s"/orders/$orderId/manufacturings/$manufacturingId/materials", jsonBody(MaterialsUpdateRequest(materials)))
   def deleteOrder(id: UUID, reason: Option[String]): Future[Result[Unit]] =
     val query = reason.filter(_.nonEmpty).fold("")(r => s"?reason=${js.URIUtils.encodeURIComponent(r)}")
@@ -281,31 +281,31 @@ object ApiClient:
     sendJson(dom.HttpMethod.PUT, s"/warehouse/suppliers/$id", jsonBody(request))
   def deleteSupplier(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/warehouse/suppliers/$id", None)
 
-  def listProducts(includeArchived: Boolean): Future[Result[List[ProductResponse]]] =
+  def listMaterials(includeArchived: Boolean): Future[Result[List[MaterialResponse]]] =
     val query = if includeArchived then "?includeArchived=true" else ""
-    sendJson(dom.HttpMethod.GET, s"/warehouse/products$query", None)
-  def createProduct(request: ProductRequest): Future[Result[ProductResponse]] =
-    sendJson(dom.HttpMethod.POST, "/warehouse/products", jsonBody(request))
-  def updateProduct(id: UUID, request: ProductRequest): Future[Result[ProductResponse]] =
-    sendJson(dom.HttpMethod.PUT, s"/warehouse/products/$id", jsonBody(request))
+    sendJson(dom.HttpMethod.GET, s"/warehouse/materials$query", None)
+  def createMaterial(request: MaterialRequest): Future[Result[MaterialResponse]] =
+    sendJson(dom.HttpMethod.POST, "/warehouse/materials", jsonBody(request))
+  def updateMaterial(id: UUID, request: MaterialRequest): Future[Result[MaterialResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/warehouse/materials/$id", jsonBody(request))
 
-  /** `DELETE` on a product archives it: it stays readable (with `includeArchived`) for the warehouse history. */
-  def archiveProduct(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/warehouse/products/$id", None)
+  /** `DELETE` on a material archives it: it stays readable (with `includeArchived`) for the warehouse history. */
+  def archiveMaterial(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/warehouse/materials/$id", None)
 
-  def recordPurchase(productId: UUID, request: PurchaseRequest): Future[Result[MovementRecordedResponse]] =
-    sendJson(dom.HttpMethod.POST, s"/warehouse/products/$productId/purchases", jsonBody(request))
-  def recordUnload(productId: UUID, request: UnloadRequest): Future[Result[MovementRecordedResponse]] =
-    sendJson(dom.HttpMethod.POST, s"/warehouse/products/$productId/unloads", jsonBody(request))
-  def recordAdjustment(productId: UUID, request: AdjustmentRequest): Future[Result[MovementRecordedResponse]] =
-    sendJson(dom.HttpMethod.POST, s"/warehouse/products/$productId/adjustments", jsonBody(request))
+  def recordPurchase(materialId: UUID, request: PurchaseRequest): Future[Result[MovementRecordedResponse]] =
+    sendJson(dom.HttpMethod.POST, s"/warehouse/materials/$materialId/purchases", jsonBody(request))
+  def recordUnload(materialId: UUID, request: UnloadRequest): Future[Result[MovementRecordedResponse]] =
+    sendJson(dom.HttpMethod.POST, s"/warehouse/materials/$materialId/unloads", jsonBody(request))
+  def recordAdjustment(materialId: UUID, request: AdjustmentRequest): Future[Result[MovementRecordedResponse]] =
+    sendJson(dom.HttpMethod.POST, s"/warehouse/materials/$materialId/adjustments", jsonBody(request))
 
   /** Voids a movement (Admin); the server requires a non-blank `reason`. */
-  def voidMovement(productId: UUID, movementId: UUID, reason: String): Future[Result[Unit]] =
-    sendUnit(dom.HttpMethod.DELETE, s"/warehouse/products/$productId/movements/$movementId${queryString(List("reason" -> Some(reason)))}", None)
+  def voidMovement(materialId: UUID, movementId: UUID, reason: String): Future[Result[Unit]] =
+    sendUnit(dom.HttpMethod.DELETE, s"/warehouse/materials/$materialId/movements/$movementId${queryString(List("reason" -> Some(reason)))}", None)
 
-  /** The movements of a product from `from` to `to` (`YYYY-MM-DD`, inclusive, both optional) with the running balance. */
-  def listMovements(productId: UUID, from: Option[String], to: Option[String]): Future[Result[MovementsResponse]] =
-    sendJson(dom.HttpMethod.GET, s"/warehouse/products/$productId/movements${queryString(List("from" -> from, "to" -> to))}", None)
+  /** The movements of a material from `from` to `to` (`YYYY-MM-DD`, inclusive, both optional) with the running balance. */
+  def listMovements(materialId: UUID, from: Option[String], to: Option[String]): Future[Result[MovementsResponse]] =
+    sendJson(dom.HttpMethod.GET, s"/warehouse/materials/$materialId/movements${queryString(List("from" -> from, "to" -> to))}", None)
 
   /** The warehouse at the end of day `at` (`YYYY-MM-DD`, not after today). */
   def warehouseState(at: String): Future[Result[WarehouseStateResponse]] =

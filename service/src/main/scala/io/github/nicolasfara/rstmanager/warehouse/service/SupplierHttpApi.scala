@@ -106,17 +106,17 @@ object SupplierHttpApi:
     Secured.base.delete
       .in(collection / path[UUID]("id"))
       .tag("Warehouse")
-      .summary("Delete a supplier no product references")
+      .summary("Delete a supplier no material references")
       .out(statusCode(StatusCode.NoContent))
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
-  def routes(store: SupplierApp.Store, products: ProductApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] = List(
+  def routes(store: SupplierApp.Store, materials: MaterialApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] = List(
     security.secure(create, Role.Admin)(createLogic(store)),
     security.secure(list, Role.Viewer)(_ => listLogic(store)),
     security.secure(read, Role.Viewer)(readLogic(store)),
     security.secure(update, Role.Admin)(updateLogic(store)),
-    security.secure(delete, Role.Admin)(deleteLogic(store, products)),
+    security.secure(delete, Role.Admin)(deleteLogic(store, materials)),
   )
 
   private def createLogic(store: SupplierApp.Store)(request: SupplierRequest): IO[Either[ApiFailure, SupplierResponse]] =
@@ -154,14 +154,14 @@ object SupplierHttpApi:
           case Right(Right(())) => SupplierResponse.fromDomain(supplier).asRight
         }
 
-  /** A supplier referenced by any product, archived ones included, cannot be deleted: the product would lose the supplier of its MPNs. */
-  private def deleteLogic(store: SupplierApp.Store, products: ProductApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
-    ProductApp
-      .referencingSupplier(products, SupplierId(id))
+  /** A supplier referenced by any material, archived ones included, cannot be deleted: the material would lose the supplier of its MPNs. */
+  private def deleteLogic(store: SupplierApp.Store, materials: MaterialApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
+    MaterialApp
+      .referencingSupplier(materials, SupplierId(id))
       .flatMap {
         case usedBy if usedBy.nonEmpty =>
-          val details = usedBy.map(product => s"${product.info.internalCode} - ${product.info.description}").sorted
-          IO.pure(conflict("supplier-in-use", "Il fornitore è usato da uno o più prodotti di magazzino.", details).asLeft)
+          val details = usedBy.map(material => s"${material.info.internalCode} - ${material.info.description}").sorted
+          IO.pure(conflict("supplier-in-use", "Il fornitore è usato da uno o più materiali di magazzino.", details).asLeft)
         case _ => SupplierApp.delete(store, SupplierId(id)).map(_.leftMap(failure(_, id)))
       }
       .handleError(error => internal(error).asLeft)

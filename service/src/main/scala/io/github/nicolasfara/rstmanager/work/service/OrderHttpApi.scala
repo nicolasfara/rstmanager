@@ -7,9 +7,9 @@ import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.ProductId
-import io.github.nicolasfara.rstmanager.warehouse.service.{ ProductApp, WarehouseHttpSupport }
-import io.github.nicolasfara.rstmanager.warehouse.service.ProductApp.StoredProduct
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
+import io.github.nicolasfara.rstmanager.warehouse.service.{ MaterialApp, WarehouseHttpSupport }
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialApp.StoredMaterial
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.{ CancellationReason, OrderData, OrderError, OrderId, OrderService }
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
@@ -31,10 +31,10 @@ object OrderHttpApi:
   import OrderDtos.given
 
   private def conflict(error: OrderError): ApiFailure = error match
-    case OrderError.DuplicateMaterials(_, productIds) =>
-      ApiError.conflict("duplicate-materials", "Un prodotto compare in più righe dei materiali della lavorazione.", productList(productIds))
-    case OrderError.NonPositiveMaterialQuantity(_, productIds) =>
-      ApiError.conflict("non-positive-material-quantity", "La quantità di ogni materiale deve essere maggiore di zero.", productList(productIds))
+    case OrderError.DuplicateMaterials(_, materialIds) =>
+      ApiError.conflict("duplicate-materials", "Un materiale compare in più righe della lavorazione.", materialList(materialIds))
+    case OrderError.NonPositiveMaterialQuantity(_, materialIds) =>
+      ApiError.conflict("non-positive-material-quantity", "La quantità di ogni materiale deve essere maggiore di zero.", materialList(materialIds))
     case other => ApiError.conflict("order-command-rejected", s"The order command was rejected: ${other.toString}.", Nil)
 
   /** Like [[conflict]], saying in Italian why the materials of the manufacturing cannot change. */
@@ -48,7 +48,7 @@ object OrderHttpApi:
     case OrderError.ManufacturingNotFound(manufacturingId) => manufacturingNotFound(manufacturingId.value)
     case other => conflict(other)
 
-  private def productList(productIds: Set[ProductId]): List[String] = productIds.toList.map(_.value.toString).sorted
+  private def materialList(materialIds: Set[MaterialId]): List[String] = materialIds.toList.map(_.value.toString).sorted
 
   private def manufacturingNotFound(manufacturingId: UUID): ApiFailure =
     StatusCode.NotFound -> ApiError("not-found", "La lavorazione richiesta non esiste nell'ordine.", List(manufacturingId.toString))
@@ -167,7 +167,7 @@ object OrderHttpApi:
     Secured.base.put
       .in(collection / path[UUID]("id") / "manufacturings" / path[UUID]("manufacturingId") / "materials")
       .tag("Orders")
-      .summary("Replace the materials of a manufacturing (a missing unit price keeps the frozen one, or freezes the product's customer price)")
+      .summary("Replace the materials of a manufacturing (a missing unit price keeps the frozen one, or freezes the material's customer price)")
       .in(jsonBody[MaterialsUpdateRequest].example(MaterialsUpdateRequest.example))
       .out(jsonBody[OrderResponse])
 
@@ -205,10 +205,10 @@ object OrderHttpApi:
       customers: CustomerApp.Store,
       tasks: TaskApp.Store,
       employees: EmployeeApp.Store,
-      products: ProductApp.Store,
+      materials: MaterialApp.Store,
       security: ApiSecurity,
   ): List[ServerEndpoint[Any, IO]] =
-    val orders = Orders(store, products)
+    val orders = Orders(store, materials)
     List(
       security.secure(create, Role.Operator)(createLogic(orders, customers, tasks)),
       security.secure(list, Role.Viewer)(_ => listLogic(orders)),
@@ -230,8 +230,8 @@ object OrderHttpApi:
     )
   end routes
 
-  /** The order backend plus the warehouse products, whose master data the responses show and against which material lines are checked. */
-  private final case class Orders(store: OrderApp.Store, products: ProductApp.Store)
+  /** The order backend plus the warehouse materials, whose master data the responses show and against which material lines are checked. */
+  private final case class Orders(store: OrderApp.Store, materials: MaterialApp.Store)
 
   private def createLogic(
       orders: Orders,
@@ -239,7 +239,7 @@ object OrderHttpApi:
       tasks: TaskApp.Store,
   )(request: OrderRequest): IO[Either[ApiFailure, OrderResponse]] =
     IO(UUID.randomUUID().nn).flatMap { id =>
-      withCatalog(orders, request.productIds) { catalog =>
+      withCatalog(orders, request.materialIds) { catalog =>
         request.toDomain(id, catalog).toEither match
           case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
           case Right((data, promised)) =>
@@ -266,15 +266,15 @@ object OrderHttpApi:
       else if missingTasks.nonEmpty then Some(ApiError.notFound("Task", missingTasks.mkString(", ")))
       else None
 
-  /** The warehouse products with these ids, active or archived; ids of unknown products are left out. */
-  private def loadProducts(products: ProductApp.Store, ids: List[ProductId]): IO[Map[ProductId, StoredProduct]] =
-    ids.distinct.traverse(id => ProductApp.find(products, id).map(_.map(id -> _))).map(_.flatten.toMap)
+  /** The warehouse materials with these ids, active or archived; ids of unknown materials are left out. */
+  private def loadMaterials(materials: MaterialApp.Store, ids: List[MaterialId]): IO[Map[MaterialId, StoredMaterial]] =
+    ids.distinct.traverse(id => MaterialApp.find(materials, id).map(_.map(id -> _))).map(_.flatten.toMap)
 
-  /** Runs `body` with the catalog of the warehouse products a request names. */
-  private def withCatalog(orders: Orders, ids: List[ProductId])(
+  /** Runs `body` with the catalog of the warehouse materials a request names. */
+  private def withCatalog(orders: Orders, ids: List[MaterialId])(
       body: MaterialCatalog => IO[Either[ApiFailure, OrderResponse]],
   ): IO[Either[ApiFailure, OrderResponse]] =
-    loadProducts(orders.products, ids).attempt.flatMap {
+    loadMaterials(orders.materials, ids).attempt.flatMap {
       case Left(error) => IO.pure(ApiError.internal(error).asLeft)
       case Right(found) => body(MaterialCatalog(found))
     }
@@ -283,8 +283,8 @@ object OrderHttpApi:
     val listed =
       for
         all <- OrderApp.list(orders.store)
-        products <- loadProducts(orders.products, all.flatMap(OrderResponse.productIds))
-      yield all.flatMap(OrderResponse.fromDomain(_, products).toList)
+        materials <- loadMaterials(orders.materials, all.flatMap(OrderResponse.materialIds))
+      yield all.flatMap(OrderResponse.fromDomain(_, materials).toList)
     listed.attempt.map(_.leftMap(ApiError.internal))
 
   private def updateLogic(orders: Orders)(id: UUID, request: OrderUpdateRequest): IO[Either[ApiFailure, OrderResponse]] =
@@ -309,7 +309,7 @@ object OrderHttpApi:
       tasks: TaskApp.Store,
   )(id: UUID, request: ManufacturingDto): IO[Either[ApiFailure, OrderResponse]] =
     IO(UUID.randomUUID().nn).flatMap { manufacturingId =>
-      withCatalog(orders, request.productIds) { catalog =>
+      withCatalog(orders, request.materialIds) { catalog =>
         request.toDomain("manufacturing", manufacturingId, catalog).toEither match
           case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
           case Right(manufacturing) =>
@@ -332,7 +332,7 @@ object OrderHttpApi:
 
   /**
    * Replaces the materials of a manufacturing. The lines are checked against the warehouse (see [[MaterialCatalog]]) and against the materials the
-   * manufacturing already has: those may keep an archived product, and a line without a price keeps its frozen one.
+   * manufacturing already has: those may keep an archived material, and a line without a price keeps its frozen one.
    */
   private def setMaterialsLogic(
       orders: Orders,
@@ -344,7 +344,7 @@ object OrderHttpApi:
         order.orderData.flatMap(_.setOfManufacturing.find(_.info.id == ScheduledManufacturingId(manufacturingId))) match
           case None => IO.pure(manufacturingNotFound(manufacturingId).asLeft)
           case Some(manufacturing) =>
-            withCatalog(orders, request.productIds) { catalog =>
+            withCatalog(orders, request.materialIds) { catalog =>
               request.toCommand(manufacturingId, catalog, manufacturing.info.materials).toEither match
                 case Left(errors) => IO.pure(WarehouseHttpSupport.validation(errors).asLeft)
                 case Right(command) => runCommandsWith(orders, id, List(command), materialsConflict)
@@ -456,14 +456,14 @@ object OrderHttpApi:
     }
   end runCommandsWith
 
-  /** The current order, with the master data of the warehouse products its materials name. */
+  /** The current order, with the master data of the warehouse materials its materials name. */
   private def respondWith(orders: Orders, id: UUID): IO[Either[ApiFailure, OrderResponse]] =
     val loaded = OrderApp
       .get(orders.store, OrderId(id))
-      .flatMap(_.traverse(order => loadProducts(orders.products, OrderResponse.productIds(order)).tupleLeft(order)))
+      .flatMap(_.traverse(order => loadMaterials(orders.materials, OrderResponse.materialIds(order)).tupleLeft(order)))
     loaded.attempt.map {
       case Left(error) => ApiError.internal(error).asLeft
-      case Right(Some((order, products))) => OrderResponse.fromDomain(order, products).toRight(ApiError.notFound("Order", id.toString))
+      case Right(Some((order, materials))) => OrderResponse.fromDomain(order, materials).toRight(ApiError.notFound("Order", id.toString))
       case Right(None) => ApiError.notFound("Order", id.toString).asLeft
     }
 end OrderHttpApi

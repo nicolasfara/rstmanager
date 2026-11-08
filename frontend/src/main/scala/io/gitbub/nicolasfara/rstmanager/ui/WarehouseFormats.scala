@@ -10,7 +10,7 @@ import scala.math.BigDecimal.RoundingMode
  */
 object WarehouseFormats:
 
-  /** Unit of measure of a product, mirroring the backend wire names. `allowsFractions` is false for whole pieces. */
+  /** Unit of measure of a material, mirroring the backend wire names. `allowsFractions` is false for whole pieces. */
   enum MeasureUnit(val wireName: String, val label: String, val shortLabel: String, val allowsFractions: Boolean) derives CanEqual:
     case Pieces extends MeasureUnit("pieces", "Pezzi", "pz", false)
     case LinearMeters extends MeasureUnit("linear_meters", "Metri lineari", "m", true)

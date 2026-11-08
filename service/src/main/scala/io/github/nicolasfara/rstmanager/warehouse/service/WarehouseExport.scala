@@ -4,7 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.time.Instant
 
 import io.github.nicolasfara.rstmanager.warehouse.domain.*
-import io.github.nicolasfara.rstmanager.warehouse.domain.product.{ MovementKind, StockMovement, StockSnapshot }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MovementKind, StockMovement, StockSnapshot }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.SupplierId
 import io.github.nicolasfara.rstmanager.warehouse.service.SupplierApp.StoredSupplier
 import io.github.nicolasfara.rstmanager.warehouse.service.WarehouseHttpSupport.OrderLabel
@@ -20,7 +20,7 @@ import org.dhatim.fastexcel.{ Workbook as XlsxWorkbook, Worksheet }
  * The workbook is first built as a pure model — sheets of typed cells, from the [[WarehouseReports.stateAt]] state and the movements up to the day —
  * then written by [[write]]. Numbers are real numeric cells with a number format (the spreadsheet application shows them with the separators of its
  * locale), days are date cells; texts are in Italian. Sheets:
- *   - `Magazzino`: one row per product of the state, plus a totals row;
+ *   - `Magazzino`: one row per material of the state, plus a totals row;
  *   - `Movimenti`: every movement not voided dated on or before the day, in chronological order (automatic consumptions name their order);
  *   - `Info`: the day, when the file was generated, the totals, and how stock is valued.
  */
@@ -73,7 +73,7 @@ object WarehouseExport:
    * A movement of the export, with the unit cost and the signed value it is shown with (as in the movement list: incoming movements at the cost they
    * record, outgoing ones and consumption reversals at the highest cost of their day).
    */
-  final case class ExportedMovement(product: ReportedProduct, movement: StockMovement, unitCost: Option[UnitPrice], value: Option[Amount])
+  final case class ExportedMovement(material: ReportedMaterial, movement: StockMovement, unitCost: Option[UnitPrice], value: Option[Amount])
       derives CanEqual:
     /** The supplier of a purchase. */
     def supplierId: Option[SupplierId] = movement.kind match
@@ -83,17 +83,17 @@ object WarehouseExport:
   /** The name of the downloaded file: `magazzino-YYYY-MM-DD.xlsx`. */
   def fileName(day: LocalDate): String = s"magazzino-${formatDay(day)}.xlsx"
 
-  /** Every movement not voided dated on or before `day`, of every product, by day, then product code, then recording order. */
-  def movementsUntil(products: List[ReportedProduct], day: LocalDate): List[ExportedMovement] =
-    products.flatMap { product =>
-      val ledger = product.record.ledger
+  /** Every movement not voided dated on or before `day`, of every material, by day, then material code, then recording order. */
+  def movementsUntil(materials: List[ReportedMaterial], day: LocalDate): List[ExportedMovement] =
+    materials.flatMap { material =>
+      val ledger = material.record.ledger
       ledger.active.toList
         .filterNot(_.on.isAfter(day))
         .map { movement =>
-          ExportedMovement(product, movement, ledger.unitCostOf(movement), ledger.valueOf(movement))
+          ExportedMovement(material, movement, ledger.unitCostOf(movement), ledger.valueOf(movement))
         }
     }
-      .sortBy(exported => (exported.movement.on, exported.product.record.info.internalCode: String, exported.movement.sequence))
+      .sortBy(exported => (exported.movement.on, exported.material.record.info.internalCode: String, exported.movement.sequence))
 
   /**
    * The whole workbook of `state`, with `movements` (see [[movementsUntil]]), naming suppliers from `suppliers` and the orders of consumptions from
@@ -130,16 +130,16 @@ object WarehouseExport:
   def stockSheet(state: WarehouseState, suppliers: Map[SupplierId, StoredSupplier]): Sheet =
     Sheet("Magazzino", stockColumns, rows(state, suppliers), Some(totalsRow(state.totals)))
 
-  /** One row per product of `state`, in the order of the state (by internal code). */
+  /** One row per material of `state`, in the order of the state (by internal code). */
   def rows(state: WarehouseState, suppliers: Map[SupplierId, StoredSupplier]): List[List[Cell]] =
     state.rows.map(stockRow(_, suppliers))
 
   def stockRow(row: StateRow, suppliers: Map[SupplierId, StoredSupplier]): List[Cell] =
-    val info = row.product.record.info
+    val info = row.material.record.info
     List(
       Cell.Text(info.internalCode),
       Cell.Text(info.description),
-      text(info.productType.getOrElse("")),
+      text(info.materialType.getOrElse("")),
       Cell.Text(unitShortLabel(info.unit)),
       quantityCell(row.stock.quantity, info.unit),
       row.stock.maxUnitCost.fold(Cell.Blank)(unitCostCell),
@@ -163,12 +163,12 @@ object WarehouseExport:
 
   def totalsRow(totals: StateTotals): List[Cell] =
     val flagged = List(
-      Option.when(totals.negativeProducts > 0)(s"${totals.negativeProducts} con giacenza negativa"),
-      Option.when(totals.unvaluedProducts > 0)(s"${totals.unvaluedProducts} non valorizzati"),
+      Option.when(totals.negativeMaterials > 0)(s"${totals.negativeMaterials} con giacenza negativa"),
+      Option.when(totals.unvaluedMaterials > 0)(s"${totals.unvaluedMaterials} non valorizzati"),
     ).flatten
     List(
       Cell.Text("Totale"),
-      Cell.Text(if totals.products == 1 then "1 prodotto" else s"${totals.products} prodotti"),
+      Cell.Text(if totals.materials == 1 then "1 materiale" else s"${totals.materials} materiali"),
       Cell.Blank,
       Cell.Blank,
       Cell.Blank,
@@ -204,7 +204,7 @@ object WarehouseExport:
     Sheet("Movimenti", movementColumns, movements.map(movementRow(_, suppliers, orders)), None)
 
   def movementRow(exported: ExportedMovement, suppliers: Map[SupplierId, StoredSupplier], orders: Map[OrderId, OrderLabel]): List[Cell] =
-    val info = exported.product.record.info
+    val info = exported.material.record.info
     val movement = exported.movement
     List(
       Cell.Day(movement.on),
@@ -256,11 +256,11 @@ object WarehouseExport:
       List(
         List(Cell.Text("Stato magazzino al"), Cell.Day(state.at)),
         List(Cell.Text("Generato il"), Cell.Text(s"$generated (ora italiana)")),
-        List(Cell.Text("Prodotti"), countCell(state.totals.products)),
+        List(Cell.Text("Materiali"), countCell(state.totals.materials)),
         List(Cell.Text("Valore magazzino"), euroCell(state.totals.value)),
         List(Cell.Text("Costo totale acquisti"), euroCell(state.totals.purchasedTotal)),
-        List(Cell.Text("Prodotti con giacenza negativa"), countCell(state.totals.negativeProducts)),
-        List(Cell.Text("Prodotti non valorizzati"), countCell(state.totals.unvaluedProducts)),
+        List(Cell.Text("Materiali con giacenza negativa"), countCell(state.totals.negativeMaterials)),
+        List(Cell.Text("Materiali non valorizzati"), countCell(state.totals.unvaluedMaterials)),
         List(Cell.Text("Movimenti fino al giorno"), countCell(movements)),
         List(
           Cell.Text("Valorizzazione"),

@@ -567,41 +567,52 @@ object PlanningPage:
         else span(cls := "text-xs text-slate-400", "ordine non modificabile"),
       )
 
+    val completedQuery = Var("")
+    val completedPager = Pagination(Paging.defaultPageSize)
+    val completedSearchFields: Signal[CompletedRow => List[String]] =
+      catalogNames.map(names => row => row.order.number :: row.manufacturing.code :: names.get(row.task.taskId).toList)
+
     def completedSection(orders: List[OrderResponse]): HtmlElement =
-      val rows = completedRows(orders)
+      val all = completedRows(orders)
       card(
         div(
-          cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
+          cls := "flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3",
           div(
-            div(cls := "text-sm font-semibold text-slate-800", s"Task completati (${rows.size})"),
+            div(cls := "text-sm font-semibold text-slate-800", s"Task completati (${all.size})"),
             div(cls := "text-xs text-slate-400", "Un task completato per errore può essere riattivato: torna tra i task pianificati."),
           ),
+          Option.when(all.nonEmpty)(
+            div(cls := "w-full sm:w-72", searchBox(completedQuery, "Cerca per task, ordine, lavorazione…", completedPager)),
+          ),
         ),
-        if rows.isEmpty then div(cls := "p-4", emptyState("Nessun task completato."))
+        if all.isEmpty then div(cls := "p-4", emptyState("Nessun task completato."))
         else
-          div(
-            // Mobile: card per ogni riga
-            div(cls := "sm:hidden", rows.map(completedCard)),
-            // Desktop: tabella
-            div(
-              cls := "hidden sm:block overflow-x-auto",
-              table(
-                cls := "w-full text-sm",
-                thead(
-                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                  tr(
-                    th(cls := "px-4 py-2", "Task"),
-                    th(cls := "px-4 py-2", "Ordine"),
-                    th(cls := "px-4 py-2", "Lavorazione"),
-                    th(cls := "px-4 py-2", "Ore"),
-                    th(cls := "px-4 py-2", "Completato il"),
-                    th(cls := "px-4 py-2"),
+          searchedPages(all, completedQuery.signal, completedSearchFields, completedPager, "Nessun task completato corrisponde alla ricerca.") {
+            rows =>
+              div(
+                // Mobile: card per ogni riga
+                div(cls := "sm:hidden", rows.map(completedCard)),
+                // Desktop: tabella
+                div(
+                  cls := "hidden sm:block overflow-x-auto",
+                  table(
+                    cls := "w-full text-sm",
+                    thead(
+                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                      tr(
+                        th(cls := "px-4 py-2", "Task"),
+                        th(cls := "px-4 py-2", "Ordine"),
+                        th(cls := "px-4 py-2", "Lavorazione"),
+                        th(cls := "px-4 py-2", "Ore"),
+                        th(cls := "px-4 py-2", "Completato il"),
+                        th(cls := "px-4 py-2"),
+                      ),
+                    ),
+                    tbody(rows.map(completedRow)),
                   ),
                 ),
-                tbody(rows.map(completedRow)),
-              ),
-            ),
-          ),
+              )
+          },
       )
     end completedSection
 

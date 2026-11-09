@@ -9,7 +9,7 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MaterialForm.MpnRow
@@ -39,6 +39,8 @@ object MaterialsTab:
 
     val materials = loadable(AppBus.warehouseTicks.combineWith(showArchived.signal))(() => ApiClient.listMaterials(showArchived.now()))
     val suppliers = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
+    val query = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
 
     val supplierOptions: Signal[List[(String, String)]] =
       suppliers.combineWith(editedSuppliers.signal).map { (loaded, edited) =>
@@ -330,6 +332,7 @@ object MaterialsTab:
         cls := "overflow-hidden",
         div(
           cls := "flex flex-wrap items-center justify-end gap-3 border-b border-slate-100 px-4 py-2",
+          div(cls := "mr-auto w-full sm:w-80", searchBox(query, "Cerca per codice, descrizione, MPN, fornitore…", pager)),
           roleGated(Role.Admin)(
             button(
               tpe := "button",
@@ -342,7 +345,7 @@ object MaterialsTab:
           ),
           label(
             cls := "inline-flex items-center gap-2 text-xs font-medium text-slate-600",
-            input(typ := "checkbox", checked <-- showArchived.signal, onChange.mapToChecked --> showArchived),
+            input(typ := "checkbox", checked <-- showArchived.signal, onChange.mapToChecked --> { show => showArchived.set(show); pager.reset() }),
             "Mostra archiviati",
           ),
         ),
@@ -369,30 +372,32 @@ object MaterialsTab:
             ),
           )
         }),
-        renderResult(materials) { list =>
-          if list.isEmpty then emptyState("Nessun materiale in magazzino.")
+        renderResult(materials) { all =>
+          if all.isEmpty then div(cls := "p-4", emptyState("Nessun materiale in magazzino."))
           else
-            div(
-              cls := "overflow-x-auto",
-              table(
-                cls := "w-full text-sm",
-                thead(
-                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                  tr(
-                    th(cls := "px-4 py-2", "Codice"),
-                    th(cls := "px-4 py-2", "Descrizione"),
-                    th(cls := "px-4 py-2", "Tipologia"),
-                    th(cls := "px-4 py-2", "UdM"),
-                    th(cls := "px-4 py-2 text-right", "Giacenza"),
-                    th(cls := "px-4 py-2 text-right", "Valore"),
-                    th(cls := "px-4 py-2 text-right", "Prezzo cliente"),
-                    th(cls := "px-4 py-2", "Fornitori"),
-                    th(cls := "px-4 py-2"),
+            searchedPages(all, query.signal, ListSearch.material, pager, "Nessun materiale corrisponde alla ricerca.") { list =>
+              div(
+                cls := "overflow-x-auto",
+                table(
+                  cls := "w-full text-sm",
+                  thead(
+                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                    tr(
+                      th(cls := "px-4 py-2", "Codice"),
+                      th(cls := "px-4 py-2", "Descrizione"),
+                      th(cls := "px-4 py-2", "Tipologia"),
+                      th(cls := "px-4 py-2", "UdM"),
+                      th(cls := "px-4 py-2 text-right", "Giacenza"),
+                      th(cls := "px-4 py-2 text-right", "Valore"),
+                      th(cls := "px-4 py-2 text-right", "Prezzo cliente"),
+                      th(cls := "px-4 py-2", "Fornitori"),
+                      th(cls := "px-4 py-2"),
+                    ),
                   ),
+                  tbody(list.map(renderRow)),
                 ),
-                tbody(list.map(renderRow)),
-              ),
-            )
+              )
+            }
         },
       )
 

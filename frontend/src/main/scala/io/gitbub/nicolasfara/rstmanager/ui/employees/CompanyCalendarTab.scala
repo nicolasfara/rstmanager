@@ -9,7 +9,7 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.AppBus
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.BusinessDay
 
@@ -64,6 +64,8 @@ object CompanyCalendarTab:
     val formErrors: Signal[List[String]] = form.signal.map(_.errors)
 
     val data = loadable(AppBus.calendarTicks)(() => ApiClient.listClosures())
+    val periodsPager = Pagination(Paging.defaultPageSize)
+    val annualsPager = Pagination(Paging.defaultPageSize)
 
     def kindFields(annual: Boolean): HtmlElement =
       if annual then
@@ -96,11 +98,13 @@ object CompanyCalendarTab:
         ),
       )
 
-    def section(title: String, emptyText: String, rows: List[HtmlElement]): HtmlElement =
+    def section(title: String, emptyText: String, closures: List[ClosureResponse], pager: Pagination)(
+        dimmed: ClosureResponse => Boolean,
+    ): HtmlElement =
       div(
         div(cls := "border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500", title),
-        if rows.isEmpty then div(cls := "px-4 py-3 text-xs text-slate-400", emptyText)
-        else div(cls := "divide-y divide-slate-100", rows),
+        if closures.isEmpty then div(cls := "px-4 py-3 text-xs text-slate-400", emptyText)
+        else pager.view(closures)(shown => div(cls := "divide-y divide-slate-100", shown.map(c => row(c, dimmed(c))))),
       )
 
     div(
@@ -154,12 +158,10 @@ object CompanyCalendarTab:
           else
             val today = BusinessDay.today()
             div(
-              section(
-                "Periodi",
-                "Nessun periodo di chiusura.",
-                CompanyCalendarView.periods(closures, today).map(c => row(c, CompanyCalendarView.isPast(c, today))),
+              section("Periodi", "Nessun periodo di chiusura.", CompanyCalendarView.periods(closures, today), periodsPager)(
+                CompanyCalendarView.isPast(_, today),
               ),
-              section("Ricorrenze annuali", "Nessuna ricorrenza annuale.", CompanyCalendarView.annuals(closures).map(row(_, dimmed = false))),
+              section("Ricorrenze annuali", "Nessuna ricorrenza annuale.", CompanyCalendarView.annuals(closures), annualsPager)(_ => false),
             )
         },
       ),

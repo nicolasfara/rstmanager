@@ -27,6 +27,15 @@ stack e convenzioni del repo:
   `AppBus` (tick per-dominio + settle tick planning), `ApiClient`, componenti
   condivisi, auth/role-gating cosmetico, `ErrorCenter`, mirror DTO. Per pagine,
   form, client API, o review di reattività e trappole Scala.js.
+- **`ux-designer`** — usabilità della SPA: audit delle pagine (anche nel
+  browser con claude-in-chrome) con findings ordinati per severità, poi
+  implementazione dei fix approvati con i componenti condivisi (conferme,
+  feedback, stati vuoti/errore, form, liste lunghe con ricerca + paginazione,
+  mobile, accessibilità, copy italiano).
+
+Le liste del frontend sono cercate e paginate lato client: `Pagination` /
+`Paging` + `Components.searchBox` / `searchedPages`, campi di ricerca in
+`ListSearch`. Nuove liste seguono lo stesso pattern.
 
 ## Regole imposte da compiler & scalafix (tutti i moduli)
 

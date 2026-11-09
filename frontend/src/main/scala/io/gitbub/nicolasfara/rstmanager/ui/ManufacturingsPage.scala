@@ -44,6 +44,8 @@ object ManufacturingsPage:
     val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
     val manufacturingsData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
+    val query = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
     val manufacturingsSnapshot = Var(List.empty[ManufacturingCatalogResponse])
     // Synchronous view of catalog tasks by id, used to propose a task's default employee when it is picked in a row.
     val tasksSnapshot = Var(Map.empty[String, TaskResponse])
@@ -383,30 +385,33 @@ object ManufacturingsPage:
       ),
       card(
         cls := "overflow-hidden",
-        renderResult(manufacturingsData) { manufacturings =>
-          if manufacturings.isEmpty then emptyState("Nessuna lavorazione nel catalogo.")
+        div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca per codice, nome, task…", pager)),
+        renderResult(manufacturingsData) { all =>
+          if all.isEmpty then div(cls := "p-4", emptyState("Nessuna lavorazione nel catalogo."))
           else
-            div(
-              // Mobile: stacked cards. Desktop (md+): the table.
-              div(cls := "divide-y divide-slate-100 md:hidden", manufacturings.map(renderCard)),
+            searchedPages(all, query.signal, ListSearch.manufacturing, pager, "Nessuna lavorazione corrisponde alla ricerca.") { manufacturings =>
               div(
-                cls := "hidden overflow-x-auto md:block",
-                table(
-                  cls := "w-full text-sm",
-                  thead(
-                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                    tr(
-                      th(cls := "px-4 py-2", "Codice"),
-                      th(cls := "px-4 py-2", "Nome"),
-                      th(cls := "px-4 py-2", "Task"),
-                      th(cls := "px-4 py-2", "Durata"),
-                      th(cls := "px-4 py-2"),
+                // Mobile: stacked cards. Desktop (md+): the table.
+                div(cls := "divide-y divide-slate-100 md:hidden", manufacturings.map(renderCard)),
+                div(
+                  cls := "hidden overflow-x-auto md:block",
+                  table(
+                    cls := "w-full text-sm",
+                    thead(
+                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                      tr(
+                        th(cls := "px-4 py-2", "Codice"),
+                        th(cls := "px-4 py-2", "Nome"),
+                        th(cls := "px-4 py-2", "Task"),
+                        th(cls := "px-4 py-2", "Durata"),
+                        th(cls := "px-4 py-2"),
+                      ),
                     ),
+                    tbody(manufacturings.map(renderRow)),
                   ),
-                  tbody(manufacturings.map(renderRow)),
                 ),
-              ),
-            )
+              )
+            }
         },
       ),
       confirmDeleteModal,

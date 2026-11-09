@@ -73,6 +73,11 @@ object TasksPage:
       }
 
     val data = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
+    val query = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
+    val searchFields: Signal[TaskResponse => List[String]] = employeesById.map { employees => task =>
+      ListSearch.task(task, task.defaultEmployeeId.flatMap(id => employees.get(id.toString)).map(e => s"${e.name} ${e.surname}"))
+    }
 
     def defaultEmployeeLabel(task: TaskResponse): Signal[String] =
       employeesById.map { employees =>
@@ -166,30 +171,33 @@ object TasksPage:
         ),
         card(
           cls := "overflow-hidden",
-          renderResult(data) { tasks =>
-            if tasks.isEmpty then emptyState("Nessun task nel catalogo.")
+          div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca per nome, descrizione, dipendente…", pager)),
+          renderResult(data) { all =>
+            if all.isEmpty then div(cls := "p-4", emptyState("Nessun task nel catalogo."))
             else
-              div(
-                // Mobile: stacked cards. Desktop (md+): the table.
-                div(cls := "divide-y divide-slate-100 md:hidden", tasks.map(renderCard)),
+              searchedPages(all, query.signal, searchFields, pager, "Nessun task corrisponde alla ricerca.") { tasks =>
                 div(
-                  cls := "hidden overflow-x-auto md:block",
-                  table(
-                    cls := "w-full text-sm",
-                    thead(
-                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                      tr(
-                        th(cls := "px-4 py-2", "Nome"),
-                        th(cls := "px-4 py-2", "Descrizione"),
-                        th(cls := "px-4 py-2", "Durata"),
-                        th(cls := "px-4 py-2", "Dipendente"),
-                        th(cls := "px-4 py-2"),
+                  // Mobile: stacked cards. Desktop (md+): the table.
+                  div(cls := "divide-y divide-slate-100 md:hidden", tasks.map(renderCard)),
+                  div(
+                    cls := "hidden overflow-x-auto md:block",
+                    table(
+                      cls := "w-full text-sm",
+                      thead(
+                        cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                        tr(
+                          th(cls := "px-4 py-2", "Nome"),
+                          th(cls := "px-4 py-2", "Descrizione"),
+                          th(cls := "px-4 py-2", "Durata"),
+                          th(cls := "px-4 py-2", "Dipendente"),
+                          th(cls := "px-4 py-2"),
+                        ),
                       ),
+                      tbody(tasks.map(renderRow)),
                     ),
-                    tbody(tasks.map(renderRow)),
                   ),
-                ),
-              )
+                )
+              }
           },
         ),
       ),

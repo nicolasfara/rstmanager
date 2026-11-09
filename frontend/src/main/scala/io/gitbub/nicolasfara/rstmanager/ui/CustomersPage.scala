@@ -41,13 +41,13 @@ object CustomersPage:
       CustomerRequest(
         name.trim.nn,
         surname.trim.nn,
-        email.trim.nn,
-        phone.trim.nn,
-        street.trim.nn,
-        city.trim.nn,
-        postalCode.trim.nn,
-        country.trim.nn,
-        fiscalCode.trim.nn,
+        opt(email),
+        opt(phone),
+        opt(street),
+        opt(city),
+        opt(postalCode),
+        opt(country),
+        opt(fiscalCode),
         customerType,
         opt(businessName),
         opt(pec),
@@ -62,13 +62,6 @@ object CustomersPage:
       List(
         Option.when(name.trim.nn.isEmpty)("Nome obbligatorio"),
         Option.when(surname.trim.nn.isEmpty)("Cognome obbligatorio"),
-        Option.when(email.trim.nn.isEmpty)("Email obbligatoria"),
-        Option.when(phone.trim.nn.isEmpty)("Telefono obbligatorio"),
-        Option.when(street.trim.nn.isEmpty)("Via obbligatoria"),
-        Option.when(city.trim.nn.isEmpty)("Città obbligatoria"),
-        Option.when(postalCode.trim.nn.isEmpty)("CAP obbligatorio"),
-        Option.when(fiscalCode.trim.nn.isEmpty)(if isCompany then "Partita IVA obbligatoria" else "Codice fiscale obbligatorio"),
-        Option.when(isCompany && businessName.trim.nn.isEmpty)("Ragione sociale obbligatoria per le aziende"),
       ).flatten
   end CustomerFormState
 
@@ -84,6 +77,13 @@ object CustomersPage:
         Option.when(mooring.nonEmpty)(div(cls := "text-xs text-slate-400", mooring)),
       )
 
+  private def locationLine(c: CustomerResponse): Option[String] =
+    Some(List(c.city, c.country).flatten.mkString(", ")).filter(_.nonEmpty)
+
+  private def contactsCell(c: CustomerResponse): HtmlElement =
+    if c.email.isEmpty && c.phone.isEmpty then div(cls := "text-xs text-slate-400", "—")
+    else div(c.email.map(e => div(e)), c.phone.map(p => div(cls := "text-xs", p)))
+
   private object CustomerFormState:
     val empty: CustomerFormState =
       CustomerFormState(None, "", "", "", "", "", "", "", "IT", "", "individual", "", "", "", "", "", "", "")
@@ -93,13 +93,13 @@ object CustomersPage:
         Some(c.id),
         c.name,
         c.surname,
-        c.email,
-        c.phone,
-        c.street,
-        c.city,
-        c.postalCode,
-        c.country,
-        c.fiscalCode,
+        c.email.getOrElse(""),
+        c.phone.getOrElse(""),
+        c.street.getOrElse(""),
+        c.city.getOrElse(""),
+        c.postalCode.getOrElse(""),
+        c.country.getOrElse(""),
+        c.fiscalCode.getOrElse(""),
         c.customerType,
         c.businessName.getOrElse(""),
         c.pec.getOrElse(""),
@@ -160,20 +160,20 @@ object CustomersPage:
               cls := "col-span-2",
               field(
                 "Ragione sociale",
-                textInput(form.signal.map(_.businessName), Observer[String](v => form.update(_.copy(businessName = v))), "Opzionale per i privati"),
+                textInput(form.signal.map(_.businessName), Observer[String](v => form.update(_.copy(businessName = v))), "Opzionale"),
               ),
             ),
-            field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "", "email")),
-            field("Telefono", textInput(form.signal.map(_.phone), Observer[String](v => form.update(_.copy(phone = v))), "")),
-            field("Via", textInput(form.signal.map(_.street), Observer[String](v => form.update(_.copy(street = v))), "")),
-            field("Città", textInput(form.signal.map(_.city), Observer[String](v => form.update(_.copy(city = v))), "")),
-            field("CAP", textInput(form.signal.map(_.postalCode), Observer[String](v => form.update(_.copy(postalCode = v))), "")),
-            field("Paese", textInput(form.signal.map(_.country), Observer[String](v => form.update(_.copy(country = v))), "")),
+            field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "Opzionale", "email")),
+            field("Telefono", textInput(form.signal.map(_.phone), Observer[String](v => form.update(_.copy(phone = v))), "Opzionale")),
+            field("Via", textInput(form.signal.map(_.street), Observer[String](v => form.update(_.copy(street = v))), "Opzionale")),
+            field("Città", textInput(form.signal.map(_.city), Observer[String](v => form.update(_.copy(city = v))), "Opzionale")),
+            field("CAP", textInput(form.signal.map(_.postalCode), Observer[String](v => form.update(_.copy(postalCode = v))), "Opzionale")),
+            field("Paese", textInput(form.signal.map(_.country), Observer[String](v => form.update(_.copy(country = v))), "Opzionale")),
             field("Tipo", staticSelect(form.signal.map(_.customerType), Observer[String](v => form.update(_.copy(customerType = v))), typeOptions)),
             child <-- form.signal.map(_.isCompany).distinct.map { company =>
               field(
                 if company then "Partita IVA" else "Codice fiscale",
-                textInput(form.signal.map(_.fiscalCode), Observer[String](v => form.update(_.copy(fiscalCode = v))), ""),
+                textInput(form.signal.map(_.fiscalCode), Observer[String](v => form.update(_.copy(fiscalCode = v))), "Opzionale"),
               )
             },
             div(
@@ -233,9 +233,9 @@ object CustomersPage:
                         cls := "px-4 py-2",
                         div(cls := "font-medium text-slate-800", c.businessName.getOrElse(s"${c.name} ${c.surname}")),
                         c.businessName.map(_ => div(cls := "text-xs text-slate-500", s"${c.name} ${c.surname}")),
-                        div(cls := "text-xs text-slate-400", s"${c.city}, ${c.country}"),
+                        locationLine(c).map(l => div(cls := "text-xs text-slate-400", l)),
                       ),
-                      td(cls := "px-4 py-2 text-slate-500", div(c.email), div(cls := "text-xs", c.phone)),
+                      td(cls := "px-4 py-2 text-slate-500", contactsCell(c)),
                       td(cls := "px-4 py-2 text-slate-500", boatCell(c)),
                       td(cls := "px-4 py-2", statusBadge(c.customerType)),
                       td(

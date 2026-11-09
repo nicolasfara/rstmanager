@@ -13,37 +13,36 @@ class AddressTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
 
   "Address.createAddress" should "succeed for non-empty street, city, country, and a 5-digit postal code" in:
     forAll(genNonEmptyString, genNonEmptyString, genPostalCode, genNonEmptyString): (street, city, postalCode, country) =>
-      Address.createAddress(street, city, postalCode, country).isValid shouldEqual true
+      Address.createAddress(Some(street), Some(city), Some(postalCode), Some(country)).isValid shouldEqual true
 
   it should "preserve all field values when creation succeeds" in:
     forAll(genNonEmptyString, genNonEmptyString, genPostalCode, genNonEmptyString): (street, city, postalCode, country) =>
       Address
-        .createAddress(street, city, postalCode, country)
+        .createAddress(Some(street), Some(city), Some(postalCode), Some(country))
         .foreach: address =>
-          address.street.toString shouldEqual street
-          address.city.toString shouldEqual city
-          address.postalCode.toString shouldEqual postalCode
-          address.country.toString shouldEqual country
+          address.street.map(_.toString) shouldEqual Some(street)
+          address.city.map(_.toString) shouldEqual Some(city)
+          address.postalCode.map(_.toString) shouldEqual Some(postalCode)
+          address.country.map(_.toString) shouldEqual Some(country)
 
-  it should "fail when the street is empty" in:
-    forAll(genNonEmptyString, genPostalCode, genNonEmptyString): (city, postalCode, country) =>
-      Address.createAddress("", city, postalCode, country).isValid shouldEqual false
+  it should "treat missing and blank fields as absent" in:
+    Address.createAddress(None, Some("  "), None, Some("")).toOption shouldEqual Some(Address.empty)
 
   it should "fail when the postal code is not made of exactly 5 digits" in:
     forAll(genNonEmptyString, genNonEmptyString, genNonEmptyString): (street, city, country) =>
-      Address.createAddress(street, city, "ABCDE", country).isValid shouldEqual false
+      Address.createAddress(Some(street), Some(city), Some("ABCDE"), Some(country)).isValid shouldEqual false
 
   "updatePostalCode" should "replace only the postal code" in:
     val address = Address(
-      street = "123MainStreet".refineUnsafe[Street],
-      city = "Springfield".refineUnsafe[City],
-      postalCode = "12345".refineUnsafe[PostalCode],
-      country = "USA".refineUnsafe[Country],
+      street = Some("123MainStreet".refineUnsafe[Street]),
+      city = Some("Springfield".refineUnsafe[City]),
+      postalCode = Some("12345".refineUnsafe[PostalCode]),
+      country = Some("USA".refineUnsafe[Country]),
     )
 
-    val updated = address.updatePostalCode("54321".refineUnsafe[PostalCode])
+    val updated = address.updatePostalCode(Some("54321".refineUnsafe[PostalCode]))
 
-    updated.postalCode.toString shouldEqual "54321"
+    updated.postalCode.map(_.toString) shouldEqual Some("54321")
     updated.street shouldEqual address.street
     updated.city shouldEqual address.city
     updated.country shouldEqual address.country

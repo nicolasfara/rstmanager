@@ -6,7 +6,8 @@ import io.circe.{ Decoder, JsonObject }
 
 /**
  * Persisted schema of the [[CustomerEvent]] journal (`customers_journal`). v1 is the only version: rows written before the master-data extension lack
- * `businessName`, `pec`, `notes` and `boat`, which [[CustomerCodecs]] reads back as their defaults.
+ * `businessName`, `pec`, `notes` and `boat`, which [[CustomerCodecs]] reads back as their defaults. Email, phone, address fields and fiscal code
+ * became optional later without a version bump: rows that carry them still decode, and new rows may hold `null` instead.
  */
 object CustomerEventSchema extends DerivedEventSchema[CustomerEvent](using CustomerCodecs.customerEventData):
   val currentVersion: Int = 1

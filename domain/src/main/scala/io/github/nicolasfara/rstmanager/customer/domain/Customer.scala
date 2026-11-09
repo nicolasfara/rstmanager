@@ -12,7 +12,8 @@ import monocle.syntax.all.*
 type BusinessName = DescribedAs[Not[Empty], "The business name cannot be empty"]
 
 /**
- * Customer master-data record (the state held by [[CustomerAggregate]]): identity, contacts, address, and fiscal classification.
+ * Customer master-data record (the state held by [[CustomerAggregate]]): identity, contacts, address, and fiscal classification. Only the contact
+ * name and surname are required.
  *
  * @param id
  *   Stable customer identifier.
@@ -21,11 +22,11 @@ type BusinessName = DescribedAs[Not[Empty], "The business name cannot be empty"]
  * @param address
  *   Customer postal address.
  * @param fiscalCode
- *   Fiscal identifier: fiscal code for individuals, VAT number for companies.
+ *   Optional fiscal identifier: fiscal code for individuals, VAT number for companies.
  * @param customerType
  *   Whether the customer is an individual or a company.
  * @param businessName
- *   Business name; required for companies, optional for individuals.
+ *   Optional business name.
  * @param pec
  *   Certified email (PEC) address.
  * @param notes
@@ -37,7 +38,7 @@ final case class Customer(
     id: CustomerId,
     contactInfo: ContactInfo,
     address: Address,
-    fiscalCode: TaxCode,
+    fiscalCode: Option[TaxCode],
     customerType: CustomerType,
     businessName: Option[String :| BusinessName] = None,
     pec: Option[String :| Email] = None,
@@ -51,44 +52,43 @@ final case class Customer(
   def updateAddress(address: Address): Customer = this.focus(_.address).replace(address)
 
   /** Returns a copy with an updated fiscal identifier. */
-  def updateFiscalCode(fiscalCode: TaxCode): Customer = this.focus(_.fiscalCode).replace(fiscalCode)
+  def updateFiscalCode(fiscalCode: Option[TaxCode]): Customer = this.focus(_.fiscalCode).replace(fiscalCode)
 
   /** Returns a copy with an updated customer classification. */
   def updateCustomerType(customerType: CustomerType): Customer = this.focus(_.customerType).replace(customerType)
 
   /** Returns a copy with an updated contact email. */
-  def updateEmail(email: String :| Email): Customer = this.focus(_.contactInfo.email).replace(email)
+  def updateEmail(email: Option[String :| Email]): Customer = this.focus(_.contactInfo.email).replace(email)
 
   /** Returns a copy with an updated contact phone number. */
-  def updatePhone(phone: String :| PhoneNumber): Customer = this.focus(_.contactInfo.phone).replace(phone)
+  def updatePhone(phone: Option[String :| PhoneNumber]): Customer = this.focus(_.contactInfo.phone).replace(phone)
 
   /** Returns a copy with an updated postal code. */
-  def updatePostalCode(postalCode: String :| PostalCode): Customer = this.focus(_.address.postalCode).replace(postalCode)
+  def updatePostalCode(postalCode: Option[String :| PostalCode]): Customer = this.focus(_.address.postalCode).replace(postalCode)
 
   /** Returns a copy with updated boat details. */
   def updateBoat(boat: BoatInfo): Customer = this.focus(_.boat).replace(boat)
 
   /**
-   * Rules every customer must satisfy however it was built (smart constructor, `copy`, update helpers): a company needs a business name, and the
-   * fiscal identifier must be an Italian fiscal code for an individual and a valid VAT number for a company. The aggregate enforces them on every
-   * create and update.
+   * Rules every customer must satisfy however it was built (smart constructor, `copy`, update helpers): a fiscal identifier, when present, must be an
+   * Italian fiscal code for an individual and a valid VAT number for a company. The aggregate enforces them on every create and update.
    */
   def checkInvariants: ValidatedNec[CustomerError, Customer] =
-    val taxCodeMatchesType = customerType match
-      case CustomerType.Individual => FiscalCode.createFiscalCode(fiscalCode).isValid
-      case CustomerType.Company => VatNumber.createVatNumber(fiscalCode).isValid
-    (
-      Validated.condNec(customerType == CustomerType.Individual || businessName.isDefined, (), CustomerError.BusinessNameRequired),
-      Validated.condNec(taxCodeMatchesType, (), CustomerError.TaxCodeDoesNotMatchCustomerType(customerType)),
-    ).mapN((_, _) => this)
+    val taxCodeMatchesType = fiscalCode.forall { code =>
+      customerType match
+        case CustomerType.Individual => FiscalCode.createFiscalCode(code).isValid
+        case CustomerType.Company => VatNumber.createVatNumber(code).isValid
+    }
+    Validated.condNec(taxCodeMatchesType, this, CustomerError.TaxCodeDoesNotMatchCustomerType(customerType))
 end Customer
 
 object Customer:
   /**
    * Creates a `Customer` from raw input values.
    *
-   * Validation is delegated to the value objects that make up the aggregate. The fiscal identifier is validated as an Italian fiscal code for
-   * individuals and as a VAT number (including check digit) for companies. The business name is required for companies and optional for individuals.
+   * Validation is delegated to the value objects that make up the aggregate. Only the name and surname are required: blank optional values become
+   * absent, present ones are validated. The fiscal identifier is validated as an Italian fiscal code for individuals and as a VAT number (including
+   * check digit) for companies.
    *
    * @param id
    *   Customer identifier.
@@ -113,7 +113,7 @@ object Customer:
    * @param customerType
    *   Customer classification.
    * @param businessName
-   *   Raw business name; required for companies.
+   *   Raw business name.
    * @param pec
    *   Raw certified email (PEC) address.
    * @param notes
@@ -131,13 +131,13 @@ object Customer:
       id: CustomerId,
       name: String,
       surname: String,
-      email: String,
-      phone: String,
-      street: String,
-      city: String,
-      postalCode: String,
-      country: String,
-      fiscalCode: String,
+      email: Option[String],
+      phone: Option[String],
+      street: Option[String],
+      city: Option[String],
+      postalCode: Option[String],
+      country: Option[String],
+      fiscalCode: Option[String],
       customerType: CustomerType,
       businessName: Option[String],
       pec: Option[String],
@@ -151,10 +151,10 @@ object Customer:
       Validated.validNec(id),
       ContactInfo.createContactInfo(name, surname, email, phone),
       Address.createAddress(street, city, postalCode, country),
-      validateTaxCode(fiscalCode, customerType),
+      normalized(fiscalCode).traverse(validateTaxCode(_, customerType)),
       Validated.validNec(customerType),
-      validateBusinessName(businessName, customerType),
-      validatePec(pec),
+      normalized(businessName).traverse(_.refineValidatedNec[BusinessName]),
+      normalized(pec).traverse(_.refineValidatedNec[Email]),
       Validated.validNec(normalized(notes)),
       Validated.validNec(BoatInfo.createBoatInfo(boatModel, boatName, boatBerth, port)),
     ).mapN(Customer.apply)
@@ -164,18 +164,6 @@ object Customer:
       case CustomerType.Individual => FiscalCode.createFiscalCode(raw)
       case CustomerType.Company => VatNumber.createVatNumber(raw)
     perType.andThen(_.refineValidatedNec[TaxCodeRule])
-
-  private def validateBusinessName(
-      raw: Option[String],
-      customerType: CustomerType,
-  ): ValidatedNec[String, Option[String :| BusinessName]] =
-    (normalized(raw), customerType) match
-      case (None, CustomerType.Company) => "The business name is required for companies".invalidNec
-      case (None, CustomerType.Individual) => Validated.validNec(None)
-      case (Some(value), _) => value.refineValidatedNec[BusinessName].map(Some(_))
-
-  private def validatePec(raw: Option[String]): ValidatedNec[String, Option[String :| Email]] =
-    normalized(raw).traverse(_.refineValidatedNec[Email])
 
   private def normalized(value: Option[String]): Option[String] = value.map(_.trim.nn).filter(_.nonEmpty)
 end Customer

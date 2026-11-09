@@ -5,7 +5,8 @@ import io.github.nicolasfara.rstmanager.service.codecs.CustomerCodecs.given
 
 class CustomerEventSchemaTest
     extends JournalGoldenSuite[CustomerEvent]("customer-events", CustomerEventSchema, JournalGoldenSuite.caseNames[CustomerEvent]):
-  def current: List[String] = List("v1-customer-created", "v1-customer-created-minimal", "v1-customer-updated", "v1-customer-deleted")
+  def current: List[String] =
+    List("v1-customer-created", "v1-customer-created-minimal", "v1-customer-created-names-only", "v1-customer-updated", "v1-customer-deleted")
 
   /** A pre-version row written before the master-data extension (no business name, PEC, notes, boat). */
   def legacy: List[(String, String)] = List(

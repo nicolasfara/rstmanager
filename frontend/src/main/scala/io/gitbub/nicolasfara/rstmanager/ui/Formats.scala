@@ -12,6 +12,12 @@ object Formats:
   /** HTML date inputs yield `yyyy-MM-dd`; the API expects a full ISO-8601 instant. */
   def toIso(day: String): String = if day.isEmpty then "" else s"${day}T00:00:00.000Z"
 
+  /**
+   * The `YYYY-MM-DD` calendar day of a date the server sends as `YYYY-MM-DDT00:00:00.000Z` (contracts, overrides, closures): its date prefix, read
+   * without any time-zone shift. A bare `YYYY-MM-DD` is returned unchanged.
+   */
+  def calendarDay(iso: String): String = iso.trim.nn.take(10)
+
   /** Formats an ISO-8601 string as `dd/MM/yyyy`; falls back to the raw value if unparseable. */
   def date(iso: String): String =
     val parsed = new js.Date(iso)

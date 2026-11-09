@@ -3,7 +3,7 @@ package io.github.nicolasfara.rstmanager.planning.service
 import scala.concurrent.duration.DurationInt
 
 import io.github.nicolasfara.rstmanager.customer.service.CustomerApp
-import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
+import io.github.nicolasfara.rstmanager.hr.service.{ CompanyCalendarApp, EmployeeApp }
 import io.github.nicolasfara.rstmanager.service.ApiServer
 import io.github.nicolasfara.rstmanager.service.auth.{ AuthConfig, JwksClient, JwtValidator }
 import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
@@ -109,6 +109,7 @@ object PlanningHttpServer:
       pool <- sessionPool(config.database)
       planningBackend <- PlanningApp.backend(pool)
       employees <- EmployeeApp.build(pool)
+      calendar <- CompanyCalendarApp.build(pool)
       customers <- CustomerApp.build(pool)
       tasks <- TaskApp.build(pool)
       manufacturings <- ManufacturingApp.build(pool)
@@ -116,16 +117,17 @@ object PlanningHttpServer:
       suppliers <- SupplierApp.build(pool)
       materials <- MaterialApp.build(pool)
       deliveryNotes <- DeliveryNoteApp.build(pool)
-      planningGateway = PlanningEntityGateway.fromStores(orders, employees)
+      planningGateway = PlanningEntityGateway.fromStores(orders, employees, calendar)
       planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
       consumptionReconciler <- Resource.eval(WarehouseConsumptionReconciler.live(orders, materials))
       deliveryNoteReconciler <- Resource.eval(WarehouseDeliveryNoteReconciler.live(deliveryNotes, materials))
-      _ <- PlanningDependencyConsumer.resource(orders, employees, planningRecalculator, consumptionReconciler)
+      _ <- PlanningDependencyConsumer.resource(orders, employees, calendar, planningRecalculator, consumptionReconciler)
       _ <- PlanningDailyScheduler.resource(planningRecalculator, config.dailyRecalculationHour)
       _ <- WarehouseDailyReconciler.resource(consumptionReconciler, deliveryNoteReconciler, config.dailyConsumptionReconcileHour)
       routes = ApiServer.routes(
         planningBackend,
         employees,
+        calendar,
         customers,
         tasks,
         manufacturings,

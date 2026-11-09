@@ -3,6 +3,7 @@ package io.github.nicolasfara.rstmanager.planning
 import scala.annotation.tailrec
 
 import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, Employee, EmployeeId, VacationOverride, WorkingDayOverride }
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencyError.CycleDetected
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{ ScheduledManufacturing, ScheduledManufacturingId }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderDependencyError, OrderId }
@@ -32,10 +33,10 @@ final case class SchedulingOutcome(
  * Domain service computing when each task must be performed from a starting day onward.
  *
  * The scheduler combines work demand with HR capacity:
- *   - production days are Monday-to-Friday days on or after `PlanningRequest.startOn`;
- *   - each employee contributes, for every production day, the daily hours derived from the weekly budget and calendar overrides
- *     ([[io.github.nicolasfara.rstmanager.hr.domain.BudgetHours.getWorkingHoursForDay]]), skipping employees whose contract is not active on that
- *     day;
+ *   - production days are the working days of the [[io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar]] (Monday to Friday, minus
+ *     company closures) on or after `PlanningRequest.startOn`; a closure wins over any working-day override of an employee;
+ *   - each employee contributes, for every production day, the hours of [[io.github.nicolasfara.rstmanager.hr.domain.Employee.hoursOn]]: the daily
+ *     hours derived from the weekly budget and calendar overrides, none when the contract is not active on that day;
  *   - when a production day is the same calendar day as `PlanningRequest.requestedOn`, capacity for that day is additionally capped to the working
  *     hours still remaining in the 09:00-18:00 workday (with its 13:00-14:00 lunch break), so a plan requested late in the day does not assume a full
  *     day is still available;
@@ -60,13 +61,15 @@ object SchedulingService:
    *   Candidate orders; only in-progress orders listed in `request.openOrderIds` are planned.
    * @param employees
    *   Workforce providing daily capacity from the request start onward.
+   * @param calendar
+   *   Company calendar deciding which days are working days.
    * @return
    *   The computed [[SchedulingOutcome]]. Planning always succeeds: work that cannot be placed is reported as unplanned orders, not as an error.
    */
-  def computeSchedule(request: PlanningRequest, orders: List[Order], employees: List[Employee]): SchedulingOutcome =
+  def computeSchedule(request: PlanningRequest, orders: List[Order], employees: List[Employee], calendar: CompanyCalendar): SchedulingOutcome =
     val startOn = startOfDay(request.startOn)
     val openOrders = PlanningPriorityPolicy.sortOpenOrders(orders).filter(order => request.openOrderIds.contains(order.data.id))
-    val initialState = PlannerState.empty(startOn, request.requestedOn)
+    val initialState = PlannerState.empty(startOn, request.requestedOn, calendar)
 
     val (planned, unplanned) = openOrders.foldLeft((initialState, Vector.empty[UnplannedOrder])) { case ((state, unplannedOrders), order) =>
       planOrder(state, order, employees) match
@@ -86,25 +89,23 @@ object SchedulingService:
     )
   end computeSchedule
 
-  /** Returns the Monday-to-Friday production days from the given start day onward, normalized at start of day. */
-  def productionDays(startOn: DateTime): LazyList[DateTime] =
-    LazyList.iterate(startOfDay(startOn))(_.plusDays(1).nn).filter(isWorkingDay)
+  /** Returns the working days of `calendar` from the given start day onward, normalized at start of day. */
+  def productionDays(startOn: DateTime, calendar: CompanyCalendar): LazyList[DateTime] =
+    LazyList.iterate(startOfDay(startOn))(_.plusDays(1).nn).filter(day => calendar.isWorkingDay(day.toLocalDate))
 
   /**
-   * Returns the daily capacity of every employee active on the given day, excluding zero-hour days.
+   * Returns the daily capacity ([[io.github.nicolasfara.rstmanager.hr.domain.Employee.hoursOn]]) of every employee available on the given day,
+   * excluding zero-hour days: on a day that is not a working day of `calendar` nobody is available.
    *
    * When `day` is the same calendar day as `now`, each employee's hours are capped to the working time still remaining in the standard 09:00-18:00
    * workday (with its 13:00-14:00 lunch break), so capacity reflects what is actually left of the day rather than the full budgeted amount.
    */
-  def dailyCapacity(day: DateTime, employees: List[Employee], now: DateTime): Map[EmployeeId, DailyHours] =
+  def dailyCapacity(day: DateTime, employees: List[Employee], now: DateTime, calendar: CompanyCalendar): Map[EmployeeId, DailyHours] =
     val cap = remainingWorkingHoursToday(day, now)
     employees.view
-      .filter(_.isActiveAt(day.toLocalDate))
-      .map(employee => employee.id -> capHours(employee.budgetHours.getWorkingHoursForDay(day.toLocalDate), cap))
+      .map(employee => employee.id -> capHours(employee.hoursOn(day.toLocalDate, calendar), cap))
       .filter { case (_, hours) => hours.value > 0 }
       .toMap
-
-  private def isWorkingDay(day: DateTime): Boolean = day.getDayOfWeek <= 5
 
   private def startOfDay(day: DateTime): DateTime = day.withTimeAtStartOfDay().nn
 
@@ -158,11 +159,12 @@ object SchedulingService:
       slices: Vector[ScheduledTaskSlice],
       nextSearchFrom: DateTime,
       now: DateTime,
+      calendar: CompanyCalendar,
   )
 
   private object PlannerState:
-    def empty(startOn: DateTime, now: DateTime): PlannerState =
-      PlannerState(Vector.empty, Vector.empty, Vector.empty, Vector.empty, startOn, now)
+    def empty(startOn: DateTime, now: DateTime, calendar: CompanyCalendar): PlannerState =
+      PlannerState(Vector.empty, Vector.empty, Vector.empty, Vector.empty, startOn, now, calendar)
 
   private def planOrder(
       state: PlannerState,
@@ -406,7 +408,7 @@ object SchedulingService:
   private def ensureDay(state: PlannerState, idx: Int, employees: List[Employee]): Option[PlannerState] =
     if idx < state.days.length then Some(state)
     else
-      nextCapacityDay(state.nextSearchFrom, employees, state.now) match
+      nextCapacityDay(state.nextSearchFrom, employees, state.now, state.calendar) match
         case None => None
         case Some((day, capacity)) =>
           // `base` keeps the day capacity in whole hours; `remaining` tracks the still-allocatable minutes for that day.
@@ -423,41 +425,47 @@ object SchedulingService:
           )
 
   @tailrec
-  private def nextCapacityDay(from: DateTime, employees: List[Employee], now: DateTime): Option[(DateTime, Map[EmployeeId, DailyHours])] =
-    val candidate = employees.flatMap(nextCapacityDayForEmployee(from, _)).sortBy(_.getMillis).headOption
+  private def nextCapacityDay(
+      from: DateTime,
+      employees: List[Employee],
+      now: DateTime,
+      calendar: CompanyCalendar,
+  ): Option[(DateTime, Map[EmployeeId, DailyHours])] =
+    val candidate = employees.flatMap(nextCapacityDayForEmployee(from, _, calendar)).sortBy(_.getMillis).headOption
     candidate match
       case None => None
       case Some(day) =>
-        val capacity = dailyCapacity(day, employees, now)
+        val capacity = dailyCapacity(day, employees, now, calendar)
         if capacity.nonEmpty then Some(day -> capacity)
-        else nextCapacityDay(nextDay(day), employees, now)
+        else nextCapacityDay(nextDay(day), employees, now, calendar)
 
-  private def nextCapacityDayForEmployee(from: DateTime, employee: Employee): Option[DateTime] =
+  private def nextCapacityDayForEmployee(from: DateTime, employee: Employee, calendar: CompanyCalendar): Option[DateTime] =
     val firstCandidate = maxDate(startOfDay(from), atStartOfDay(employee.contract.startsOn, from))
-    if defaultDailyHours(employee) > 0 then nextDefaultCapacityDay(firstCandidate, employee)
-    else nextPositiveOverrideDay(firstCandidate, employee)
+    if defaultDailyHours(employee) > 0 then nextDefaultCapacityDay(firstCandidate, employee, calendar)
+    else nextPositiveOverrideDay(firstCandidate, employee, calendar)
 
   @tailrec
-  private def nextDefaultCapacityDay(candidate: DateTime, employee: Employee): Option[DateTime] =
-    if isBeforeContractStart(candidate, employee) then nextDefaultCapacityDay(nextDay(candidate), employee)
+  private def nextDefaultCapacityDay(candidate: DateTime, employee: Employee, calendar: CompanyCalendar): Option[DateTime] =
+    if isBeforeContractStart(candidate, employee) then nextDefaultCapacityDay(nextDay(candidate), employee, calendar)
     else if isAfterContractEnd(candidate, employee) then None
-    else if !isWorkingDay(candidate) then nextDefaultCapacityDay(nextDay(candidate), employee)
-    else if employee.budgetHours.getWorkingHoursForDay(candidate.toLocalDate).value > 0 then Some(candidate)
     else
-      vacationEndCovering(candidate, employee) match
-        case Some(jumpTo) => nextDefaultCapacityDay(jumpTo, employee)
-        case None => nextDefaultCapacityDay(nextDay(candidate), employee)
+      calendar.closedUntil(candidate.toLocalDate) match
+        // A whole closure is skipped at once, as a vacation is below: nobody works until the day after it.
+        case Some(lastClosedDay) => nextDefaultCapacityDay(atStartOfDay(lastClosedDay.plusDays(1), candidate), employee, calendar)
+        case None if !calendar.isWorkingDay(candidate.toLocalDate) => nextDefaultCapacityDay(nextDay(candidate), employee, calendar)
+        case None if employee.hoursOn(candidate.toLocalDate, calendar).value > 0 => Some(candidate)
+        case None =>
+          vacationEndCovering(candidate, employee) match
+            case Some(jumpTo) => nextDefaultCapacityDay(jumpTo, employee, calendar)
+            case None => nextDefaultCapacityDay(nextDay(candidate), employee, calendar)
 
-  private def nextPositiveOverrideDay(from: DateTime, employee: Employee): Option[DateTime] =
+  /** The first future day with a positive working-day override that counts: an override on a weekend or a closure day is ignored. */
+  private def nextPositiveOverrideDay(from: DateTime, employee: Employee, calendar: CompanyCalendar): Option[DateTime] =
     employee.budgetHours.overrides.collect {
       case WorkingDayOverride(hours, _, day) if hours.value > 0 =>
         atStartOfDay(day, from)
     }.filter { day =>
-      !day.isBefore(from) &&
-      isWorkingDay(day) &&
-      !isBeforeContractStart(day, employee) &&
-      !isAfterContractEnd(day, employee) &&
-      employee.budgetHours.getWorkingHoursForDay(day.toLocalDate).value > 0
+      !day.isBefore(from) && employee.hoursOn(day.toLocalDate, calendar).value > 0
     }.reduceOption(minDate)
 
   /** The day after the vacation covering `day` (the first day the employee may be back), when one does. */

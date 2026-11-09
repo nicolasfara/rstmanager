@@ -11,6 +11,7 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.employees.CompanyCalendarView
 
 /**
  * Work-planning board: the current plan shown as day columns of task→employee slices, plus a section of completed tasks that can be brought back into
@@ -112,6 +113,10 @@ object PlanningPage:
     val ordersData = loadable(AppBus.ordersTicks)(() => ApiClient.listOrders())
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
     val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
+    val closuresList: Signal[List[ClosureResponse]] = loadable(AppBus.calendarTicks)(() => ApiClient.listClosures()).map {
+      case Some(Right(list)) => list
+      case _ => Nil
+    }
 
     val orderNames: Signal[Map[UUID, String]] = ordersData.map {
       case Some(Right(list)) => list.map(o => o.id -> o.number).toMap
@@ -408,15 +413,22 @@ object PlanningPage:
       )
     end sliceCard
 
+    // A company closure day is dimmed and labelled with its reason; the planner leaves it empty (the closure wins over any override).
     def dayColumn(day: String, slices: List[ScheduledTaskSliceDto]): HtmlElement =
+      val closure: Signal[Option[ClosureResponse]] = closuresList.map(CompanyCalendarView.closureOn(day, _)).distinct
       div(
-        cls := "min-w-0",
+        cls := "min-w-0 rounded-md",
+        cls <-- closure.map(c => if c.isDefined then "bg-slate-100/70" else "bg-transparent"),
         div(
           cls := "mb-2 flex items-baseline justify-between border-b border-slate-200 pb-1",
           span(cls := "text-sm font-semibold text-slate-700", Formats.date(day)),
           if slices.nonEmpty then span(cls := "text-xs text-slate-400", s"${slices.size}") else emptyNode,
         ),
-        if slices.isEmpty then div(cls := "py-4 text-center text-xs text-slate-300", "—")
+        child.maybe <-- closure.map(
+          _.map(c => div(cls := "px-1 py-2 text-center", badge(s"Chiusura aziendale · ${c.reason}", "bg-slate-200 text-slate-600 border-slate-300"))),
+        ),
+        if slices.isEmpty then
+          div(child.maybe <-- closure.map(c => Option.when(c.isEmpty)(div(cls := "py-4 text-center text-xs text-slate-300", "—"))))
         else div(cls := "space-y-2", slices.map(sliceCard)),
       )
 

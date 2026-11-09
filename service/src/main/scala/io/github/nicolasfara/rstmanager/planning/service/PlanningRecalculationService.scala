@@ -3,6 +3,7 @@ package io.github.nicolasfara.rstmanager.planning.service
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.Employee
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
 import io.github.nicolasfara.rstmanager.planning.{ PlanningError, PlanningRequest, PlanningRequestId, PlanningTrigger }
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.PlanningDomainErrorDto
 import io.github.nicolasfara.rstmanager.work.domain.order.Order
@@ -37,11 +38,11 @@ object PlanningRecalculator:
 object PlanningRecalculationService:
   private val logger = Slf4jLogger.getLogger[IO]
 
-  type ComputePlan = (String, PlanningRequest, List[Order], List[Employee]) => IO[Either[NonEmptyChain[PlanningError], String]]
+  type ComputePlan = (String, PlanningRequest, List[Order], List[Employee], CompanyCalendar) => IO[Either[NonEmptyChain[PlanningError], String]]
 
   def apply(backend: PlanningApp.PlanningBackend, gateway: PlanningEntityGateway): PlanningRecalculator =
-    fromCompute(gateway) { (commandId, request, orders, employees) =>
-      PlanningApp.computePlanWithCommandId(backend, commandId, request, orders, employees)
+    fromCompute(gateway) { (commandId, request, orders, employees, calendar) =>
+      PlanningApp.computePlanWithCommandId(backend, commandId, request, orders, employees, calendar)
     }
 
   def fromCompute(gateway: PlanningEntityGateway)(compute: ComputePlan): PlanningRecalculator =
@@ -69,7 +70,7 @@ object PlanningRecalculationService:
             for
               commandId <- IO(cause.commandId.getOrElse(UUID.randomUUID().nn.toString))
               request <- buildRequest(cause, snapshot)
-              result <- compute(commandId, request, snapshot.orders, snapshot.employees).flatMap {
+              result <- compute(commandId, request, snapshot.orders, snapshot.employees, snapshot.calendar).flatMap {
                 case Left(errors) =>
                   val messages = errors.toChain.toList.map(PlanningDomainErrorDto.fromDomain(_).message)
                   logger.warn(messages.mkString("; ")).as(PlanningRecalculationResult(None, messages))

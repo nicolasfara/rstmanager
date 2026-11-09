@@ -3,7 +3,8 @@ package io.github.nicolasfara.rstmanager.planning.service
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.{ Employee, EmployeeId }
-import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
+import io.github.nicolasfara.rstmanager.hr.service.{ CompanyCalendarApp, EmployeeApp }
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderId }
 import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 import io.github.nicolasfara.rstmanager.work.service.OrderApp
@@ -19,22 +20,28 @@ trait PlanningEntityGateway:
 
   def loadEmployees(selection: Option[List[UUID]]): IO[Either[LoadError, List[Employee]]]
 
+  /** The current company calendar, whose closures planning treats as days off for everybody. */
+  def loadCalendar: IO[CompanyCalendar]
+
   def snapshot(orderIds: Option[List[UUID]], employeeIds: Option[List[UUID]]): IO[Either[LoadError, Snapshot]] =
     loadOpenOrders(orderIds).flatMap {
       case Left(error) => IO.pure(error.asLeft)
       case Right(orders) =>
-        loadEmployees(employeeIds).map(_.map(employees => Snapshot(orders, employees)))
+        loadEmployees(employeeIds).flatMap {
+          case Left(error) => IO.pure(error.asLeft)
+          case Right(employees) => loadCalendar.map(calendar => Snapshot(orders, employees, calendar).asRight)
+        }
     }
 end PlanningEntityGateway
 
 object PlanningEntityGateway:
-  final case class Snapshot(orders: List[InProgressOrder], employees: List[Employee])
+  final case class Snapshot(orders: List[InProgressOrder], employees: List[Employee], calendar: CompanyCalendar)
 
   enum LoadError derives CanEqual:
     case UnknownOrders(ids: List[UUID])
     case UnknownEmployees(ids: List[UUID])
 
-  def fromStores(orders: OrderApp.Store, employees: EmployeeApp.Store): PlanningEntityGateway =
+  def fromStores(orders: OrderApp.Store, employees: EmployeeApp.Store, calendar: CompanyCalendarApp.Store): PlanningEntityGateway =
     new PlanningEntityGateway:
       override def loadOpenOrders(selection: Option[List[UUID]]): IO[Either[LoadError, List[InProgressOrder]]] =
         selection match
@@ -45,6 +52,8 @@ object PlanningEntityGateway:
         selection match
           case None => EmployeeApp.list(employees).map(_.asRight)
           case Some(ids) => loadSelectedEmployees(employees, ids)
+
+      override def loadCalendar: IO[CompanyCalendar] = CompanyCalendarApp.get(calendar)
 
   private def loadSelectedOpenOrders(store: OrderApp.Store, ids: List[UUID]): IO[Either[LoadError, List[InProgressOrder]]] =
     ids.distinct.traverse(id => OrderApp.get(store, OrderId(id)).map(id -> _)).map { loaded =>

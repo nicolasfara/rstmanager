@@ -4,6 +4,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.{ ClosureId, CompanyCalendar, CompanyClosure }
 import io.github.nicolasfara.rstmanager.planning.{ PlanningRequest, PlanningTrigger }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
@@ -27,7 +28,7 @@ import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
 
 class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
-  private final case class Captured(request: PlanningRequest, orders: List[Order], employees: List[Employee])
+  private final case class Captured(request: PlanningRequest, orders: List[Order], employees: List[Employee], calendar: CompanyCalendar)
 
   private val monday: DateTime = DateTime.parse("2026-06-15")
   private val orderId: OrderId = OrderId(UUID.fromString("00000000-0000-0000-0000-000000000011").nn)
@@ -39,9 +40,13 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
     val orderSelection = Ref.of[IO, Option[List[UUID]]](Some(Nil)).unsafeRunSync()
     val employeeSelection = Ref.of[IO, Option[List[UUID]]](Some(Nil)).unsafeRunSync()
     val captured = Ref.of[IO, Option[Captured]](None).unsafeRunSync()
-    val gateway = RecordingGateway(List(order), List(worker), orderSelection, employeeSelection)
-    val recalculator = PlanningRecalculationService.fromCompute(gateway) { (_, request, orders, employees) =>
-      captured.set(Some(Captured(request, orders, employees))).as(Right("command-1"))
+    val closure = CompanyClosure
+      .createAnnual(ClosureId(UUID.fromString("00000000-0000-0000-0000-000000000017").nn), 8, 15, "Ferragosto")
+      .fold(errors => fail(errors.toChain.toList.mkString), identity)
+    val calendar = CompanyCalendar(List(closure))
+    val gateway = RecordingGateway(List(order), List(worker), calendar, orderSelection, employeeSelection)
+    val recalculator = PlanningRecalculationService.fromCompute(gateway) { (_, request, orders, employees, calendar) =>
+      captured.set(Some(Captured(request, orders, employees, calendar))).as(Right("command-1"))
     }
 
     val result = recalculator.recalculate(PlanningTrigger.WorkforceCapacityChanged).unsafeRunSync()
@@ -54,10 +59,12 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
     capturedValue.request.openOrderIds shouldEqual List(orderId)
     capturedValue.orders shouldEqual List(order)
     capturedValue.employees shouldEqual List(worker)
+    capturedValue.calendar shouldEqual calendar
 
   private final class RecordingGateway(
       orders: List[InProgressOrder],
       employees: List[Employee],
+      calendar: CompanyCalendar,
       orderSelection: Ref[IO, Option[List[UUID]]],
       employeeSelection: Ref[IO, Option[List[UUID]]],
   ) extends PlanningEntityGateway:
@@ -66,6 +73,8 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
 
     override def loadEmployees(selection: Option[List[UUID]]): IO[Either[PlanningEntityGateway.LoadError, List[Employee]]] =
       employeeSelection.set(selection).as(employees.asRight)
+
+    override def loadCalendar: IO[CompanyCalendar] = IO.pure(calendar)
 
   private def employee(id: EmployeeId): Employee =
     Employee(

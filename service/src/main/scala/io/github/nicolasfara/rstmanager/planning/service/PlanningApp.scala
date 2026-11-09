@@ -7,6 +7,7 @@ import scala.concurrent.duration.*
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
 import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.PlanningService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
@@ -66,8 +67,9 @@ object PlanningApp:
       request: PlanningRequest,
       orders: List[Order],
       employees: List[Employee],
+      calendar: CompanyCalendar,
   ): IO[Either[NonEmptyChain[PlanningError], String]] =
-    IO(UUID.randomUUID().nn.toString).flatMap(commandId => computePlanWithCommandId(backend, commandId, request, orders, employees))
+    IO(UUID.randomUUID().nn.toString).flatMap(commandId => computePlanWithCommandId(backend, commandId, request, orders, employees, calendar))
 
   /** Sends one `ComputePlan` command with a caller-provided command id, useful for idempotent outbox-driven retries. */
   def computePlanWithCommandId(
@@ -76,9 +78,11 @@ object PlanningApp:
       request: PlanningRequest,
       orders: List[Order],
       employees: List[Employee],
+      calendar: CompanyCalendar,
   ): IO[Either[NonEmptyChain[PlanningError], String]] =
     val service = backend.compile(PlanningService[IO])
-    service(CommandMessage(commandId, Instant.now().nn, planningAddress, Command.ComputePlan(request, orders, employees))).map(_.map(_ => commandId))
+    service(CommandMessage(commandId, Instant.now().nn, planningAddress, Command.ComputePlan(request, orders, employees, calendar)))
+      .map(_.map(_ => commandId))
 end PlanningApp
 
 /**
@@ -98,9 +102,9 @@ object Main extends IOApp.Simple:
       }
     yield ()
 
-/** Sample orders, workforce, and request used by the [[Main]] demo. */
+/** Sample orders, workforce, company calendar, and request used by the [[Main]] demo. */
 object DemoScenario:
-  final case class Scenario(request: PlanningRequest, orders: List[Order], employees: List[Employee])
+  final case class Scenario(request: PlanningRequest, orders: List[Order], employees: List[Employee], calendar: CompanyCalendar)
 
   def create: Scenario =
     val today = DateTime.now().withTimeAtStartOfDay().nn
@@ -144,7 +148,7 @@ object DemoScenario:
       employee("Luca", "Verdi", weeklyHours = 24),
     )
     val request = PlanningRequest(PlanningRequestId(UUID.randomUUID().nn), today, PlanningTrigger.DailyPlanning, today, List(orderId))
-    Scenario(request, List(order), employees)
+    Scenario(request, List(order), employees, CompanyCalendar.empty)
   end create
 
   private def employee(name: String, surname: String, weeklyHours: Int): Employee =

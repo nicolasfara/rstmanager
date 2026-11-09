@@ -49,6 +49,32 @@ object Dtos:
       overrides: List[HoursOverrideDto],
   )
 
+  // ---- Company calendar --------------------------------------------------------------------------
+
+  /**
+   * A company closure (create/replace payload). `kind` is `period` (from `startDate` to `endDate`, both inclusive, sent as ISO instants like the
+   * vacation overrides) or `annual` (every year on `day`/`month`); the fields of the other kind are absent. `reason` is required.
+   */
+  final case class ClosureRequest(
+      kind: String,
+      reason: String,
+      startDate: Option[String],
+      endDate: Option[String],
+      month: Option[Int],
+      day: Option[Int],
+  )
+
+  /** `GET /company-calendar/closures` entry: a [[ClosureRequest]] with its id; dates come back as `YYYY-MM-DDT00:00:00.000Z`. */
+  final case class ClosureResponse(
+      id: UUID,
+      kind: String,
+      reason: String,
+      startDate: Option[String],
+      endDate: Option[String],
+      month: Option[Int],
+      day: Option[Int],
+  )
+
   // ---- Customers ---------------------------------------------------------------------------------
 
   final case class CustomerRequest(
@@ -615,6 +641,9 @@ object Dtos:
   given Codec[HoursOverrideDto] = deriveCodec
   given Codec[EmployeeRequest] = deriveCodec
   given Codec[EmployeeResponse] = deriveCodec
+
+  given Codec[ClosureRequest] = deriveCodec
+  given Codec[ClosureResponse] = deriveCodec
 
   given Codec[CustomerRequest] = deriveCodec
   given Codec[CustomerResponse] = deriveCodec

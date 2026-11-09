@@ -201,6 +201,15 @@ object ApiClient:
     sendJson(dom.HttpMethod.PUT, s"/employees/$id", jsonBody(request))
   def deleteEmployee(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/employees/$id", None)
 
+  // ---- Company calendar --------------------------------------------------------------------------
+
+  def listClosures(): Future[Result[List[ClosureResponse]]] = sendJson(dom.HttpMethod.GET, "/company-calendar/closures", None)
+  def createClosure(request: ClosureRequest): Future[Result[ClosureResponse]] =
+    sendJson(dom.HttpMethod.POST, "/company-calendar/closures", jsonBody(request))
+  def updateClosure(id: UUID, request: ClosureRequest): Future[Result[ClosureResponse]] =
+    sendJson(dom.HttpMethod.PUT, s"/company-calendar/closures/$id", jsonBody(request))
+  def deleteClosure(id: UUID): Future[Result[Unit]] = sendUnit(dom.HttpMethod.DELETE, s"/company-calendar/closures/$id", None)
+
   // ---- Customers ---------------------------------------------------------------------------------
 
   def listCustomers(): Future[Result[List[CustomerResponse]]] = sendJson(dom.HttpMethod.GET, "/customers", None)

@@ -4,6 +4,7 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.{ EmployeeId, EmployeeService }
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendarService
 import io.github.nicolasfara.rstmanager.planning.PlanningTrigger
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialError, MaterialId, MaterialRecord, MaterialService }
 import io.github.nicolasfara.rstmanager.warehouse.service.{ WarehouseConsumptionGateway, WarehouseConsumptionReconciler }
@@ -54,6 +55,22 @@ class PlanningDependencyConsumerTest extends AnyFlatSpecLike:
 
     cause.trigger shouldEqual PlanningTrigger.WorkforceCapacityChanged
     cause.commandId shouldEqual Some(s"planning-recalc-employees-$employeeId-9")
+    cause.requestId should not be empty
+
+  it should "map company calendar changes to a stable workforce recalculation" in:
+    val item = OutboxItem(
+      3L,
+      "company-calendar",
+      time,
+      CompanyCalendarService.Notification.CompanyCalendarChanged,
+      MessageMetadata("calendar-command"),
+    )
+
+    val cause = PlanningDependencyConsumer.calendarCause(item)
+
+    cause shouldEqual PlanningDependencyConsumer.calendarCause(item)
+    cause.trigger shouldEqual PlanningTrigger.WorkforceCapacityChanged
+    cause.commandId shouldEqual Some("planning-recalc-company-calendar-company-calendar-3")
     cause.requestId should not be empty
 
   private def orderItem(seqNr: Long): OutboxItem[OrderService.Notification] =

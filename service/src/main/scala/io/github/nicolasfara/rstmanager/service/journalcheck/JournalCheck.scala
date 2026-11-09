@@ -3,6 +3,8 @@ package io.github.nicolasfara.rstmanager.service.journalcheck
 import io.github.nicolasfara.rstmanager.customer.domain.{ CustomerAggregate, CustomerService }
 import io.github.nicolasfara.rstmanager.customer.domain.events.CustomerEvent
 import io.github.nicolasfara.rstmanager.hr.domain.{ EmployeeAggregate, EmployeeService }
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.{ CompanyCalendarAggregate, CompanyCalendarService }
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.events.CompanyCalendarEvent
 import io.github.nicolasfara.rstmanager.hr.domain.events.EmployeeEvent
 import io.github.nicolasfara.rstmanager.planning.{ Planning, PlanningService }
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
@@ -64,6 +66,11 @@ object JournalCheck extends IOApp:
         "employees",
         RowCheck.journal(EmployeeAggregate, Decoder[EmployeeEvent]),
         RowCheck.outbox(Decoder[EmployeeService.Notification]),
+      ),
+      CheckedNamespace(
+        "company_calendar",
+        RowCheck.journal(CompanyCalendarAggregate, Decoder[CompanyCalendarEvent]),
+        RowCheck.outbox(Decoder[CompanyCalendarService.Notification]),
       ),
       CheckedNamespace("tasks", RowCheck.journal(TaskAggregate, Decoder[TaskEvent]), RowCheck.outbox(Decoder[TaskService.Notification])),
       CheckedNamespace(

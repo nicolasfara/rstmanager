@@ -4,6 +4,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
 import io.github.nicolasfara.rstmanager.planning.OrderSimulationService.{ SimulationDemand, SimulationResult }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
   Manufacturing,
@@ -87,7 +88,7 @@ class OrderSimulationServiceTest extends AnyFlatSpecLike:
       employees: List[Employee],
       demand: SimulationDemand,
   ): SimulationResult =
-    OrderSimulationService.simulate(monday, openOrders, employees, demand)
+    OrderSimulationService.simulate(monday, openOrders, employees, CompanyCalendar.empty, demand)
 
   "OrderSimulationService" should "estimate the completion date of a total-hours demand on an empty plan" in:
     val result = simulateOrFail(Nil, List(employee(employeeA)), SimulationDemand.TotalDuration(TaskDuration(20 * 60)))

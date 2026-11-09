@@ -2,6 +2,8 @@ package io.github.nicolasfara.rstmanager.hr.domain
 
 import java.util.UUID
 
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.{ ClosureId, CompanyCalendar, CompanyClosure }
+
 import cats.data.ValidatedNec
 import com.github.nscala_time.time.Imports.*
 import io.github.iltotore.iron.*
@@ -163,4 +165,23 @@ class EmployeeTest extends AnyFlatSpecLike:
     updated.info.surname shouldEqual employee.info.surname
     updated.contract shouldEqual employee.contract
     updated.budgetHours shouldEqual employee.budgetHours
+
+  "Employee.hoursOn" should "give the budgeted hours of a working day of an active employee" in:
+    // 2026-06-15 is a Monday.
+    val employee = validOrFail(createEmployee("Ivo", "Lodi", Contract.createFullTime(today - 1.month), 40, Nil))
+
+    employee.hoursOn(today, CompanyCalendar.empty).value shouldEqual 8
+    employee.hoursOn(today + 5.days, CompanyCalendar.empty).value shouldEqual 0
+    employee.hoursOn(today - 2.months, CompanyCalendar.empty).value shouldEqual 0
+
+  it should "give no hours on a company closure, even with a working-day override for that day" in:
+    val workingDay = validOrFail(WorkingDayOverride.createWorkingDayOverride(6, Some("Straordinario"), today))
+    val employee = validOrFail(createEmployee("Lia", "Monti", Contract.createFullTime(today - 1.month), 40, List(workingDay)))
+    val closure = validOrFail(CompanyClosure.createPeriod(ClosureId(UUID.randomUUID().nn), today, today + 1.day, "Inventario"))
+    val calendar = CompanyCalendar(List(closure))
+
+    employee.hoursOn(today, CompanyCalendar.empty).value shouldEqual 6
+    employee.hoursOn(today, calendar).value shouldEqual 0
+    employee.hoursOn(today + 1.day, calendar).value shouldEqual 0
+    employee.hoursOn(today + 2.days, calendar).value shouldEqual 8
 end EmployeeTest

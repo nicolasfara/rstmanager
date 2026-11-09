@@ -10,10 +10,10 @@ import com.raquo.laminar.api.L.*
  * Each data domain has its own tick signal. Pages subscribe only to the domains whose data they display, so a mutation on one domain no longer
  * cascades a full reload to every mounted page.
  *
- * Mutations to orders or employees also trigger an asynchronous planning recalculation on the backend (outbox consumer). `mutatedOrders()` /
- * `mutatedEmployees()` therefore fire extra delayed ticks on `planningTicks` to converge on the recomputed plan; order mutations fire them on
- * `warehouseTicks` too, since the same consumer applies the material consumption of completed manufacturings. All reloads are in-place (see
- * `Components.loadable`), so these extra ticks are visually silent.
+ * Mutations to orders, employees, or the company calendar also trigger an asynchronous planning recalculation on the backend (outbox consumer).
+ * `mutatedOrders()` / `mutatedEmployees()` / `mutatedCalendar()` therefore fire extra delayed ticks on `planningTicks` to converge on the recomputed
+ * plan; order mutations fire them on `warehouseTicks` too, since the same consumer applies the material consumption of completed manufacturings. All
+ * reloads are in-place (see `Components.loadable`), so these extra ticks are visually silent.
  */
 object AppBus:
 
@@ -29,6 +29,7 @@ object AppBus:
   private val manufacturingsVersion = Var(0)
   private val planningVersion = Var(0)
   private val warehouseVersion = Var(0)
+  private val calendarVersion = Var(0)
 
   val ordersTicks: Signal[Int] = ordersVersion.signal
   val employeesTicks: Signal[Int] = employeesVersion.signal
@@ -37,6 +38,7 @@ object AppBus:
   val manufacturingsTicks: Signal[Int] = manufacturingsVersion.signal
   val planningTicks: Signal[Int] = planningVersion.signal
   val warehouseTicks: Signal[Int] = warehouseVersion.signal
+  val calendarTicks: Signal[Int] = calendarVersion.signal
 
   /**
    * Reports a successful order mutation: refreshes orders immediately and fires settle ticks on planning and on the warehouse (the material
@@ -55,6 +57,15 @@ object AppBus:
   /** Reports a successful employee mutation: refreshes employees immediately and fires settle ticks on planning. */
   def mutatedEmployees(): Unit =
     employeesVersion.update(_ + 1)
+    planningVersion.update(_ + 1)
+    settleDelaysMs.foreach(d => setTimeout(d)(planningVersion.update(_ + 1)))
+
+  /**
+   * Reports a successful company-calendar mutation (closures): refreshes the calendar immediately and fires settle ticks on planning, since closed
+   * days change the workforce capacity the plan is recomputed on.
+   */
+  def mutatedCalendar(): Unit =
+    calendarVersion.update(_ + 1)
     planningVersion.update(_ + 1)
     settleDelaysMs.foreach(d => setTimeout(d)(planningVersion.update(_ + 1)))
 

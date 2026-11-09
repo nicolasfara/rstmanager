@@ -5,6 +5,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.Employee
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
@@ -69,6 +70,8 @@ object OrderSimulationService:
    *   Current orders; only in-progress ones take part in the run, with the same priority policy as real planning.
    * @param employees
    *   Workforce providing daily capacity.
+   * @param calendar
+   *   Company calendar deciding which days are working days.
    * @param demand
    *   Work required by the hypothetical order.
    */
@@ -76,6 +79,7 @@ object OrderSimulationService:
       now: DateTime,
       openOrders: List[Order],
       employees: List[Employee],
+      calendar: CompanyCalendar,
       demand: SimulationDemand,
   ): SimulationResult =
     val simulatedOrder = syntheticOrder(now, demand)
@@ -85,7 +89,7 @@ object OrderSimulationService:
     val request =
       PlanningRequest(PlanningRequestId(syntheticId("request")), now, PlanningTrigger.DailyPlanning, now, openOrderIds :+ simulatedOrderId)
 
-    val outcome = SchedulingService.computeSchedule(request, openOrders :+ simulatedOrder, employees)
+    val outcome = SchedulingService.computeSchedule(request, openOrders :+ simulatedOrder, employees, calendar)
     outcome.unplannedOrders.find(_.orderId.equals(simulatedOrderId)) match
       case Some(unplanned) =>
         SimulationResult(totalMinutes, None, None, unplanned.blockedTasks.toList.map(_.reason))

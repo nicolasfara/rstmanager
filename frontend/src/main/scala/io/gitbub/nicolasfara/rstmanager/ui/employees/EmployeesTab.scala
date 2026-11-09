@@ -1,6 +1,4 @@
-package io.gitbub.nicolasfara.rstmanager.ui
-
-import java.util.UUID
+package io.gitbub.nicolasfara.rstmanager.ui.employees
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
@@ -9,15 +7,13 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Formats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
-/** Employee registry with a dedicated editor for the per-employee hours overrides. */
-object EmployeesPage:
+/** Employee registry: create/edit form, and a dedicated editor for the per-employee hours overrides. */
+object EmployeesTab:
 
-  private val contractOptions = List("full_time" -> "Tempo pieno", "fixed_term" -> "Tempo determinato", "part_time" -> "Part-time")
   private val overrideKinds = List("working_day" -> "Giorno lavorativo", "vacation" -> "Ferie")
-
-  /** HTML date inputs yield `yyyy-MM-dd`; the API expects a full ISO-8601 instant. */
 
   private def describeContract(c: EmployeeContractDto): String = c.kind match
     case "full_time" => s"Tempo pieno · dal ${Formats.date(c.startDate)}"
@@ -29,38 +25,6 @@ object EmployeesPage:
     case "working_day" => s"${o.hours.getOrElse(0)}h il ${o.day.map(Formats.date).getOrElse("?")}${o.reason.map(r => s" · $r").getOrElse("")}"
     case "vacation" => s"Ferie ${o.startDate.map(Formats.date).getOrElse("?")} → ${o.endDate.map(Formats.date).getOrElse("?")}"
     case other => other
-
-  private final case class CreateEmployeeFormState(
-      name: String,
-      surname: String,
-      contractKind: String,
-      startDate: String,
-      endDate: String,
-      weeklyHours: String,
-      budget: String,
-  ):
-    def contract: EmployeeContractDto = contractKind match
-      case "fixed_term" => EmployeeContractDto("fixed_term", Formats.toIso(startDate), Some(Formats.toIso(endDate)), None)
-      case "part_time" => EmployeeContractDto("part_time", Formats.toIso(startDate), None, weeklyHours.toIntOption)
-      case _ => EmployeeContractDto("full_time", Formats.toIso(startDate), None, None)
-
-    def request: EmployeeRequest =
-      EmployeeRequest(name.trim.nn, surname.trim.nn, contract, budget.toIntOption.getOrElse(0), Nil)
-
-    def errors: List[String] =
-      List(
-        Option.when(name.trim.nn.isEmpty)("Nome obbligatorio"),
-        Option.when(surname.trim.nn.isEmpty)("Cognome obbligatorio"),
-        Option.when(startDate.trim.nn.isEmpty)("Data inizio obbligatoria"),
-        Option.when(budget.toIntOption.isEmpty)("Budget non valido"),
-        Option.when(contractKind == "fixed_term" && endDate.trim.nn.isEmpty)("Data fine obbligatoria"),
-        Option.when(contractKind == "part_time" && weeklyHours.toIntOption.forall(_ <= 0))("Ore settimanali non valide"),
-      ).flatten
-  end CreateEmployeeFormState
-
-  private object CreateEmployeeFormState:
-    val empty: CreateEmployeeFormState =
-      CreateEmployeeFormState("", "", "full_time", "", "", "20", "40")
 
   private final case class OverrideFormState(
       kind: String,
@@ -99,19 +63,32 @@ object EmployeesPage:
 
   def apply(): HtmlElement =
     val pageError = Var(Option.empty[ApiError])
-
-    val createForm = Var(CreateEmployeeFormState.empty)
-
-    def resetCreate(): Unit =
-      createForm.set(CreateEmployeeFormState.empty)
-
-    def createEmployee(): Unit =
-      ApiClient.createEmployee(createForm.now().request).foreach {
-        case Right(_) => resetCreate(); pageError.set(None); AppBus.mutatedEmployees()
-        case Left(err) => showError(pageError, "Creazione dipendente")(err)
-      }
-
+    val form = Var(EmployeeForm.empty)
+    val pendingDelete = Var(Option.empty[EmployeeResponse])
     val overrideEditor = Var(OverrideEditorState.empty)
+
+    def resetForm(): Unit =
+      form.set(EmployeeForm.empty)
+      pageError.set(None)
+
+    def edit(emp: EmployeeResponse): Unit =
+      form.set(EmployeeForm.fromResponse(emp))
+      pageError.set(None)
+
+    // Both editors write the whole record: after a save, the other one (if open on the same employee) adopts the stored version, so its next
+    // save does not revert what this one changed.
+    def submit(): Unit =
+      val current = form.now()
+      val effect = current.editingId match
+        case Some(id) => ApiClient.updateEmployee(id, current.request)
+        case None => ApiClient.createEmployee(current.request)
+      effect.foreach {
+        case Right(saved) =>
+          resetForm()
+          overrideEditor.update(state => if state.editing.exists(_.id == saved.id) then state.copy(editing = Some(saved)) else state)
+          AppBus.mutatedEmployees()
+        case Left(err) => showError(pageError, "Salvataggio dipendente")(err)
+      }
 
     def openEditor(emp: EmployeeResponse): Unit =
       overrideEditor.set(OverrideEditorState.fromEmployee(emp))
@@ -124,18 +101,56 @@ object EmployeesPage:
     def saveOverrides(): Unit = overrideEditor.now().editing.foreach { emp =>
       val request = EmployeeRequest(emp.name, emp.surname, emp.contract, emp.budgetWeeklyHours, overrideEditor.now().workingOverrides)
       ApiClient.updateEmployee(emp.id, request).foreach {
-        case Right(_) => overrideEditor.set(OverrideEditorState.empty); AppBus.mutatedEmployees()
+        case Right(saved) =>
+          overrideEditor.set(OverrideEditorState.empty)
+          form.update(state => if state.editingId == Some(saved.id) then state.copy(overrides = saved.overrides) else state)
+          AppBus.mutatedEmployees()
         case Left(err) => showError(pageError, "Salvataggio override dipendente")(err)
       }
     }
 
-    def deleteEmployee(id: UUID): Unit =
-      ApiClient.deleteEmployee(id).foreach {
-        case Right(_) => AppBus.mutatedEmployees()
+    def deleteEmployee(emp: EmployeeResponse): Unit =
+      ApiClient.deleteEmployee(emp.id).foreach {
+        case Right(_) =>
+          if form.now().editingId == Some(emp.id) then resetForm()
+          if overrideEditor.now().editing.exists(_.id == emp.id) then overrideEditor.set(OverrideEditorState.empty)
+          AppBus.mutatedEmployees()
         case Left(err) => showError(pageError, "Eliminazione dipendente")(err)
       }
 
-    val createFormErrors: Signal[List[String]] = createForm.signal.map(_.errors)
+    val confirmDeleteModal =
+      confirmDialog(
+        isOpen = pendingDelete.signal.map(_.isDefined),
+        titleText = Signal.fromValue("Elimina dipendente"),
+        message = pendingDelete.signal.map(_.fold("")(e => s"Eliminare il dipendente “${e.name} ${e.surname}”?")),
+        confirmLabel = "Elimina",
+        tone = DialogTone.Danger,
+        onCancel = () => pendingDelete.set(None),
+        onConfirm = () => pendingDelete.now().foreach { e => deleteEmployee(e); pendingDelete.set(None) },
+      )
+
+    val formErrors: Signal[List[String]] = form.signal.map(_.errors)
+
+    val data = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
+
+    val closures: Signal[List[ClosureResponse]] = loadable(AppBus.calendarTicks)(() => ApiClient.listClosures()).map {
+      case Some(Right(list)) => list
+      case _ => Nil
+    }
+
+    // Informational only: a vacation over a company closure is still saved (the closure already makes those days non-working).
+    val vacationClosureNote: Signal[Option[HtmlElement]] =
+      overrideEditor.signal.map(_.form).combineWith(closures).map { (f, list) =>
+        Option
+          .when(f.kind == "vacation")(CompanyCalendarView.closuresDuring(f.start, f.end, list))
+          .filter(_.nonEmpty)
+          .map(hits =>
+            div(
+              cls := "mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700",
+              s"Già coperto da chiusura aziendale: ${hits.map(c => s"${c.reason} (${CompanyCalendarView.describe(c)})").mkString(", ")}",
+            ),
+          )
+      }
 
     def overrideForm(): HtmlElement =
       div(
@@ -152,7 +167,7 @@ object EmployeesPage:
             ),
           ),
           div(),
-          child <-- overrideEditor.signal.map(_.form.kind).map {
+          child <-- overrideEditor.signal.map(_.form.kind).distinct.map {
             case "vacation" =>
               div(
                 cls := "col-span-2 grid grid-cols-2 gap-2",
@@ -207,6 +222,7 @@ object EmployeesPage:
               )
           },
         ),
+        child.maybe <-- vacationClosureNote,
         button(tpe := "button", cls := s"$btnSmall mt-2", "+ Aggiungi", onClick --> (_ => addOverride())),
       )
 
@@ -240,7 +256,13 @@ object EmployeesPage:
         ),
       )
 
-    val data = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
+    def textField(
+        labelText: String,
+        get: EmployeeForm.State => String,
+        set: (EmployeeForm.State, String) => EmployeeForm.State,
+        kind: String,
+    ): HtmlElement =
+      field(labelText, textInput(form.signal.map(get), Observer[String](v => form.update(set(_, v))), "", kind))
 
     div(
       cls := "grid gap-6",
@@ -248,44 +270,46 @@ object EmployeesPage:
       roleGated(Role.Admin)(
         card(
           cls := "self-start p-4",
-          sectionTitle("Nuovo dipendente"),
+          child <-- form.signal
+            .map(_.editingId.isDefined)
+            .distinct
+            .map(editing => sectionTitle(if editing then "Modifica dipendente" else "Nuovo dipendente")),
           div(
             cls := "mt-3 grid grid-cols-2 gap-3",
-            field("Nome", textInput(createForm.signal.map(_.name), Observer[String](v => createForm.update(_.copy(name = v))), "")),
-            field("Cognome", textInput(createForm.signal.map(_.surname), Observer[String](v => createForm.update(_.copy(surname = v))), "")),
+            textField("Nome", _.name, (s, v) => s.copy(name = v), "text"),
+            textField("Cognome", _.surname, (s, v) => s.copy(surname = v), "text"),
             field(
               "Contratto",
-              staticSelect(createForm.signal.map(_.contractKind), Observer[String](v => createForm.update(_.copy(contractKind = v))), contractOptions),
+              staticSelect(
+                form.signal.map(_.contractKind),
+                Observer[String](v => form.update(_.copy(contractKind = v))),
+                EmployeeForm.contractOptions,
+              ),
             ),
-            field(
-              "Inizio",
-              textInput(createForm.signal.map(_.startDate), Observer[String](v => createForm.update(_.copy(startDate = v))), "", "date"),
-            ),
-            child <-- createForm.signal.map(_.contractKind).map {
-              case "fixed_term" =>
-                field("Fine", textInput(createForm.signal.map(_.endDate), Observer[String](v => createForm.update(_.copy(endDate = v))), "", "date"))
-              case "part_time" =>
-                field(
-                  "Ore/sett.",
-                  textInput(createForm.signal.map(_.weeklyHours), Observer[String](v => createForm.update(_.copy(weeklyHours = v))), "", "number"),
-                )
+            textField("Inizio", _.startDate, (s, v) => s.copy(startDate = v), "date"),
+            child <-- form.signal.map(_.contractKind).distinct.map {
+              case "fixed_term" => textField("Fine", _.endDate, (s, v) => s.copy(endDate = v), "date")
+              case "part_time" => textField("Ore/sett.", _.weeklyHours, (s, v) => s.copy(weeklyHours = v), "number")
               case _ => div()
             },
-            field(
-              "Budget ore/sett.",
-              textInput(createForm.signal.map(_.budget), Observer[String](v => createForm.update(_.copy(budget = v))), "", "number"),
+            textField("Budget ore/sett.", _.budget, (s, v) => s.copy(budget = v), "number"),
+          ),
+          child.maybe <-- form.signal.map(s =>
+            Option.when(s.editingId.isDefined && s.overrides.nonEmpty)(
+              div(cls := "mt-2 text-xs text-slate-400", s"${s.overrides.size} override invariati (si modificano con «Override»)."),
             ),
           ),
           child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
           div(
-            cls := "mt-3",
+            cls := "mt-3 flex gap-2",
             button(
               tpe := "button",
               cls := btnPrimary,
-              "Crea dipendente",
-              disabled <-- createFormErrors.map(_.nonEmpty),
-              onClick --> (_ => createEmployee()),
+              child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
+              disabled <-- formErrors.map(_.nonEmpty),
+              onClick --> (_ => submit()),
             ),
+            child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
           ),
         ),
       ),
@@ -309,17 +333,23 @@ object EmployeesPage:
                     roleGated(Role.Admin)(
                       div(
                         cls := "flex gap-2",
+                        button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(emp))),
                         button(tpe := "button", cls := btnSmall, "Override", onClick --> (_ => openEditor(emp))),
-                        button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => deleteEmployee(emp.id))),
+                        button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(emp)))),
                       ),
                     ),
                   ),
-                  child <-- overrideEditor.signal.map(e => if e.editing.exists(_.id == emp.id) then editorPanel() else emptyNode),
+                  // `distinct`: the panel is rebuilt only when it opens or closes, not on every keystroke (that would drop the input focus).
+                  child <-- overrideEditor.signal
+                    .map(_.editing.exists(_.id == emp.id))
+                    .distinct
+                    .map(open => if open then editorPanel() else emptyNode),
                 )
               },
             )
         },
       ),
+      confirmDeleteModal,
     )
   end apply
-end EmployeesPage
+end EmployeesTab

@@ -4,7 +4,8 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeService
-import io.github.nicolasfara.rstmanager.hr.service.EmployeeApp
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendarService
+import io.github.nicolasfara.rstmanager.hr.service.{ CompanyCalendarApp, EmployeeApp }
 import io.github.nicolasfara.rstmanager.planning.PlanningTrigger
 import io.github.nicolasfara.rstmanager.warehouse.service.WarehouseConsumptionReconciler
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderService
@@ -33,13 +34,15 @@ object PlanningDependencyConsumer:
   def resource(
       orders: OrderApp.Store,
       employees: EmployeeApp.Store,
+      calendar: CompanyCalendarApp.Store,
       recalculator: PlanningRecalculator,
       warehouse: WarehouseConsumptionReconciler,
   ): Resource[IO, Unit] =
     val orderStream = OutboxConsumer(orders.entity)(fanOut(orderHandlers(recalculator, warehouse)))
     val employeeStream = OutboxConsumer(employees.entity)(fanOut(List(("planning", item => handleEmployeeNotification(recalculator, item)))))
+    val calendarStream = OutboxConsumer(calendar.entity)(fanOut(List(("planning", item => handleCalendarNotification(recalculator, item)))))
 
-    orderStream.merge(employeeStream).compile.drain.background.void
+    orderStream.merge(employeeStream).merge(calendarStream).compile.drain.background.void
 
   /** The reactions to an order notification: the planning recalculation, then the warehouse consumption reconciliation of the order. */
   private[service] def orderHandlers(
@@ -71,6 +74,12 @@ object PlanningDependencyConsumer:
       case EmployeeService.Notification.EmployeeChanged(_) =>
         outboxCause("employees", item, PlanningTrigger.WorkforceCapacityChanged)
 
+  /** A closure change alters everybody's capacity on its days, exactly like an employee change does for one employee. */
+  private[service] def calendarCause(item: OutboxItem[CompanyCalendarService.Notification]): PlanningRecalculationCause =
+    item.data match
+      case CompanyCalendarService.Notification.CompanyCalendarChanged =>
+        outboxCause("company-calendar", item, PlanningTrigger.WorkforceCapacityChanged)
+
   private def handleOrderNotification(recalculator: PlanningRecalculator, item: OutboxItem[OrderService.Notification]): IO[Unit] =
     recalculator.recalculate(orderCause(item)).void
 
@@ -80,6 +89,9 @@ object PlanningDependencyConsumer:
 
   private def handleEmployeeNotification(recalculator: PlanningRecalculator, item: OutboxItem[EmployeeService.Notification]): IO[Unit] =
     recalculator.recalculate(employeeCause(item)).void
+
+  private def handleCalendarNotification(recalculator: PlanningRecalculator, item: OutboxItem[CompanyCalendarService.Notification]): IO[Unit] =
+    recalculator.recalculate(calendarCause(item)).void
 
   private def outboxCause[N](namespace: String, item: OutboxItem[N], trigger: PlanningTrigger): PlanningRecalculationCause =
     val stableId = s"$namespace-${item.streamId}-${item.seqNr}"

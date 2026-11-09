@@ -9,6 +9,7 @@ import scala.concurrent.duration.*
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.{ ClosureId, CompanyCalendar, CompanyClosure }
 import io.github.nicolasfara.rstmanager.planning.Planning.CompletedPlanning
 import io.github.nicolasfara.rstmanager.planning.PlanningService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
@@ -149,7 +150,23 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
       orders: List[Order],
       employees: List[Employee],
   ): SchedulingOutcome =
-    SchedulingService.computeSchedule(planningRequest, orders, employees)
+    SchedulingService.computeSchedule(planningRequest, orders, employees, CompanyCalendar.empty)
+
+  private def scheduleWith(
+      calendar: CompanyCalendar,
+      planningRequest: PlanningRequest,
+      orders: List[Order],
+      employees: List[Employee],
+  ): SchedulingOutcome =
+    SchedulingService.computeSchedule(planningRequest, orders, employees, calendar)
+
+  private def period(first: DateTime, last: DateTime, reason: String): CompanyClosure =
+    CompanyClosure
+      .createPeriod(ClosureId(UUID.randomUUID().nn), first.toLocalDate, last.toLocalDate, reason)
+      .fold(errors => fail(errors.toChain.toList.mkString), identity)
+
+  private def annual(month: Int, day: Int, reason: String): CompanyClosure =
+    CompanyClosure.createAnnual(ClosureId(UUID.randomUUID().nn), month, day, reason).fold(errors => fail(errors.toChain.toList.mkString), identity)
 
   "SchedulingService" should "schedule a task on a single day when the daily capacity suffices" in:
     val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
@@ -168,7 +185,8 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val overloaded = employee(employeeA, 125, Nil, Contract.FullTime(monday.toLocalDate.minusYears(1)))
-    val computation = Future(SchedulingService.computeSchedule(request(monday, List(orderId)), List(theOrder), List(overloaded)))
+    val computation =
+      Future(SchedulingService.computeSchedule(request(monday, List(orderId)), List(theOrder), List(overloaded), CompanyCalendar.empty))
 
     Await.result(computation, 10.seconds).slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual
       List((monday, 6))
@@ -266,6 +284,53 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA, overrides = List(vacation))))
 
     outcome.slices.map(_.day) shouldEqual List(wednesday)
+
+  it should "skip company closure periods, both bounds included" in:
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 16)
+    val closure = period(monday, tuesday, "Inventario")
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val outcome = scheduleWith(CompanyCalendar(List(closure)), request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(_.day) shouldEqual List(wednesday, monday.plusDays(3).nn)
+
+  it should "jump over a long closure period in one step" in:
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val reopening = monday.plusDays(70).nn
+    val closure = period(monday, reopening.minusDays(1).nn, "Chiusura lunga")
+    val theOrder = order(orderId, reopening, NonEmptyList.one(manufacturing(manufacturingId, reopening, NonEmptyList.one(task))))
+    val outcome = scheduleWith(CompanyCalendar(List(closure)), request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(_.day) shouldEqual List(reopening)
+
+  it should "skip annual closures in every year" in:
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 16)
+    // 16/06 is the Tuesday of the planning week.
+    val closure = annual(6, 16, "Patrono")
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val outcome = scheduleWith(CompanyCalendar(List(closure)), request(monday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(_.day) shouldEqual List(monday, wednesday)
+
+  it should "let a closure win over a working-day override" in:
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 2)
+    val onMonday = WorkingDayOverride.createWorkingDayOverride(4, None, monday.toLocalDate).toOption.getOrElse(fail("invalid override"))
+    val onTuesday = WorkingDayOverride.createWorkingDayOverride(4, None, tuesday.toLocalDate).toOption.getOrElse(fail("invalid override"))
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    val closedMonday = CompanyCalendar(List(annual(6, 15, "Chiusura")))
+    val contract = Contract.FullTime(monday.toLocalDate.minusYears(1))
+
+    val overrideOnly = employee(employeeA, 0, List(onMonday), contract)
+    val unplanned = scheduleWith(closedMonday, request(monday, List(orderId)), List(theOrder), List(overrideOnly))
+    unplanned.slices shouldBe empty
+    unplanned.unplannedOrders.map(_.orderId) shouldEqual List(orderId)
+
+    val twoOverrides = employee(employeeA, 0, List(onMonday, onTuesday), contract)
+    val planned = scheduleWith(closedMonday, request(monday, List(orderId)), List(theOrder), List(twoOverrides))
+    planned.slices.map(_.day) shouldEqual List(tuesday)
+
+  it should "list only the working days of the company calendar as production days" in:
+    val calendar = CompanyCalendar(List(period(tuesday, wednesday, "Ponte")))
+    SchedulingService.productionDays(monday, calendar).take(3).toList shouldEqual List(monday, monday.plusDays(3).nn, friday)
 
   it should "apply a working-day override whatever the time zone it was entered in" in:
     // Days entered in the UI arrive as UTC midnights, while planning days are midnights in the server zone: only the calendar day matters.
@@ -516,7 +581,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val task = pendingTask(TaskId(UUID.randomUUID().nn), 6)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val planningRequest = request(monday, List(orderId))
-    val command = Command.ComputePlan(planningRequest, List(theOrder), List(employee(employeeA)))
+    val command = Command.ComputePlan(planningRequest, List(theOrder), List(employee(employeeA)), CompanyCalendar.empty)
     val context = RequestContext(CommandMessage("cmd-1", Instant.now().nn, "production-planning", command), Planning.initial)
 
     PlanningService[Id].execute(context) match
@@ -531,7 +596,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val task = pendingTask(TaskId(UUID.randomUUID().nn), 50)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val planningRequest = request(monday, List(orderId))
-    val command = Command.ComputePlan(planningRequest, List(theOrder), Nil)
+    val command = Command.ComputePlan(planningRequest, List(theOrder), Nil, CompanyCalendar.empty)
     val context = RequestContext(CommandMessage("cmd-2", Instant.now().nn, "production-planning", command), Planning.initial)
     val expectedUnplanned =
       UnplannedOrder(orderId, NonEmptyList.one(UnplannedTask(manufacturingId, task.id, UnplannedReason.NoFutureCapacity(TaskDuration(50 * 60)))))
@@ -546,7 +611,7 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
     val task = pendingTask(TaskId(UUID.randomUUID().nn), 20)
     val theOrder = order(orderId, monday, NonEmptyList.one(manufacturing(manufacturingId, monday, NonEmptyList.one(task))))
     val planningRequest = request(monday, List(orderId))
-    val command = Command.ComputePlan(planningRequest, List(theOrder), List(employee(employeeA)))
+    val command = Command.ComputePlan(planningRequest, List(theOrder), List(employee(employeeA)), CompanyCalendar.empty)
     val context = RequestContext(CommandMessage("cmd-3", Instant.now().nn, "production-planning", command), Planning.initial)
 
     PlanningService[Id].execute(context) match

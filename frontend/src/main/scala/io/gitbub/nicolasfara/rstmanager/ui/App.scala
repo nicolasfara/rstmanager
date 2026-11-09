@@ -2,6 +2,7 @@ package io.gitbub.nicolasfara.rstmanager.ui
 
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, AuthState, AuthUser }
+import io.gitbub.nicolasfara.rstmanager.ui.employees.EmployeesPage
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.WarehousePage
 
 /** Application shell: auth gate, top navigation, and the routed page content area. */

@@ -4,6 +4,7 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.{ DailyHours, EmployeeId, WeeklyHours }
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.ClosureId
 import io.github.nicolasfara.rstmanager.planning.PlanningRequestId
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Amount, Quantity, SignedQuantity, UnitPrice }
 import io.github.nicolasfara.rstmanager.warehouse.domain.deliverynote.DeliveryNoteId
@@ -65,6 +66,7 @@ object CommonCodecs:
   given Codec[MaterialId] = idCodec(MaterialId(_), _.value)
   given Codec[MovementId] = idCodec(MovementId(_), _.value)
   given Codec[DeliveryNoteId] = idCodec(DeliveryNoteId(_), _.value)
+  given Codec[ClosureId] = idCodec(ClosureId(_), _.value)
 
   // Identifiers used as JSON object keys (per-task maps).
   given KeyDecoder[TaskId] = idKeyDecoder(TaskId(_))

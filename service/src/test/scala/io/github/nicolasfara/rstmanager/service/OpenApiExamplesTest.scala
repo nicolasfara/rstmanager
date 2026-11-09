@@ -4,7 +4,8 @@ import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.customer.service.CustomerHttpApi
 import io.github.nicolasfara.rstmanager.customer.service.CustomerHttpApi.CustomerRequest
-import io.github.nicolasfara.rstmanager.hr.service.EmployeeHttpApi
+import io.github.nicolasfara.rstmanager.hr.service.{ CompanyCalendarHttpApi, EmployeeHttpApi }
+import io.github.nicolasfara.rstmanager.hr.service.CompanyCalendarHttpApi.ClosureRequest
 import io.github.nicolasfara.rstmanager.hr.service.EmployeeHttpApi.EmployeeRequest
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.PlanningAttemptRequest
 import io.github.nicolasfara.rstmanager.planning.service.PlanningEndpoints
@@ -82,6 +83,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     validOrFail(TransitionRequest.example.toCommand)
     validOrFail(TaskProgressUpdateRequest.example.toCommands(generatedManufacturingId, id))
     validOrFail(EmployeeRequest.example.toDomain(id))
+    validOrFail(ClosureRequest.example.toDomain(id))
     validOrFail(CustomerRequest.example.toDomain(id))
     validOrFail(TaskRequest.example.toDomain(id))
     validOrFail(ManufacturingRequest.example.toDomain(id))
@@ -101,6 +103,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
         ManufacturingHttpApi.endpoints ++
         OrderHttpApi.endpoints ++
         EmployeeHttpApi.endpoints ++
+        CompanyCalendarHttpApi.endpoints ++
         SupplierHttpApi.endpoints ++
         MaterialHttpApi.endpoints ++
         StockHttpApi.endpoints ++
@@ -132,6 +135,8 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     yaml should include("12.5000")
     yaml should include("/api/v1/warehouse/delivery-notes/{id}/cancel")
     yaml should include("1234/A")
+    yaml should include("/api/v1/company-calendar/closures/{id}")
+    yaml should include("2026-08-10T00:00:00.000Z")
     yaml should not include "00000000-0000-0000-0000-000000000501"
     yaml should not include "startOn: string"
     yaml should not include "creationDate: string"

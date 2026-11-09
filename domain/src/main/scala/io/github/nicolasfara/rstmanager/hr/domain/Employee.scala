@@ -1,5 +1,7 @@
 package io.github.nicolasfara.rstmanager.hr.domain
 
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
+
 import cats.data.{ Validated, ValidatedNec }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.LocalDate
@@ -21,6 +23,15 @@ import monocle.syntax.all.*
 final case class Employee(id: EmployeeId, info: EmployeeInfo, contract: Contract, budgetHours: BudgetHours):
   /** Checks whether the employee is employed on a given calendar day (contract start and end dates included). */
   def isActiveAt(day: LocalDate): Boolean = contract.covers(day)
+
+  /**
+   * Working hours the employee is available for on `day`: none on a day that is not a working day of the company `calendar` (weekend or closure,
+   * which wins over a working-day override) or outside the contract, otherwise the budgeted hours of the day ([[BudgetHours.getWorkingHoursForDay]]).
+   *
+   * This is the single availability rule; planning derives every employee's daily capacity from it.
+   */
+  def hoursOn(day: LocalDate, calendar: CompanyCalendar): DailyHours =
+    if !calendar.isWorkingDay(day) || !isActiveAt(day) then DailyHours(0) else budgetHours.getWorkingHoursForDay(day)
 
   /** Updates the budget hours if the employee is active on `referenceDate`. */
   def updateBudgetHours(newBudgetHours: BudgetHours, referenceDate: LocalDate): Either[String, Employee] =

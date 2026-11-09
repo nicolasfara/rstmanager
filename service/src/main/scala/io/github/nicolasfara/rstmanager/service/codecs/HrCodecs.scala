@@ -1,6 +1,8 @@
 package io.github.nicolasfara.rstmanager.service.codecs
 
 import io.github.nicolasfara.rstmanager.hr.domain.*
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.{ CompanyCalendarService, CompanyClosure }
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.events.CompanyCalendarEvent
 import io.github.nicolasfara.rstmanager.hr.domain.events.EmployeeEvent
 
 import cats.syntax.all.*
@@ -10,7 +12,7 @@ import io.circe.generic.semiauto.deriveCodec
 import io.circe.syntax.*
 import io.github.iltotore.iron.circe.given
 
-/** Circe codecs for the employee aggregate graph, used to persist [[EmployeeEvent]] in the journal. */
+/** Circe codecs for the HR aggregate graphs, used to persist [[EmployeeEvent]] and [[CompanyCalendarEvent]] in their journals. */
 object HrCodecs:
   import CommonCodecs.given
 
@@ -56,4 +58,13 @@ object HrCodecs:
   given Codec[EmployeeEvent] = EventSchema.codec(EmployeeEventSchema)
 
   given Codec[EmployeeService.Notification] = deriveCodec
+
+  /** Circe's derived sum layout: `{"Period": {id, firstDay, lastDay, reason}}` or `{"Annual": {id, month, dayOfMonth, reason}}`. */
+  given Codec[CompanyClosure] = deriveCodec
+
+  /** Current-version data of the company calendar journal; it is persisted through [[CompanyCalendarEventSchema]]. */
+  val companyCalendarEventData: Codec.AsObject[CompanyCalendarEvent] = deriveCodec
+  given Codec[CompanyCalendarEvent] = EventSchema.codec(CompanyCalendarEventSchema)
+
+  given companyCalendarNotificationCodec: Codec[CompanyCalendarService.Notification] = deriveCodec
 end HrCodecs

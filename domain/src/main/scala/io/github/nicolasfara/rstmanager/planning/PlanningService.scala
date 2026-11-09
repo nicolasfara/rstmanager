@@ -1,6 +1,7 @@
 package io.github.nicolasfara.rstmanager.planning
 
 import io.github.nicolasfara.rstmanager.hr.domain.Employee
+import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.ScheduledManufacturingId
 import io.github.nicolasfara.rstmanager.work.domain.order.{ Order, OrderId }
 
@@ -15,13 +16,13 @@ import com.github.nscala_time.time.Imports.DateTime
  * concludes the attempt with a single event carrying the whole result (or the reasons it was rejected), stamped with the command time. Downstream
  * contexts are informed through notifications, so, for example, the order service can update work-completion deadlines when planning delays an order.
  *
- * The command carries the open orders and the workforce snapshot because planning combines work demand with HR capacity without reaching into other
- * aggregates; the application layer is responsible for loading them before dispatching the command.
+ * The command carries the open orders, the workforce, and the company calendar snapshots because planning combines work demand with HR capacity
+ * without reaching into other aggregates; the application layer is responsible for loading them before dispatching the command.
  */
 object PlanningService extends Planning.Service[PlanningService.Command, PlanningService.Notification]:
   enum Command derives CanEqual:
-    /** Requests a planning attempt for `request`, considering the given orders and workforce. */
-    case ComputePlan(request: PlanningRequest, orders: List[Order], employees: List[Employee])
+    /** Requests a planning attempt for `request`, considering the given orders, workforce, and company calendar. */
+    case ComputePlan(request: PlanningRequest, orders: List[Order], employees: List[Employee], calendar: CompanyCalendar)
 
   enum Notification derives CanEqual:
     /** A planning result was computed and recorded for the request. */
@@ -45,12 +46,12 @@ object PlanningService extends Planning.Service[PlanningService.Command, Plannin
     case OrderUnplanned(unplannedOrder: UnplannedOrder)
   end Notification
 
-  def apply[F[_]: Monad]: App[F, Unit] = App.router { case Command.ComputePlan(request, orders, employees) =>
+  def apply[F[_]: Monad]: App[F, Unit] = App.router { case Command.ComputePlan(request, orders, employees, calendar) =>
     App.read.flatMap { context =>
       val now = new DateTime(context.command.time.toEpochMilli)
       for
         inProgress <- App.decide(context.state.request(request))
-        concluded <- App.decide(inProgress.conclude(SchedulingService.computeSchedule(request, orders, employees), now))
+        concluded <- App.decide(inProgress.conclude(SchedulingService.computeSchedule(request, orders, employees, calendar), now))
         _ <- publishOutcome(request, concluded)
       yield ()
     }

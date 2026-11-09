@@ -1,7 +1,7 @@
 package io.github.nicolasfara.rstmanager.service
 
 import io.github.nicolasfara.rstmanager.customer.service.{ CustomerApp, CustomerHttpApi }
-import io.github.nicolasfara.rstmanager.hr.service.{ EmployeeApp, EmployeeHttpApi }
+import io.github.nicolasfara.rstmanager.hr.service.{ CompanyCalendarApp, CompanyCalendarHttpApi, EmployeeApp, EmployeeHttpApi }
 import io.github.nicolasfara.rstmanager.planning.service.{ PlanningApp, PlanningEntityGateway, PlanningRoutes }
 import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
 import io.github.nicolasfara.rstmanager.warehouse.service.{
@@ -28,6 +28,7 @@ object ApiServer:
   def routes(
       planningBackend: PlanningApp.PlanningBackend,
       employees: EmployeeApp.Store,
+      calendar: CompanyCalendarApp.Store,
       customers: CustomerApp.Store,
       tasks: TaskApp.Store,
       manufacturings: ManufacturingApp.Store,
@@ -38,9 +39,10 @@ object ApiServer:
       deliveryNoteReconciler: WarehouseDeliveryNoteReconciler,
       security: ApiSecurity,
   ): HttpRoutes[IO] =
-    val planningGateway = PlanningEntityGateway.fromStores(orders, employees)
+    val planningGateway = PlanningEntityGateway.fromStores(orders, employees, calendar)
     val apiEndpoints: List[ServerEndpoint[Any, IO]] =
       EmployeeHttpApi.routes(employees, security) ++
+        CompanyCalendarHttpApi.routes(calendar, security) ++
         CustomerHttpApi.routes(customers, security) ++
         TaskHttpApi.routes(tasks, manufacturings, security) ++
         ManufacturingHttpApi.routes(manufacturings, tasks, security) ++

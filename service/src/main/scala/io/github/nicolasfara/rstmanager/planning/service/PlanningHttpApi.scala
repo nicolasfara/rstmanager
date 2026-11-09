@@ -92,7 +92,7 @@ object PlanningRoutes:
       case Left(error) => IO.pure(entityLoadFailure(error).asLeft)
       case Right(snapshot) =>
         val planningRequest = input.toPlanningRequest(snapshot.orders.map(_.data.id))
-        PlanningApp.computePlan(backend, planningRequest, snapshot.orders, snapshot.employees).attempt.flatMap {
+        PlanningApp.computePlan(backend, planningRequest, snapshot.orders, snapshot.employees, snapshot.calendar).attempt.flatMap {
           case Left(error) => IO.pure(unexpectedFailure(error).asLeft)
           case Right(Left(errors)) => IO.pure(commandRejected(errors).asLeft)
           case Right(Right(commandId)) => currentPlanningAttempt(backend).map(_.map(PlanningAttemptResponse(commandId, _)))
@@ -111,7 +111,9 @@ object PlanningRoutes:
           case Left(error) => IO.pure(entityLoadFailure(error).asLeft)
           case Right(snapshot) =>
             IO(DateTime.now()).map { now =>
-              OrderSimulationResponse.fromDomain(OrderSimulationService.simulate(now, snapshot.orders, snapshot.employees, demand)).asRight
+              OrderSimulationResponse
+                .fromDomain(OrderSimulationService.simulate(now, snapshot.orders, snapshot.employees, snapshot.calendar, demand))
+                .asRight
             }
         }
     }

@@ -21,7 +21,7 @@ type PostalCode = DescribedAs[Match["[0-9]{5}"], "The postal code must contain e
 type Country = DescribedAs[Not[Empty], "The country cannot be empty"]
 
 /**
- * Postal address attached to a customer record.
+ * Postal address attached to a customer record. Every field is optional, so a partially known address can be stored.
  *
  * @param street
  *   Street name and house number.
@@ -33,26 +33,29 @@ type Country = DescribedAs[Not[Empty], "The country cannot be empty"]
  *   Country name.
  */
 final case class Address(
-    street: String :| Street,
-    city: String :| City,
-    postalCode: String :| PostalCode,
-    country: String :| Country,
+    street: Option[String :| Street],
+    city: Option[String :| City],
+    postalCode: Option[String :| PostalCode],
+    country: Option[String :| Country],
 ) derives CanEqual:
   /** Returns a copy with a different street value. */
-  def updateStreet(street: String :| Street): Address = this.focus(_.street).replace(street)
+  def updateStreet(street: Option[String :| Street]): Address = this.focus(_.street).replace(street)
 
   /** Returns a copy with a different city value. */
-  def updateCity(city: String :| City): Address = this.focus(_.city).replace(city)
+  def updateCity(city: Option[String :| City]): Address = this.focus(_.city).replace(city)
 
   /** Returns a copy with a different postal code. */
-  def updatePostalCode(postalCode: String :| PostalCode): Address = this.focus(_.postalCode).replace(postalCode)
+  def updatePostalCode(postalCode: Option[String :| PostalCode]): Address = this.focus(_.postalCode).replace(postalCode)
 
   /** Returns a copy with a different country value. */
-  def updateCountry(country: String :| Country): Address = this.focus(_.country).replace(country)
+  def updateCountry(country: Option[String :| Country]): Address = this.focus(_.country).replace(country)
 
 object Address:
+  /** Address with every field unset. */
+  val empty: Address = Address(None, None, None, None)
+
   /**
-   * Builds an `Address` from raw strings, validating each field first.
+   * Builds an `Address` from raw optional strings: blank values become absent, present ones are validated.
    *
    * @param street
    *   Raw street value.
@@ -63,11 +66,18 @@ object Address:
    * @param country
    *   Raw country value.
    */
-  def createAddress(street: String, city: String, postalCode: String, country: String): ValidatedNec[String, Address] =
+  def createAddress(
+      street: Option[String],
+      city: Option[String],
+      postalCode: Option[String],
+      country: Option[String],
+  ): ValidatedNec[String, Address] =
     (
-      street.refineValidatedNec[Street],
-      city.refineValidatedNec[City],
-      postalCode.refineValidatedNec[PostalCode],
-      country.refineValidatedNec[Country],
+      normalized(street).traverse(_.refineValidatedNec[Street]),
+      normalized(city).traverse(_.refineValidatedNec[City]),
+      normalized(postalCode).traverse(_.refineValidatedNec[PostalCode]),
+      normalized(country).traverse(_.refineValidatedNec[Country]),
     ).mapN(Address.apply)
+
+  private def normalized(value: Option[String]): Option[String] = value.map(_.trim.nn).filter(_.nonEmpty)
 end Address

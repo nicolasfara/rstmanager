@@ -24,7 +24,7 @@ type PhoneNumber = DescribedAs[
 ]
 
 /**
- * Contact details for a customer.
+ * Contact details for a customer: the name and surname are required, the email and phone are optional.
  *
  * @param name
  *   Contact first name.
@@ -38,8 +38,8 @@ type PhoneNumber = DescribedAs[
 final case class ContactInfo(
     name: String :| Name,
     surname: String :| Surname,
-    email: String :| Email,
-    phone: String :| PhoneNumber,
+    email: Option[String :| Email],
+    phone: Option[String :| PhoneNumber],
 ) derives CanEqual:
   /** Returns a copy with a different first name. */
   def updateName(name: String :| Name): ContactInfo = this.focus(_.name).replace(name)
@@ -48,29 +48,31 @@ final case class ContactInfo(
   def updateSurname(surname: String :| Surname): ContactInfo = this.focus(_.surname).replace(surname)
 
   /** Returns a copy with a different email address. */
-  def updateEmail(email: String :| Email): ContactInfo = this.focus(_.email).replace(email)
+  def updateEmail(email: Option[String :| Email]): ContactInfo = this.focus(_.email).replace(email)
 
   /** Returns a copy with a different phone number. */
-  def updatePhone(phone: String :| PhoneNumber): ContactInfo = this.focus(_.phone).replace(phone)
+  def updatePhone(phone: Option[String :| PhoneNumber]): ContactInfo = this.focus(_.phone).replace(phone)
 
 object ContactInfo:
   /**
-   * Builds `ContactInfo` from raw values after applying refined validation.
+   * Builds `ContactInfo` from raw values after applying refined validation; a blank email or phone becomes absent.
    *
    * @param name
    *   Raw first name.
    * @param surname
    *   Raw surname.
    * @param email
-   *   Raw email address.
+   *   Raw email address, if any.
    * @param phone
-   *   Raw phone number.
+   *   Raw phone number, if any.
    */
-  def createContactInfo(name: String, surname: String, email: String, phone: String): ValidatedNec[String, ContactInfo] =
+  def createContactInfo(name: String, surname: String, email: Option[String], phone: Option[String]): ValidatedNec[String, ContactInfo] =
     (
       name.refineValidatedNec[Name],
       surname.refineValidatedNec[Surname],
-      email.refineValidatedNec[Email],
-      phone.refineValidatedNec[PhoneNumber],
+      normalized(email).traverse(_.refineValidatedNec[Email]),
+      normalized(phone).traverse(_.refineValidatedNec[PhoneNumber]),
     ).mapN(ContactInfo.apply)
+
+  private def normalized(value: Option[String]): Option[String] = value.map(_.trim.nn).filter(_.nonEmpty)
 end ContactInfo

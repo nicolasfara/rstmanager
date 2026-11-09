@@ -9,8 +9,8 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 object ListSearch:
 
   def customer(c: CustomerResponse): List[String] =
-    List(c.name, c.surname, c.email, c.phone, c.city, c.fiscalCode) ++
-      List(c.businessName, c.pec, c.boatModel, c.boatName, c.boatBerth, c.port).flatten
+    List(c.name, c.surname) ++
+      List(c.email, c.phone, c.city, c.fiscalCode, c.businessName, c.pec, c.boatModel, c.boatName, c.boatBerth, c.port).flatten
 
   def employee(e: EmployeeResponse): List[String] = List(e.name, e.surname)
 

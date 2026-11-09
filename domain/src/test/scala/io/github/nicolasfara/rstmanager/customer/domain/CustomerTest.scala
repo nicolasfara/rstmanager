@@ -86,13 +86,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.id,
           input.name,
           input.surname,
-          input.email,
-          input.phone,
-          input.street,
-          input.city,
-          input.postalCode,
-          input.country,
-          input.fiscalCode,
+          Some(input.email),
+          Some(input.phone),
+          Some(input.street),
+          Some(input.city),
+          Some(input.postalCode),
+          Some(input.country),
+          Some(input.fiscalCode),
           CustomerType.Individual,
           businessName = None,
           pec = None,
@@ -111,13 +111,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.id,
           input.name,
           input.surname,
-          input.email,
-          input.phone,
-          input.street,
-          input.city,
-          input.postalCode,
-          input.country,
-          input.fiscalCode,
+          Some(input.email),
+          Some(input.phone),
+          Some(input.street),
+          Some(input.city),
+          Some(input.postalCode),
+          Some(input.country),
+          Some(input.fiscalCode),
           CustomerType.Individual,
           businessName = Some("Nautica Srl"),
           pec = Some("nautica@pec.example.com"),
@@ -131,32 +131,32 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           customer.id shouldEqual input.id
           customer.contactInfo.name.toString shouldEqual input.name
           customer.contactInfo.surname.toString shouldEqual input.surname
-          customer.contactInfo.email.toString shouldEqual input.email
-          customer.contactInfo.phone.toString shouldEqual input.phone
-          customer.address.street.toString shouldEqual input.street
-          customer.address.city.toString shouldEqual input.city
-          customer.address.postalCode.toString shouldEqual input.postalCode
-          customer.address.country.toString shouldEqual input.country
-          customer.fiscalCode.toString shouldEqual input.fiscalCode
+          customer.contactInfo.email.map(_.toString) shouldEqual Some(input.email)
+          customer.contactInfo.phone.map(_.toString) shouldEqual Some(input.phone)
+          customer.address.street.map(_.toString) shouldEqual Some(input.street)
+          customer.address.city.map(_.toString) shouldEqual Some(input.city)
+          customer.address.postalCode.map(_.toString) shouldEqual Some(input.postalCode)
+          customer.address.country.map(_.toString) shouldEqual Some(input.country)
+          customer.fiscalCode.map(_.toString) shouldEqual Some(input.fiscalCode)
           customer.customerType shouldEqual CustomerType.Individual
           customer.businessName.map(_.toString) shouldEqual Some("Nautica Srl")
           customer.pec.map(_.toString) shouldEqual Some("nautica@pec.example.com")
           customer.notes shouldEqual Some("Cliente storico")
           customer.boat shouldEqual BoatInfo(Some("Sun Odyssey 410"), Some("Aurora"), Some("B12"), Some("Marina di Rimini"))
 
-  it should "validate the VAT number and require the business name for companies" in:
+  it should "validate the VAT number of companies" in:
     forAll(genValidCustomerInput, genVatNumber): (input, vatNumber) =>
       val result = Customer.createCustomer(
         input.id,
         input.name,
         input.surname,
-        input.email,
-        input.phone,
-        input.street,
-        input.city,
-        input.postalCode,
-        input.country,
-        vatNumber,
+        Some(input.email),
+        Some(input.phone),
+        Some(input.street),
+        Some(input.city),
+        Some(input.postalCode),
+        Some(input.country),
+        Some(vatNumber),
         CustomerType.Company,
         businessName = Some("Cantiere Navale Srl"),
         pec = None,
@@ -168,33 +168,34 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
       )
       result.isValid shouldEqual true
       result.foreach: customer =>
-        customer.fiscalCode.toString shouldEqual vatNumber
+        customer.fiscalCode.map(_.toString) shouldEqual Some(vatNumber)
         customer.businessName.map(_.toString) shouldEqual Some("Cantiere Navale Srl")
 
-  it should "reject a company without business name" in:
-    forAll(genValidCustomerInput, genVatNumber): (input, vatNumber) =>
-      Customer
-        .createCustomer(
-          input.id,
-          input.name,
-          input.surname,
-          input.email,
-          input.phone,
-          input.street,
-          input.city,
-          input.postalCode,
-          input.country,
-          vatNumber,
-          CustomerType.Company,
-          businessName = None,
-          pec = None,
-          notes = None,
-          boatModel = None,
-          boatName = None,
-          boatBerth = None,
-          port = None,
-        )
-        .isValid shouldEqual false
+  it should "accept a customer with only name and surname, treating blank values as absent" in:
+    forAll(genValidCustomerInput, Gen.oneOf(CustomerType.Individual, CustomerType.Company)): (input, customerType) =>
+      val result = Customer.createCustomer(
+        input.id,
+        input.name,
+        input.surname,
+        email = None,
+        phone = Some(""),
+        street = None,
+        city = Some("  "),
+        postalCode = None,
+        country = None,
+        fiscalCode = Some(" "),
+        customerType = customerType,
+        businessName = None,
+        pec = None,
+        notes = None,
+        boatModel = None,
+        boatName = None,
+        boatBerth = None,
+        port = None,
+      )
+      result.toOption.map(c => (c.contactInfo.email, c.contactInfo.phone, c.address, c.fiscalCode, c.businessName)) shouldEqual
+        Some((None, None, Address.empty, None, None))
+      result.foreach(_.checkInvariants.isValid shouldEqual true)
 
   it should "reject a company VAT number with an invalid check digit" in:
     forAll(genValidCustomerInput, genVatNumber): (input, vatNumber) =>
@@ -204,13 +205,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.id,
           input.name,
           input.surname,
-          input.email,
-          input.phone,
-          input.street,
-          input.city,
-          input.postalCode,
-          input.country,
-          corrupted,
+          Some(input.email),
+          Some(input.phone),
+          Some(input.street),
+          Some(input.city),
+          Some(input.postalCode),
+          Some(input.country),
+          Some(corrupted),
           CustomerType.Company,
           businessName = Some("Cantiere Navale Srl"),
           pec = None,
@@ -229,13 +230,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
           input.id,
           input.name,
           input.surname,
-          input.email,
-          input.phone,
-          input.street,
-          input.city,
-          input.postalCode,
-          input.country,
-          input.fiscalCode,
+          Some(input.email),
+          Some(input.phone),
+          Some(input.street),
+          Some(input.city),
+          Some(input.postalCode),
+          Some(input.country),
+          Some(input.fiscalCode),
           CustomerType.Individual,
           businessName = None,
           pec = Some("not-a-pec"),
@@ -257,13 +258,13 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
         id = id,
         name = "",
         surname = "Doe",
-        email = "invalid-email",
-        phone = "+12345678901",
-        street = "MainStreet",
-        city = "Rome",
-        postalCode = "ABCDE",
-        country = "Italy",
-        fiscalCode = "invalid",
+        email = Some("invalid-email"),
+        phone = Some("+12345678901"),
+        street = Some("MainStreet"),
+        city = Some("Rome"),
+        postalCode = Some("ABCDE"),
+        country = Some("Italy"),
+        fiscalCode = Some("invalid"),
         customerType = CustomerType.Individual,
         businessName = None,
         pec = None,
@@ -283,22 +284,22 @@ class CustomerTest extends AnyFlatSpecLike, ScalaCheckPropertyChecks:
       contactInfo = ContactInfo(
         name = "John".refineUnsafe[Name],
         surname = "Doe".refineUnsafe[Surname],
-        email = "john@doe.com".refineUnsafe[Email],
-        phone = "+12345678901".refineUnsafe[PhoneNumber],
+        email = Some("john@doe.com".refineUnsafe[Email]),
+        phone = Some("+12345678901".refineUnsafe[PhoneNumber]),
       ),
       address = Address(
-        street = "123MainStreet".refineUnsafe[Street],
-        city = "Springfield".refineUnsafe[City],
-        postalCode = "12345".refineUnsafe[PostalCode],
-        country = "USA".refineUnsafe[Country],
+        street = Some("123MainStreet".refineUnsafe[Street]),
+        city = Some("Springfield".refineUnsafe[City]),
+        postalCode = Some("12345".refineUnsafe[PostalCode]),
+        country = Some("USA".refineUnsafe[Country]),
       ),
-      fiscalCode = "RSSMRA85T10A562S".refineUnsafe[TaxCodeRule],
+      fiscalCode = Some("RSSMRA85T10A562S".refineUnsafe[TaxCodeRule]),
       customerType = CustomerType.Individual,
     )
 
-    val updated = customer.updateEmail("jane@doe.com".refineUnsafe[Email])
+    val updated = customer.updateEmail(Some("jane@doe.com".refineUnsafe[Email]))
 
-    updated.contactInfo.email.toString shouldEqual "jane@doe.com"
+    updated.contactInfo.email.map(_.toString) shouldEqual Some("jane@doe.com")
     updated.contactInfo.name shouldEqual customer.contactInfo.name
     updated.contactInfo.surname shouldEqual customer.contactInfo.surname
     updated.contactInfo.phone shouldEqual customer.contactInfo.phone

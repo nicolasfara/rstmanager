@@ -21,13 +21,13 @@ class CustomerServiceTest extends AnyFlatSpecLike:
         customerId,
         "Mario",
         "Rossi",
-        "mario@example.com",
-        "+393331234567",
-        "Via Roma 1",
-        "Bologna",
-        "40100",
-        "Italia",
-        fiscalCode,
+        Some("mario@example.com"),
+        Some("+393331234567"),
+        Some("Via Roma 1"),
+        Some("Bologna"),
+        Some("40100"),
+        Some("Italia"),
+        Some(fiscalCode),
         customerType,
         businessName,
         None,
@@ -64,12 +64,20 @@ class CustomerServiceTest extends AnyFlatSpecLike:
       }
     }
 
-  it should "reject a company without a business name, however the customer was built" in:
-    rejection(run(Command.Create(company.copy(businessName = None)), CustomerAggregate.Empty)) shouldEqual List(CustomerError.BusinessNameRequired)
+  it should "accept a customer with only name and surname, of either type" in:
+    val bare = individual.copy(
+      contactInfo = individual.contactInfo.updateEmail(None).updatePhone(None),
+      address = Address.empty,
+      fiscalCode = None,
+    )
+    List(bare, bare.updateCustomerType(CustomerType.Company)).foreach { customer =>
+      run(Command.Create(customer), CustomerAggregate.Empty) should matchPattern { case EdomatonResult.Accepted(CustomerAggregate.Active(_), _, _) =>
+      }
+    }
 
   it should "reject a fiscal identifier that does not match the customer type" in:
     rejection(
-      run(Command.Create(individual.updateCustomerType(CustomerType.Company).copy(businessName = company.businessName)), CustomerAggregate.Empty),
+      run(Command.Create(individual.updateCustomerType(CustomerType.Company)), CustomerAggregate.Empty),
     ) shouldEqual
       List(CustomerError.TaxCodeDoesNotMatchCustomerType(CustomerType.Company))
     rejection(run(Command.Update(company.updateCustomerType(CustomerType.Individual)), CustomerAggregate.Active(company))) shouldEqual

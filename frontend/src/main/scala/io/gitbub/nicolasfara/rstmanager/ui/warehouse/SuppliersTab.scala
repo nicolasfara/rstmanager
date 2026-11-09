@@ -9,7 +9,7 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.AppBus
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /** Supplier registry of the warehouse: the suppliers the material MPNs are bought from. Same layout as the customer registry. */
@@ -63,6 +63,8 @@ object SuppliersTab:
     val formErrors: Signal[List[String]] = form.signal.map(_.errors)
 
     val data = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
+    val query = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
 
     def textField(
         labelText: String,
@@ -116,54 +118,57 @@ object SuppliersTab:
       ),
       card(
         cls := "overflow-hidden",
-        renderResult(data) { suppliers =>
-          if suppliers.isEmpty then emptyState("Nessun fornitore registrato.")
+        div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca per nome, P. IVA, contatti…", pager)),
+        renderResult(data) { all =>
+          if all.isEmpty then div(cls := "p-4", emptyState("Nessun fornitore registrato."))
           else
-            div(
-              cls := "overflow-x-auto",
-              table(
-                cls := "w-full text-sm",
-                thead(
-                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                  tr(
-                    th(cls := "px-4 py-2", "Fornitore"),
-                    th(cls := "px-4 py-2", "Contatti"),
-                    th(cls := "px-4 py-2", "Indirizzo"),
-                    th(cls := "px-4 py-2"),
-                  ),
-                ),
-                tbody(
-                  suppliers.map { s =>
+            searchedPages(all, query.signal, ListSearch.supplier, pager, "Nessun fornitore corrisponde alla ricerca.") { suppliers =>
+              div(
+                cls := "overflow-x-auto",
+                table(
+                  cls := "w-full text-sm",
+                  thead(
+                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                     tr(
-                      cls := "border-b border-slate-100 align-top last:border-0",
-                      td(
-                        cls := "px-4 py-2",
-                        div(cls := "font-medium text-slate-800", s.name),
-                        s.vatNumber.map(vat => div(cls := "text-xs text-slate-500", s"P. IVA $vat")),
-                        s.notes.map(n => div(cls := "text-xs text-slate-400", n)),
-                      ),
-                      td(
-                        cls := "px-4 py-2 text-slate-500",
-                        s.email.map(e => div(e)),
-                        s.phone.map(p => div(cls := "text-xs", p)),
-                        Option.when(s.email.isEmpty && s.phone.isEmpty)(div(cls := "text-xs text-slate-400", "—")),
-                      ),
-                      td(cls := "px-4 py-2 text-slate-500", s.address.getOrElse("—")),
-                      td(
-                        cls := "px-4 py-2 text-right",
-                        roleGated(Role.Admin)(
-                          div(
-                            cls := "flex justify-end gap-2",
-                            button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(s))),
-                            button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(s)))),
+                      th(cls := "px-4 py-2", "Fornitore"),
+                      th(cls := "px-4 py-2", "Contatti"),
+                      th(cls := "px-4 py-2", "Indirizzo"),
+                      th(cls := "px-4 py-2"),
+                    ),
+                  ),
+                  tbody(
+                    suppliers.map { s =>
+                      tr(
+                        cls := "border-b border-slate-100 align-top last:border-0",
+                        td(
+                          cls := "px-4 py-2",
+                          div(cls := "font-medium text-slate-800", s.name),
+                          s.vatNumber.map(vat => div(cls := "text-xs text-slate-500", s"P. IVA $vat")),
+                          s.notes.map(n => div(cls := "text-xs text-slate-400", n)),
+                        ),
+                        td(
+                          cls := "px-4 py-2 text-slate-500",
+                          s.email.map(e => div(e)),
+                          s.phone.map(p => div(cls := "text-xs", p)),
+                          Option.when(s.email.isEmpty && s.phone.isEmpty)(div(cls := "text-xs text-slate-400", "—")),
+                        ),
+                        td(cls := "px-4 py-2 text-slate-500", s.address.getOrElse("—")),
+                        td(
+                          cls := "px-4 py-2 text-right",
+                          roleGated(Role.Admin)(
+                            div(
+                              cls := "flex justify-end gap-2",
+                              button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(s))),
+                              button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(s)))),
+                            ),
                           ),
                         ),
-                      ),
-                    )
-                  },
+                      )
+                    },
+                  ),
                 ),
-              ),
-            )
+              )
+            }
         },
       ),
       confirmDeleteModal,

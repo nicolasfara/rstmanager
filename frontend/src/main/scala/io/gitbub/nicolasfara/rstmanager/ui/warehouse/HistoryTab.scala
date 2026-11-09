@@ -6,7 +6,7 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /**
@@ -23,6 +23,7 @@ object HistoryTab:
     val today = WarehousePage.today()
     val selected = Var(today)
     val search = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
     val dayCheck = selected.signal.map(WarehouseViews.stateDay(_, today)).distinct
     // The last valid day: an invalid selection shows a hint and keeps the state of the previous day on screen.
     val applied = Var(today)
@@ -82,7 +83,7 @@ object HistoryTab:
             ),
           ),
         ),
-        div(cls := "min-w-[12rem] flex-1", field("Cerca", textInput(search, "Codice, descrizione o tipologia"))),
+        div(cls := "min-w-[12rem] flex-1", field("Cerca", searchBox(search, "Codice, descrizione o tipologia", pager))),
         div(cls := "ml-auto flex gap-2", roleGated(Role.Viewer)(exportButton)),
       )
 
@@ -160,7 +161,7 @@ object HistoryTab:
             if shown == report.rows.size then s"${report.rows.size} materiali" else s"$shown di ${report.rows.size} materiali"
           },
         ),
-        child <-- search.signal.map(WarehouseViews.filterRows(report.rows, _)).map { rows =>
+        pager.view(search.signal.map(WarehouseViews.filterRows(report.rows, _))) { rows =>
           if report.rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale esistente in questa data."))
           else if rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale corrisponde alla ricerca."))
           else
@@ -191,7 +192,7 @@ object HistoryTab:
     div(
       cls := "space-y-4",
       dayCheck --> {
-        case Right(day) => applied.set(day)
+        case Right(day) => applied.set(day); pager.reset()
         case Left(_) => ()
       },
       toolbar,

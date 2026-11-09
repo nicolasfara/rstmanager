@@ -196,6 +196,8 @@ object OrdersPage:
     val pageError = Var(Option.empty[ApiError])
     val showCreate = Var(false)
     val statusFilter = Var("")
+    val query = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
     var keyCounter = 0
     def nextKey(): Int =
       keyCounter += 1; keyCounter
@@ -1385,48 +1387,53 @@ object OrdersPage:
 
     val filterBar =
       div(
-        cls := "mb-4 flex flex-wrap gap-2",
+        cls := "mb-4 flex flex-wrap items-center gap-2",
         statusFilters.map { case (value, labelText) =>
           button(
             tpe := "button",
             cls <-- statusFilter.signal.map(current => chipCls(current == value)),
             labelText,
-            onClick --> (_ => statusFilter.set(value)),
+            onClick --> { _ => statusFilter.set(value); pager.reset() },
           )
         },
+        div(cls := "w-full sm:ml-auto sm:w-80", searchBox(query, "Cerca per numero, cliente, lavorazione…", pager)),
       )
 
+    val searchFields: Signal[OrderResponse => List[String]] =
+      customersMap.map(customers => order => ListSearch.order(order, customers.get(order.customerId)))
+
     def ordersTable(orders: List[OrderResponse]): HtmlElement =
-      div(
-        child <-- statusFilter.signal.map { filter =>
-          val visible = orders.filter(o => filter.isEmpty || o.status == filter)
-          if visible.isEmpty then emptyState("Nessun ordine con questo stato.")
-          else
+      val filtered = statusFilter.signal.combineWith(query.signal, searchFields).map { (filter, typed, fieldsOf) =>
+        orders.filter(o => (filter.isEmpty || o.status == filter) && SearchTerms.matchesAny(typed, fieldsOf(o)))
+      }
+      pager.view(filtered) { visible =>
+        if visible.isEmpty then div(cls := "p-4", emptyState("Nessun ordine corrisponde ai filtri."))
+        else
+          div(
+            div(cls := "divide-y divide-slate-100 md:hidden", visible.map(renderOrderCard)),
             div(
-              div(cls := "divide-y divide-slate-100 md:hidden", visible.map(renderOrderCard)),
-              div(
-                cls := "hidden overflow-x-auto md:block",
-                table(
-                  cls := "w-full text-sm",
-                  thead(
-                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                    tr(
-                      th(cls := "px-4 py-2", "Ordine"),
-                      th(cls := "px-4 py-2", "Cliente"),
-                      th(cls := "px-4 py-2", "Stato"),
-                      th(cls := "px-4 py-2", "Priorità"),
-                      th(cls := "px-4 py-2", "Consegna"),
-                      th(cls := "px-4 py-2", "Lavorazioni"),
-                      th(cls := "px-4 py-2"),
-                    ),
+              cls := "hidden overflow-x-auto md:block",
+              table(
+                cls := "w-full text-sm",
+                thead(
+                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                  tr(
+                    th(cls := "px-4 py-2", "Ordine"),
+                    th(cls := "px-4 py-2", "Cliente"),
+                    th(cls := "px-4 py-2", "Stato"),
+                    th(cls := "px-4 py-2", "Priorità"),
+                    th(cls := "px-4 py-2", "Consegna"),
+                    th(cls := "px-4 py-2", "Lavorazioni"),
+                    th(cls := "px-4 py-2"),
                   ),
-                  tbody(visible.map(renderRow)),
                 ),
+                tbody(visible.map(renderRow)),
               ),
-            )
-          end if
-        },
-      )
+            ),
+          )
+        end if
+      }
+    end ordersTable
 
     // ---- Page layout -----------------------------------------------------------------------------
     div(
@@ -1464,7 +1471,7 @@ object OrdersPage:
       card(
         cls := "overflow-hidden",
         renderResult(ordersData) { orders =>
-          if orders.isEmpty then emptyState("Nessun ordine. Crea il primo ordine.")
+          if orders.isEmpty then div(cls := "p-4", emptyState("Nessun ordine. Crea il primo ordine."))
           else ordersTable(orders)
         },
       ),

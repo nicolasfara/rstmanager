@@ -7,7 +7,7 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 
 /** What the stock dialog opened from the materials table is about. */
@@ -262,6 +262,7 @@ object StockDialogs:
     val actionError = Var(Option.empty[ApiError])
     val pendingVoid = Var(Option.empty[MovementResponse])
     val voidReason = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
     val range = from.signal.combineWith(to.signal).map(WarehouseViews.validateOptionalRange).distinct
     // The last valid filter: an invalid one shows a hint and keeps the list of the previous filter.
     val applied = Var((Option.empty[String], Option.empty[String]))
@@ -382,33 +383,35 @@ object StockDialogs:
         ),
         if list.movements.isEmpty then emptyState("Nessun movimento nel periodo selezionato.")
         else
-          div(
-            cls := "overflow-x-auto rounded-md border border-slate-200",
-            table(
-              cls := "w-full text-sm",
-              thead(
-                cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                tr(
-                  th(cls := "px-3 py-2", "Data"),
-                  th(cls := "px-3 py-2", "Tipo"),
-                  th(cls := "px-3 py-2", "Fornitore / Origine"),
-                  th(cls := "px-3 py-2 text-right", "Quantità"),
-                  th(cls := "px-3 py-2 text-right", "Costo unit."),
-                  th(cls := "px-3 py-2 text-right", "Valore"),
-                  th(cls := "px-3 py-2 text-right", "Saldo"),
-                  th(cls := "px-3 py-2", "Motivo / Note"),
-                  th(cls := "px-3 py-2"),
+          pager.view(list.movements) { page =>
+            div(
+              cls := "overflow-x-auto rounded-md border border-slate-200",
+              table(
+                cls := "w-full text-sm",
+                thead(
+                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                  tr(
+                    th(cls := "px-3 py-2", "Data"),
+                    th(cls := "px-3 py-2", "Tipo"),
+                    th(cls := "px-3 py-2", "Fornitore / Origine"),
+                    th(cls := "px-3 py-2 text-right", "Quantità"),
+                    th(cls := "px-3 py-2 text-right", "Costo unit."),
+                    th(cls := "px-3 py-2 text-right", "Valore"),
+                    th(cls := "px-3 py-2 text-right", "Saldo"),
+                    th(cls := "px-3 py-2", "Motivo / Note"),
+                    th(cls := "px-3 py-2"),
+                  ),
                 ),
+                tbody(page.map(renderMovement)),
               ),
-              tbody(list.movements.map(renderMovement)),
-            ),
-          ),
+            )
+          },
       )
 
     div(
       cls := "space-y-3",
       range --> {
-        case Right(bounds) => applied.set(bounds)
+        case Right(bounds) => applied.set(bounds); pager.reset()
         case Left(_) => ()
       },
       div(

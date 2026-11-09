@@ -276,6 +276,30 @@ object Components:
       .toWeakSignal
       .distinct
 
+  // ---- Lists -------------------------------------------------------------------------------------
+
+  /** The search field of a client-side filtered list: typing updates `query` and brings `pager` back to the first page. */
+  def searchBox(query: Var[String], placeholderText: String, pager: Pagination): HtmlElement =
+    textInput(query.signal, Observer[String] { text => query.set(text); pager.reset() }, placeholderText, "search")
+
+  /**
+   * A loaded list searched and paginated on screen: keeps the rows of `all` whose `fields` match `query` term by term (see [[SearchTerms]]), renders
+   * the current page with `render` and the pager below it; `noMatch` is shown when the query matches nothing.
+   */
+  def searchedPages[A](all: List[A], query: Signal[String], fields: A => List[String], pager: Pagination, noMatch: String)(
+      render: List[A] => HtmlElement,
+  ): HtmlElement =
+    searchedPages(all, query, Signal.fromValue(fields), pager, noMatch)(render)
+
+  /** Variant of [[searchedPages]] whose search fields depend on other loaded data (e.g. the name of a referenced customer). */
+  @targetName("searchedPagesWithFieldsSignal")
+  def searchedPages[A](all: List[A], query: Signal[String], fields: Signal[A => List[String]], pager: Pagination, noMatch: String)(
+      render: List[A] => HtmlElement,
+  ): HtmlElement =
+    pager.view(query.combineWith(fields).map((typed, fieldsOf) => all.filter(row => SearchTerms.matchesAny(typed, fieldsOf(row))))) { shown =>
+      if shown.isEmpty then div(cls := "p-4", emptyState(noMatch)) else render(shown)
+    }
+
   // ---- Modal -------------------------------------------------------------------------------------
 
   /** Visual tone of a [[confirmDialog]]: destructive actions get a warning look, everything else a neutral one. */

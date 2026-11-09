@@ -142,6 +142,8 @@ object CustomersPage:
     val formErrors: Signal[List[String]] = form.signal.map(_.errors)
 
     val data = loadable(AppBus.customersTicks)(() => ApiClient.listCustomers())
+    val query = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
 
     div(
       cls := "grid gap-6",
@@ -206,48 +208,51 @@ object CustomersPage:
       ),
       card(
         cls := "overflow-hidden",
+        div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca per nome, ragione sociale, contatti, barca…", pager)),
         renderResult(data) { customers =>
-          if customers.isEmpty then emptyState("Nessun cliente registrato.")
+          if customers.isEmpty then div(cls := "p-4", emptyState("Nessun cliente registrato."))
           else
-            table(
-              cls := "w-full text-sm",
-              thead(
-                cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                tr(
-                  th(cls := "px-4 py-2", "Cliente"),
-                  th(cls := "px-4 py-2", "Contatti"),
-                  th(cls := "px-4 py-2", "Barca"),
-                  th(cls := "px-4 py-2", "Tipo"),
-                  th(cls := "px-4 py-2"),
-                ),
-              ),
-              tbody(
-                customers.map { c =>
+            searchedPages(customers, query.signal, ListSearch.customer, pager, "Nessun cliente corrisponde alla ricerca.") { shown =>
+              table(
+                cls := "w-full text-sm",
+                thead(
+                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                   tr(
-                    cls := "border-b border-slate-100 last:border-0",
-                    td(
-                      cls := "px-4 py-2",
-                      div(cls := "font-medium text-slate-800", c.businessName.getOrElse(s"${c.name} ${c.surname}")),
-                      c.businessName.map(_ => div(cls := "text-xs text-slate-500", s"${c.name} ${c.surname}")),
-                      div(cls := "text-xs text-slate-400", s"${c.city}, ${c.country}"),
-                    ),
-                    td(cls := "px-4 py-2 text-slate-500", div(c.email), div(cls := "text-xs", c.phone)),
-                    td(cls := "px-4 py-2 text-slate-500", boatCell(c)),
-                    td(cls := "px-4 py-2", statusBadge(c.customerType)),
-                    td(
-                      cls := "px-4 py-2 text-right",
-                      roleGated(Role.Admin)(
-                        div(
-                          cls := "flex justify-end gap-2",
-                          button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(c))),
-                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(c.id))),
+                    th(cls := "px-4 py-2", "Cliente"),
+                    th(cls := "px-4 py-2", "Contatti"),
+                    th(cls := "px-4 py-2", "Barca"),
+                    th(cls := "px-4 py-2", "Tipo"),
+                    th(cls := "px-4 py-2"),
+                  ),
+                ),
+                tbody(
+                  shown.map { c =>
+                    tr(
+                      cls := "border-b border-slate-100 last:border-0",
+                      td(
+                        cls := "px-4 py-2",
+                        div(cls := "font-medium text-slate-800", c.businessName.getOrElse(s"${c.name} ${c.surname}")),
+                        c.businessName.map(_ => div(cls := "text-xs text-slate-500", s"${c.name} ${c.surname}")),
+                        div(cls := "text-xs text-slate-400", s"${c.city}, ${c.country}"),
+                      ),
+                      td(cls := "px-4 py-2 text-slate-500", div(c.email), div(cls := "text-xs", c.phone)),
+                      td(cls := "px-4 py-2 text-slate-500", boatCell(c)),
+                      td(cls := "px-4 py-2", statusBadge(c.customerType)),
+                      td(
+                        cls := "px-4 py-2 text-right",
+                        roleGated(Role.Admin)(
+                          div(
+                            cls := "flex justify-end gap-2",
+                            button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(c))),
+                            button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => delete(c.id))),
+                          ),
                         ),
                       ),
-                    ),
-                  )
-                },
-              ),
-            )
+                    )
+                  },
+                ),
+              )
+            }
         },
       ),
     )

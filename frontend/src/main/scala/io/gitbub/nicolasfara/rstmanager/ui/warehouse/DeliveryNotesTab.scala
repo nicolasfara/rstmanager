@@ -9,7 +9,7 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.DeliveryNoteEditor.Target
 
@@ -29,6 +29,7 @@ object DeliveryNotesTab:
     val to = Var("")
     val supplierFilter = Var("")
     val search = Var("")
+    val pager = Pagination(Paging.defaultPageSize)
     val range = from.signal.combineWith(to.signal).map(WarehouseViews.validateOptionalRange).distinct
     // The last valid filter: an invalid period shows a hint and keeps the list of the previous one.
     val applied = Var((Option.empty[String], Option.empty[String], Option.empty[UUID]))
@@ -97,7 +98,7 @@ object DeliveryNotesTab:
           onClick --> { _ => from.set(""); to.set("") },
         ),
         div(cls := "w-56", field("Fornitore", selectInput(supplierFilter, supplierFilterOptions))),
-        div(cls := "min-w-[10rem] flex-1", field("Cerca", textInput(search, "Numero DDT"))),
+        div(cls := "min-w-[10rem] flex-1", field("Cerca", searchBox(search, "Numero DDT", pager))),
         div(
           cls := "ml-auto",
           roleGated(Role.Operator)(button(tpe := "button", cls := btnPrimary, "Registra DDT", onClick --> (_ => editor.set(Some(Target.New))))),
@@ -227,26 +228,28 @@ object DeliveryNotesTab:
             if list.isEmpty then div(cls := "p-4", emptyState("Nessun DDT nel periodo selezionato."))
             else if shown.isEmpty then div(cls := "p-4", emptyState("Nessun DDT corrisponde alla ricerca."))
             else
-              div(
-                cls := "overflow-x-auto",
-                table(
-                  cls := "w-full text-sm",
-                  thead(
-                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                    tr(
-                      th(cls := "w-8 px-2 py-2"),
-                      th(cls := "px-4 py-2", "Data"),
-                      th(cls := "px-4 py-2", "Numero"),
-                      th(cls := "px-4 py-2", "Fornitore"),
-                      th(cls := "px-4 py-2 text-right", "Righe"),
-                      th(cls := "px-4 py-2 text-right", "Totale"),
-                      th(cls := "px-4 py-2", "Stato"),
-                      th(cls := "px-4 py-2"),
+              pager.view(shown) { page =>
+                div(
+                  cls := "overflow-x-auto",
+                  table(
+                    cls := "w-full text-sm",
+                    thead(
+                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                      tr(
+                        th(cls := "w-8 px-2 py-2"),
+                        th(cls := "px-4 py-2", "Data"),
+                        th(cls := "px-4 py-2", "Numero"),
+                        th(cls := "px-4 py-2", "Fornitore"),
+                        th(cls := "px-4 py-2 text-right", "Righe"),
+                        th(cls := "px-4 py-2 text-right", "Totale"),
+                        th(cls := "px-4 py-2", "Stato"),
+                        th(cls := "px-4 py-2"),
+                      ),
                     ),
+                    tbody(page.flatMap(renderNote)),
                   ),
-                  tbody(shown.flatMap(renderNote)),
-                ),
-              ),
+                )
+              },
           )
         },
       )
@@ -254,7 +257,8 @@ object DeliveryNotesTab:
     div(
       cls := "space-y-4",
       range.combineWith(supplierFilter.signal) --> {
-        case (Right((start, end)), supplier) => applied.set((start, end, Try(UUID.fromString(supplier).nn).toOption))
+        case (Right((start, end)), supplier) =>
+          applied.set((start, end, Try(UUID.fromString(supplier).nn).toOption)); pager.reset()
         case (Left(_), _) => ()
       },
       toolbar,

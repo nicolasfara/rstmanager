@@ -35,7 +35,7 @@ lazy val sharedDependencies = Seq(
   "org.typelevel" %% "cats-core" % "2.13.0",
   "org.typelevel" %% "cats-kernel" % "2.13.0",
   "org.typelevel" %% "kittens" % "3.5.0",
-  "dev.hnaderi" %% "edomata-core" % "0.13.1",
+  "dev.hnaderi" %% "edomata-core" % "0.13.2",
   "org.scala-graph" %% "graph-core" % "2.0.3",
   "dev.optics" %% "monocle-core" % "3.3.0",
   "dev.optics" %% "monocle-macro" % "3.3.0"

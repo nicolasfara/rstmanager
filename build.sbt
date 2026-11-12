@@ -95,7 +95,7 @@ lazy val service = project
     },
     libraryDependencies ++= Seq(
       "io.github.iltotore" %% "iron-circe" % "3.4.1",
-      "dev.hnaderi" %% "edomata-backend" % "0.13.1",
+      "dev.hnaderi" %% "edomata-backend" % "0.13.2",
       "dev.hnaderi" %% "edomata-skunk-circe" % "0.13.1",
       "com.github.jwt-scala" %% "jwt-circe" % "12.0.0",
       "com.softwaremill.sttp.tapir" %% "tapir-http4s-server" % tapirVersion,

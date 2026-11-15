@@ -41,12 +41,12 @@ object PlanningPage:
    * tomorrow, sky = due soon, blue = on time.
    */
   private def urgencyFor(daysToDeadline: Option[Int]): Urgency = daysToDeadline match
-    case Some(d) if d < 0 => Urgency("border-rose-300 bg-rose-50", "In ritardo", "bg-rose-100 text-rose-700")
-    case Some(0) => Urgency("border-orange-300 bg-orange-50", "Scade oggi", "bg-orange-100 text-orange-700")
-    case Some(1) => Urgency("border-amber-300 bg-amber-50", "Scade domani", "bg-amber-100 text-amber-700")
-    case Some(d) if d <= 3 => Urgency("border-sky-300 bg-sky-50", s"Tra $d giorni", "bg-sky-100 text-sky-700")
-    case Some(_) => Urgency("border-blue-300 bg-blue-50", "In tempo", "bg-blue-100 text-blue-700")
-    case None => Urgency("border-slate-200 bg-white", "", "bg-slate-100 text-slate-600")
+    case Some(d) if d < 0 => Urgency("border-rose-300 border-l-rose-500 bg-rose-50", "In ritardo", "bg-rose-100 text-rose-700")
+    case Some(0) => Urgency("border-orange-300 border-l-orange-500 bg-orange-50", "Scade oggi", "bg-orange-100 text-orange-700")
+    case Some(1) => Urgency("border-amber-300 border-l-amber-500 bg-amber-50", "Scade domani", "bg-amber-100 text-amber-700")
+    case Some(d) if d <= 3 => Urgency("border-sky-300 border-l-sky-500 bg-sky-50", s"Tra $d giorni", "bg-sky-100 text-sky-700")
+    case Some(_) => Urgency("border-blue-300 border-l-blue-500 bg-blue-50", "In tempo", "bg-blue-100 text-blue-700")
+    case None => Urgency("border-slate-200 border-l-slate-300 bg-white", "", "bg-slate-100 text-slate-600")
 
   /** Groups every slice of the attempt by day, whether the attempt is in progress or completed. */
   private def slicesByDay(state: PlanningStateDto): List[(String, List[ScheduledTaskSliceDto])] =
@@ -330,72 +330,89 @@ object PlanningPage:
       // The task's overall progress: (completed, expected) hours.
       val progress: Signal[Option[(Int, Int)]] =
         scheduledTaskById.map(_.get(slice.taskId).map(task => (task.completedMinutes.getOrElse(0), task.expectedMinutes)))
+      val percent: Signal[Int] = progress.map {
+        case Some((completed, expected)) if expected > 0 => math.min(100, math.max(0, completed * 100 / expected))
+        case _ => 0
+      }
+      val manufacturingCode: Signal[String] =
+        manufacturingCodes.map(_.getOrElse(slice.manufacturingId, Formats.shortId(slice.manufacturingId)))
+      val manufacturingDescription: Signal[Option[String]] =
+        manufacturingContexts.map(_.get(slice.manufacturingId).flatMap(_.manufacturing.description).map(_.trim.nn).filter(_.nonEmpty))
+      val taskName: Signal[String] = scheduledTaskNames.map(_.getOrElse(slice.taskId, Formats.shortId(slice.taskId)))
+      val employeeName: Signal[String] =
+        employeeNames.map(_.getOrElse(slice.candidateEmployee.employeeId, Formats.shortId(slice.candidateEmployee.employeeId)))
+      val deadlineHint: Signal[String] = manufacturingDeadlines.map(
+        _.get(slice.manufacturingId).fold("Consegna lavorazione non disponibile")(d => s"Consegna lavorazione: ${Formats.date(d)}"),
+      )
+      val openSlice = Observer[((Map[UUID, ScheduledTaskDto], Map[UUID, String]), Map[UUID, Option[UUID]])] { case ((byId, names), pref) =>
+        byId
+          .get(slice.taskId)
+          .foreach(task =>
+            openEdit(slice, task, names.getOrElse(slice.taskId, Formats.shortId(slice.taskId)), pref.get(slice.manufacturingId).flatten),
+          )
+      }
       div(
-        cls := "rounded-lg border p-2.5 cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
+        cls := "group rounded-lg border border-l-4 p-2.5 cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
+        cls := "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
         cls <-- urgency.map(_.cardCls),
-        onClick.compose(_.sample(editAndPref)) --> { case ((byId, names), pref) =>
-          byId
-            .get(slice.taskId)
-            .foreach(task =>
-              openEdit(slice, task, names.getOrElse(slice.taskId, Formats.shortId(slice.taskId)), pref.get(slice.manufacturingId).flatten),
-            )
-        },
-        // Order number + hours assigned to this slice
+        role := "button",
+        tabIndex := 0,
+        aria.label <-- manufacturingCode.combineWith(taskName).map((code, task) => s"Lavorazione $code, task $task: aggiorna avanzamento"),
+        onClick.compose(_.sample(editAndPref)) --> openSlice,
+        onKeyDown.filter(e => e.key == "Enter" || e.key == " ").preventDefault.compose(_.sample(editAndPref)) --> openSlice,
+        // Order number (context) + urgency badge vs the manufacturing deadline
         div(
           cls := "flex items-center justify-between gap-2",
           span(
-            cls := "truncate text-xs font-semibold text-slate-700",
-            child.text <-- orderNames.map(_.getOrElse(slice.orderId, Formats.shortId(slice.orderId))),
-          ),
-          span(
-            cls := "shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600",
-            s"${Formats.duration(slice.candidateEmployee.assignedMinutes)}h",
-          ),
-        ),
-        // Task name (prominent) + urgency badge
-        div(
-          cls := "mt-1.5 flex items-start justify-between gap-2",
-          div(
-            cls := "text-sm font-semibold leading-snug text-slate-800",
-            child.text <-- scheduledTaskNames.map(_.getOrElse(slice.taskId, Formats.shortId(slice.taskId))),
+            cls := "truncate text-[11px] font-medium uppercase tracking-wide text-slate-500",
+            child.text <-- orderNames.map(names => s"Ordine ${names.getOrElse(slice.orderId, Formats.shortId(slice.orderId))}"),
           ),
           child <-- urgency.map { u =>
             if u.label.isEmpty then emptyNode
-            else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", u.label)
+            else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", title <-- deadlineHint, u.label)
           },
         ),
-        // Associated manufacturing (its code)
+        // Manufacturing (prominent): code + optional description
         div(
-          cls := "mt-0.5 flex items-baseline gap-1 text-xs",
-          span(cls := "text-slate-400", "Lavorazione"),
+          cls := "mt-1 truncate text-base font-bold leading-tight text-slate-900",
+          title <-- manufacturingCode,
+          child.text <-- manufacturingCode,
+        ),
+        child.maybe <-- manufacturingDescription.map(
+          _.map(desc => div(cls := "mt-0.5 truncate text-xs text-slate-500", title := desc, desc)),
+        ),
+        // Task (secondary): name + hours assigned to this slice
+        div(
+          cls := "mt-2 flex items-center justify-between gap-2 rounded-md bg-white/70 px-2 py-1 text-xs",
           span(
-            cls := "truncate font-medium text-slate-600",
-            child.text <-- manufacturingCodes.map(_.getOrElse(slice.manufacturingId, Formats.shortId(slice.manufacturingId))),
+            cls := "flex min-w-0 items-baseline gap-1",
+            span(cls := "shrink-0 text-slate-400", "Task"),
+            span(cls := "truncate font-medium text-slate-700", title <-- taskName, child.text <-- taskName),
+          ),
+          span(
+            cls := "shrink-0 font-semibold tabular-nums text-slate-700",
+            title := "Ore pianificate in questo giorno",
+            s"${Formats.duration(slice.candidateEmployee.assignedMinutes)}h",
           ),
         ),
-        // Task progress: completed/total hours + a small bar
+        // Task progress: thin bar + completed/total hours, green once the estimate is covered
         div(
-          cls := "mt-2",
+          cls := "mt-2 flex items-center gap-2",
           div(
-            cls := "flex items-center justify-between text-xs",
-            span(cls := "text-slate-400", "Ore"),
-            span(
-              cls := "font-semibold tabular-nums text-slate-700",
-              child.text <-- progress.map {
-                case Some((completed, expected)) => s"${Formats.duration(completed)}/${Formats.duration(expected)}h"
-                case None => "—"
-              },
+            cls := "h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/80",
+            div(
+              cls := "h-full rounded-full transition-all",
+              cls <-- percent.map(p => if p >= 100 then "bg-emerald-500" else "bg-slate-500/70"),
+              width <-- percent.map(p => s"$p%"),
             ),
           ),
-          div(
-            cls := "mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/70",
-            div(
-              cls := "h-full rounded-full bg-slate-500/70",
-              width <-- progress.map {
-                case Some((completed, expected)) if expected > 0 => s"${math.min(100, math.max(0, completed * 100 / expected))}%"
-                case _ => "0%"
-              },
-            ),
+          span(
+            cls := "shrink-0 text-[11px] tabular-nums text-slate-500",
+            title := "Ore svolte / ore totali del task",
+            child.text <-- progress.map {
+              case Some((completed, expected)) => s"${Formats.duration(completed)}/${Formats.duration(expected)}h"
+              case None => "—"
+            },
           ),
         ),
         // Employee assignment + projected remaining hours
@@ -403,13 +420,14 @@ object PlanningPage:
           cls := "mt-2 flex items-center justify-between gap-2 border-t border-white/60 pt-1.5 text-xs",
           span(
             cls := "flex min-w-0 items-center gap-1 text-slate-600",
-            span(cls := "text-slate-400", "◍"),
-            span(
-              cls := "truncate",
-              child.text <-- employeeNames.map(_.getOrElse(slice.candidateEmployee.employeeId, Formats.shortId(slice.candidateEmployee.employeeId))),
-            ),
+            span(cls := "text-slate-400", aria.hidden := true, "◍"),
+            span(cls := "truncate", title <-- employeeName, child.text <-- employeeName),
           ),
-          span(cls := "shrink-0 tabular-nums text-slate-400", s"resta ${Formats.duration(slice.remainingMinutesAfterSlice)}h"),
+          span(
+            cls := "shrink-0 tabular-nums text-slate-400",
+            title := "Ore residue del task dopo questo giorno",
+            s"resta ${Formats.duration(slice.remainingMinutesAfterSlice)}h",
+          ),
         ),
       )
     end sliceCard

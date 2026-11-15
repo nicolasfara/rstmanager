@@ -11,6 +11,7 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 import io.gitbub.nicolasfara.rstmanager.ui.employees.CompanyCalendarView
 
 /**
@@ -571,6 +572,18 @@ object PlanningPage:
     val completedPager = Pagination(Paging.defaultPageSize)
     val completedSearchFields: Signal[CompletedRow => List[String]] =
       catalogNames.map(names => row => row.order.number :: row.manufacturing.code :: names.get(row.task.taskId).toList)
+    val completedSort = TableSort[CompletedRow](
+      catalogNames.map { names =>
+        Map(
+          "task" -> Column.optionalText(row => names.get(row.task.taskId)),
+          "order" -> Column.text(_.order.number),
+          "manufacturing" -> Column.text(_.manufacturing.code),
+          "hours" -> Column.by(_.task.completedMinutes.getOrElse(0)),
+          "completed" -> Column.optionalText(_.task.completionDate),
+        )
+      },
+      completedPager,
+    )
 
     def completedSection(orders: List[OrderResponse]): HtmlElement =
       val all = completedRows(orders)
@@ -584,34 +597,47 @@ object PlanningPage:
           Option.when(all.nonEmpty)(
             div(cls := "w-full sm:w-72", searchBox(completedQuery, "Cerca per task, ordine, lavorazione…", completedPager)),
           ),
+          Option.when(all.nonEmpty)(
+            div(
+              cls := "w-full sm:hidden",
+              completedSort.picker(
+                List("task" -> "Task", "order" -> "Ordine", "manufacturing" -> "Lavorazione", "hours" -> "Ore", "completed" -> "Completato il"),
+              ),
+            ),
+          ),
         ),
         if all.isEmpty then div(cls := "p-4", emptyState("Nessun task completato."))
         else
-          searchedPages(all, completedQuery.signal, completedSearchFields, completedPager, "Nessun task completato corrisponde alla ricerca.") {
-            rows =>
+          searchedPages(
+            completedSort.sorted(all),
+            completedQuery.signal,
+            completedSearchFields,
+            completedPager,
+            "Nessun task completato corrisponde alla ricerca.",
+          ) { rows =>
+            div(
+              // Mobile: card per ogni riga
+              div(cls := "sm:hidden", rows.map(completedCard)),
+              // Desktop: tabella
               div(
-                // Mobile: card per ogni riga
-                div(cls := "sm:hidden", rows.map(completedCard)),
-                // Desktop: tabella
-                div(
-                  cls := "hidden sm:block overflow-x-auto",
-                  table(
-                    cls := "w-full text-sm",
-                    thead(
-                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                      tr(
-                        th(cls := "px-4 py-2", "Task"),
-                        th(cls := "px-4 py-2", "Ordine"),
-                        th(cls := "px-4 py-2", "Lavorazione"),
-                        th(cls := "px-4 py-2", "Ore"),
-                        th(cls := "px-4 py-2", "Completato il"),
-                        th(cls := "px-4 py-2"),
-                      ),
+                cls := "hidden sm:block overflow-x-auto",
+                table(
+                  cls := "w-full text-sm",
+                  thead(
+                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                    tr(
+                      completedSort.header("task", "Task", "px-4 py-2"),
+                      completedSort.header("order", "Ordine", "px-4 py-2"),
+                      completedSort.header("manufacturing", "Lavorazione", "px-4 py-2"),
+                      completedSort.header("hours", "Ore", "px-4 py-2"),
+                      completedSort.header("completed", "Completato il", "px-4 py-2"),
+                      th(cls := "px-4 py-2"),
                     ),
-                    tbody(rows.map(completedRow)),
                   ),
+                  tbody(rows.map(completedRow)),
                 ),
-              )
+              ),
+            )
           },
       )
     end completedSection

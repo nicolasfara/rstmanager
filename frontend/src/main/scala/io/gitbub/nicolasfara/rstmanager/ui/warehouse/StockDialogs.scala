@@ -7,8 +7,9 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, TableSort, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** What the stock dialog opened from the materials table is about. */
 enum StockDialog derives CanEqual:
@@ -263,6 +264,15 @@ object StockDialogs:
     val pendingVoid = Var(Option.empty[MovementResponse])
     val voidReason = Var("")
     val pager = Pagination(Paging.defaultPageSize)
+    val sort = TableSort[MovementResponse](pager)(
+      "date" -> Column.text(_.on),
+      "kind" -> Column.text(WarehouseViews.movementKindLabel),
+      "origin" -> Column.optionalText(m => WarehouseViews.consumptionSource(m).orElse(m.supplier.map(_.name))),
+      "quantity" -> Column.decimal(_.delta),
+      "unitCost" -> Column.optionalDecimal(_.unitCost),
+      "value" -> Column.optionalDecimal(_.value),
+      "balance" -> Column.decimal(_.balance),
+    )
     val range = from.signal.combineWith(to.signal).map(WarehouseViews.validateOptionalRange).distinct
     // The last valid filter: an invalid one shows a hint and keeps the list of the previous filter.
     val applied = Var((Option.empty[String], Option.empty[String]))
@@ -383,7 +393,7 @@ object StockDialogs:
         ),
         if list.movements.isEmpty then emptyState("Nessun movimento nel periodo selezionato.")
         else
-          pager.view(list.movements) { page =>
+          pager.view(sort.sorted(list.movements)) { page =>
             div(
               cls := "overflow-x-auto rounded-md border border-slate-200",
               table(
@@ -391,13 +401,13 @@ object StockDialogs:
                 thead(
                   cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                   tr(
-                    th(cls := "px-3 py-2", "Data"),
-                    th(cls := "px-3 py-2", "Tipo"),
-                    th(cls := "px-3 py-2", "Fornitore / Origine"),
-                    th(cls := "px-3 py-2 text-right", "Quantità"),
-                    th(cls := "px-3 py-2 text-right", "Costo unit."),
-                    th(cls := "px-3 py-2 text-right", "Valore"),
-                    th(cls := "px-3 py-2 text-right", "Saldo"),
+                    sort.header("date", "Data", "px-3 py-2"),
+                    sort.header("kind", "Tipo", "px-3 py-2"),
+                    sort.header("origin", "Fornitore / Origine", "px-3 py-2"),
+                    sort.header("quantity", "Quantità", "px-3 py-2 text-right"),
+                    sort.header("unitCost", "Costo unit.", "px-3 py-2 text-right"),
+                    sort.header("value", "Valore", "px-3 py-2 text-right"),
+                    sort.header("balance", "Saldo", "px-3 py-2 text-right"),
                     th(cls := "px-3 py-2", "Motivo / Note"),
                     th(cls := "px-3 py-2"),
                   ),

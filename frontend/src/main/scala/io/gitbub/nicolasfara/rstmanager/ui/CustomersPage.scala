@@ -9,6 +9,7 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** Customer registry: minimal CRUD, needed to reference a customer when creating an order. */
 object CustomersPage:
@@ -144,6 +145,12 @@ object CustomersPage:
     val data = loadable(AppBus.customersTicks)(() => ApiClient.listCustomers())
     val query = Var("")
     val pager = Pagination(Paging.defaultPageSize)
+    val sort = TableSort[CustomerResponse](pager)(
+      "customer" -> Column.text(c => c.businessName.getOrElse(s"${c.name} ${c.surname}")),
+      "contacts" -> Column.optionalText(c => c.email.orElse(c.phone)),
+      "boat" -> Column.optionalText(c => c.boatName.orElse(c.boatModel)),
+      "type" -> Column.text(_.customerType),
+    )
 
     div(
       cls := "grid gap-6",
@@ -212,16 +219,16 @@ object CustomersPage:
         renderResult(data) { customers =>
           if customers.isEmpty then div(cls := "p-4", emptyState("Nessun cliente registrato."))
           else
-            searchedPages(customers, query.signal, ListSearch.customer, pager, "Nessun cliente corrisponde alla ricerca.") { shown =>
+            searchedPages(sort.sorted(customers), query.signal, ListSearch.customer, pager, "Nessun cliente corrisponde alla ricerca.") { shown =>
               table(
                 cls := "w-full text-sm",
                 thead(
                   cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                   tr(
-                    th(cls := "px-4 py-2", "Cliente"),
-                    th(cls := "px-4 py-2", "Contatti"),
-                    th(cls := "px-4 py-2", "Barca"),
-                    th(cls := "px-4 py-2", "Tipo"),
+                    sort.header("customer", "Cliente", "px-4 py-2"),
+                    sort.header("contacts", "Contatti", "px-4 py-2"),
+                    sort.header("boat", "Barca", "px-4 py-2"),
+                    sort.header("type", "Tipo", "px-4 py-2"),
                     th(cls := "px-4 py-2"),
                   ),
                 ),

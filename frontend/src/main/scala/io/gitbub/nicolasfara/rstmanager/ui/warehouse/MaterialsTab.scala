@@ -9,8 +9,9 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging, TableSort, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MaterialForm.MpnRow
 
@@ -41,6 +42,16 @@ object MaterialsTab:
     val suppliers = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
     val query = Var("")
     val pager = Pagination(Paging.defaultPageSize)
+    val sort = TableSort[MaterialResponse](pager)(
+      "code" -> Column.text(_.internalCode),
+      "description" -> Column.text(_.description),
+      "type" -> Column.optionalText(_.materialType),
+      "unit" -> Column.text(m => WarehouseFormats.unitShortLabel(m.unit)),
+      "stock" -> Column.decimal(_.stock.quantity),
+      "value" -> Column.optionalDecimal(_.stock.value),
+      "price" -> Column.decimal(_.customerPrice),
+      "suppliers" -> Column.optionalText(_.suppliers.headOption.map(_.name)),
+    )
 
     val supplierOptions: Signal[List[(String, String)]] =
       suppliers.combineWith(editedSuppliers.signal).map { (loaded, edited) =>
@@ -375,7 +386,7 @@ object MaterialsTab:
         renderResult(materials) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun materiale in magazzino."))
           else
-            searchedPages(all, query.signal, ListSearch.material, pager, "Nessun materiale corrisponde alla ricerca.") { list =>
+            searchedPages(sort.sorted(all), query.signal, ListSearch.material, pager, "Nessun materiale corrisponde alla ricerca.") { list =>
               div(
                 cls := "overflow-x-auto",
                 table(
@@ -383,14 +394,14 @@ object MaterialsTab:
                   thead(
                     cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                     tr(
-                      th(cls := "px-4 py-2", "Codice"),
-                      th(cls := "px-4 py-2", "Descrizione"),
-                      th(cls := "px-4 py-2", "Tipologia"),
-                      th(cls := "px-4 py-2", "UdM"),
-                      th(cls := "px-4 py-2 text-right", "Giacenza"),
-                      th(cls := "px-4 py-2 text-right", "Valore"),
-                      th(cls := "px-4 py-2 text-right", "Prezzo cliente"),
-                      th(cls := "px-4 py-2", "Fornitori"),
+                      sort.header("code", "Codice", "px-4 py-2"),
+                      sort.header("description", "Descrizione", "px-4 py-2"),
+                      sort.header("type", "Tipologia", "px-4 py-2"),
+                      sort.header("unit", "UdM", "px-4 py-2"),
+                      sort.header("stock", "Giacenza", "px-4 py-2 text-right"),
+                      sort.header("value", "Valore", "px-4 py-2 text-right"),
+                      sort.header("price", "Prezzo cliente", "px-4 py-2 text-right"),
+                      sort.header("suppliers", "Fornitori", "px-4 py-2"),
                       th(cls := "px-4 py-2"),
                     ),
                   ),

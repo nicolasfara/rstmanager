@@ -321,36 +321,37 @@ object EmployeesTab:
         renderResult(data) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun dipendente."))
           else
-            searchedPages(all, query.signal, ListSearch.employee, pager, "Nessun dipendente corrisponde alla ricerca.") { employees =>
-              div(
-                cls := "space-y-3 p-4",
-                employees.map { emp =>
-                  div(
-                    cls := "rounded-lg border border-slate-200 p-3",
+            searchedPages(Signal.fromValue(all), query.signal, ListSearch.employee, pager, "Nessun dipendente corrisponde alla ricerca.") {
+              employees =>
+                div(
+                  cls := "space-y-3 p-4",
+                  employees.map { emp =>
                     div(
-                      cls := "flex items-start justify-between gap-3",
+                      cls := "rounded-lg border border-slate-200 p-3",
                       div(
-                        div(cls := "font-medium text-slate-800", s"${emp.name} ${emp.surname}"),
-                        div(cls := "text-xs text-slate-500", describeContract(emp.contract)),
-                        div(cls := "mt-0.5 text-xs text-slate-400", s"Budget ${emp.budgetWeeklyHours}h/sett · ${emp.overrides.size} override"),
-                      ),
-                      roleGated(Role.Admin)(
+                        cls := "flex items-start justify-between gap-3",
                         div(
-                          cls := "flex gap-2",
-                          button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(emp))),
-                          button(tpe := "button", cls := btnSmall, "Override", onClick --> (_ => openEditor(emp))),
-                          button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(emp)))),
+                          div(cls := "font-medium text-slate-800", s"${emp.name} ${emp.surname}"),
+                          div(cls := "text-xs text-slate-500", describeContract(emp.contract)),
+                          div(cls := "mt-0.5 text-xs text-slate-400", s"Budget ${emp.budgetWeeklyHours}h/sett · ${emp.overrides.size} override"),
+                        ),
+                        roleGated(Role.Admin)(
+                          div(
+                            cls := "flex gap-2",
+                            button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(emp))),
+                            button(tpe := "button", cls := btnSmall, "Override", onClick --> (_ => openEditor(emp))),
+                            button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(emp)))),
+                          ),
                         ),
                       ),
-                    ),
-                    // `distinct`: the panel is rebuilt only when it opens or closes, not on every keystroke (that would drop the input focus).
-                    child <-- overrideEditor.signal
-                      .map(_.editing.exists(_.id == emp.id))
-                      .distinct
-                      .map(open => if open then editorPanel() else emptyNode),
-                  )
-                },
-              )
+                      // `distinct`: the panel is rebuilt only when it opens or closes, not on every keystroke (that would drop the input focus).
+                      child <-- overrideEditor.signal
+                        .map(_.editing.exists(_.id == emp.id))
+                        .distinct
+                        .map(open => if open then editorPanel() else emptyNode),
+                    )
+                  },
+                )
             }
         },
       ),

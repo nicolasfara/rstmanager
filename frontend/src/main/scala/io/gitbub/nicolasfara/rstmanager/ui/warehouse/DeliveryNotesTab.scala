@@ -9,8 +9,9 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, TableSort, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.DeliveryNoteEditor.Target
 
 /**
@@ -30,6 +31,14 @@ object DeliveryNotesTab:
     val supplierFilter = Var("")
     val search = Var("")
     val pager = Pagination(Paging.defaultPageSize)
+    val sort = TableSort[DeliveryNoteResponse](pager)(
+      "date" -> Column.text(_.date),
+      "number" -> Column.text(_.number),
+      "supplier" -> Column.text(_.supplierName),
+      "lines" -> Column.by(_.lines.size),
+      "total" -> Column.decimal(_.total),
+      "status" -> Column.by(WarehouseViews.isCancelled),
+    )
     val range = from.signal.combineWith(to.signal).map(WarehouseViews.validateOptionalRange).distinct
     // The last valid filter: an invalid period shows a hint and keeps the list of the previous one.
     val applied = Var((Option.empty[String], Option.empty[String], Option.empty[UUID]))
@@ -228,7 +237,7 @@ object DeliveryNotesTab:
             if list.isEmpty then div(cls := "p-4", emptyState("Nessun DDT nel periodo selezionato."))
             else if shown.isEmpty then div(cls := "p-4", emptyState("Nessun DDT corrisponde alla ricerca."))
             else
-              pager.view(shown) { page =>
+              pager.view(sort.sorted(shown)) { page =>
                 div(
                   cls := "overflow-x-auto",
                   table(
@@ -237,12 +246,12 @@ object DeliveryNotesTab:
                       cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                       tr(
                         th(cls := "w-8 px-2 py-2"),
-                        th(cls := "px-4 py-2", "Data"),
-                        th(cls := "px-4 py-2", "Numero"),
-                        th(cls := "px-4 py-2", "Fornitore"),
-                        th(cls := "px-4 py-2 text-right", "Righe"),
-                        th(cls := "px-4 py-2 text-right", "Totale"),
-                        th(cls := "px-4 py-2", "Stato"),
+                        sort.header("date", "Data", "px-4 py-2"),
+                        sort.header("number", "Numero", "px-4 py-2"),
+                        sort.header("supplier", "Fornitore", "px-4 py-2"),
+                        sort.header("lines", "Righe", "px-4 py-2 text-right"),
+                        sort.header("total", "Totale", "px-4 py-2 text-right"),
+                        sort.header("status", "Stato", "px-4 py-2"),
                         th(cls := "px-4 py-2"),
                       ),
                     ),

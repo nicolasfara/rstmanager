@@ -10,12 +10,24 @@ FROM ${KEYCLOAK_IMAGE} AS builder
 ENV KC_DB=postgres
 ENV KC_HEALTH_ENABLED=true
 ENV KC_HTTP_RELATIVE_PATH=/auth
+# Single node: a local cache skips the Infinispan/JGroups cluster stack, which
+# saves memory and startup time.
+ENV KC_CACHE=local
 
 RUN /opt/keycloak/bin/kc.sh build
 
 FROM ${KEYCLOAK_IMAGE}
 
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
+
+# kc.sh sizes the heap at 50-70% of the container memory, and on Railway the
+# container sees the plan's ceiling (GBs), so G1 claims a huge heap that is
+# billed while idle. Pin it instead, give memory back when idle (periodic G1
+# collection), cap the CPU-derived thread pools, and keep the DB pool small (the
+# default is 100 connections). All overridable as Railway service variables.
+ENV JAVA_OPTS_KC_HEAP="-Xms128m -Xmx384m"
+ENV JAVA_OPTS_APPEND="-XX:ActiveProcessorCount=2 -XX:G1PeriodicGCInterval=60000 -XX:ReservedCodeCacheSize=64m"
+ENV KC_DB_POOL_MAX_SIZE=10
 
 # The realm is baked into the image (Railway has no bind mounts). It lives in a
 # template dir; the entrypoint rewrites the public origin into the import dir at

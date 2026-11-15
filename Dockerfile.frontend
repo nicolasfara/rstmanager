@@ -31,5 +31,9 @@ COPY docker/nginx/10-rstmanager-resolver.envsh /docker-entrypoint.d/10-rstmanage
 RUN chmod +x /docker-entrypoint.d/10-rstmanager-resolver.envsh
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# `worker_processes auto` forks one worker per visible CPU (many on Railway);
+# one worker is plenty to serve the SPA and proxy /api and /auth.
+RUN sed -i 's/^worker_processes .*/worker_processes 1;/' /etc/nginx/nginx.conf
+
 # Informational only; the real listen port comes from $PORT (Railway) or 80.
 EXPOSE 80

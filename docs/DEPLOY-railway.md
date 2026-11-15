@@ -232,6 +232,33 @@ devono funzionare same-origin.
 
 ## Costi/note
 
-Keycloak è il servizio più pesante (deve stare sempre acceso, ~500 MB RAM, DB
-dedicato). Se in futuro vuoi alleggerire, valuta un IdP gestito, ma richiede di
-ricablare issuer/JWKS del backend.
+Railway fattura CPU e RAM al minuto; a riposo la CPU è ~0, quindi **il costo è
+quasi solo la RAM trattenuta**. Le JVM, lasciate ai default, si dimensionano sul
+tetto di memoria che il container *vede* — su Railway quello del piano (GB), non
+quanto serve davvero — e una volta preso l'heap lo tengono. Per questo le
+immagini fissano footprint piccoli (sovrascrivibili come variabili di servizio):
+
+| Servizio | Impostazione nell'immagine | RAM a riposo (misurata) |
+|----------|----------------------------|-------------------------|
+| `planning-service` | `JDK_JAVA_OPTIONS`: SerialGC, `-Xmx320m`, `ActiveProcessorCount=2`, solo C1, compact object headers | ~195 MB (vs ~345 MB) |
+| `keycloak` | `KC_CACHE=local` (build), `JAVA_OPTS_KC_HEAP="-Xms128m -Xmx384m"`, `JAVA_OPTS_APPEND` (CPU=2, G1 periodic GC), `KC_DB_POOL_MAX_SIZE=10` | ~400 MB (vs ~580 MB, e senza tetto cresceva fino al 70% del visibile) |
+| `frontend` | nginx `worker_processes 1` | ~10 MB |
+
+Per cambiare un valore imposta la variabile sul servizio Railway: sostituisce
+**l'intero** valore dell'immagine (es. per alzare l'heap del backend riporta
+tutti i flag di `JDK_JAVA_OPTIONS` con `-Xmx` nuovo). Se nei log compare
+`java.lang.OutOfMemoryError` il processo esce (`ExitOnOutOfMemoryError`) e
+Railway lo riavvia: alza `-Xmx` guardando il grafico Memory.
+
+> ⚠️ **Non abilitare Serverless / App Sleeping** su `planning-service` né su
+> `keycloak`. Il risveglio è un riavvio a freddo (Keycloak decine di secondi, il
+> backend apre la porta solo dopo DB/consumer): nel frattempo nginx risponde
+> 502/503 e il login resta appeso. Inoltre il consolidamento planning delle 5:00
+> e la riconciliazione del magazzino sono timer *in-process*: con il container
+> addormentato semplicemente non girano. Il risparmio sarebbe di pochi dollari
+> al mese. Per contenere la spesa usa invece i **resource limits** per servizio
+> e un **usage limit** sul workspace.
+
+Keycloak resta comunque il servizio più pesante (~400 MB, DB dedicato). Se in
+futuro vuoi alleggerire ancora, valuta un IdP gestito, ma richiede di ricablare
+issuer/JWKS del backend.

@@ -30,4 +30,16 @@ USER appuser
 
 EXPOSE 8080
 
+# Small, fixed footprint instead of the JVM's container-relative defaults: on
+# Railway the container sees the plan's memory ceiling (GBs) and CPU count, and
+# billing is per GB of RAM held, so ergonomic sizing reserves far more heap,
+# GC/JIT threads and code cache than this low-traffic service needs.
+#   SerialGC + fixed -Xmx     one GC thread, heap bounded and given back on full GCs
+#   ActiveProcessorCount=2    sizes the cats-effect pool, GC and JIT threads
+#   TieredStopAtLevel=1       C1 only: less JIT memory/CPU, ample for this load
+#   UseCompactObjectHeaders   JDK 25: 8-byte headers, ~10-20% smaller live heap
+#   ExitOnOutOfMemoryError    let Railway restart the service instead of limping
+# Railway: override the whole set with the JDK_JAVA_OPTIONS service variable.
+ENV JDK_JAVA_OPTIONS="-XX:+UseSerialGC -Xms64m -Xmx320m -Xss512k -XX:ReservedCodeCacheSize=48m -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2 -XX:+UseCompactObjectHeaders -XX:+ExitOnOutOfMemoryError"
+
 ENTRYPOINT ["java", "-jar", "/app/rstmanager-service.jar"]

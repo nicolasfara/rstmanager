@@ -6,8 +6,9 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, TableSort, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /**
  * Day-by-day history of the warehouse ("Storico"): the state at the end of a chosen day — every material existing then, with its stock, highest
@@ -24,6 +25,17 @@ object HistoryTab:
     val selected = Var(today)
     val search = Var("")
     val pager = Pagination(Paging.defaultPageSize)
+    val sort = TableSort[StateRowResponse](pager)(
+      "code" -> Column.text(_.internalCode),
+      "description" -> Column.text(_.description),
+      "type" -> Column.optionalText(_.materialType),
+      "unit" -> Column.text(row => WarehouseFormats.unitShortLabel(row.unit)),
+      "quantity" -> Column.decimal(_.stock.quantity),
+      "maxCost" -> Column.optionalDecimal(_.stock.maxUnitCost),
+      "value" -> Column.optionalDecimal(_.stock.value),
+      "price" -> Column.optionalDecimal(_.customerPrice),
+      "suppliers" -> Column.optionalText(_.suppliers.headOption.map(_.name)),
+    )
     val dayCheck = selected.signal.map(WarehouseViews.stateDay(_, today)).distinct
     // The last valid day: an invalid selection shows a hint and keeps the state of the previous day on screen.
     val applied = Var(today)
@@ -161,7 +173,7 @@ object HistoryTab:
             if shown == report.rows.size then s"${report.rows.size} materiali" else s"$shown di ${report.rows.size} materiali"
           },
         ),
-        pager.view(search.signal.map(WarehouseViews.filterRows(report.rows, _))) { rows =>
+        pager.view(sort.sorted(search.signal.map(WarehouseViews.filterRows(report.rows, _)))) { rows =>
           if report.rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale esistente in questa data."))
           else if rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale corrisponde alla ricerca."))
           else
@@ -172,15 +184,15 @@ object HistoryTab:
                 thead(
                   cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                   tr(
-                    th(cls := "px-4 py-2", "Codice"),
-                    th(cls := "px-4 py-2", "Descrizione"),
-                    th(cls := "px-4 py-2", "Tipologia"),
-                    th(cls := "px-4 py-2", "UdM"),
-                    th(cls := "px-4 py-2 text-right", "Quantità"),
-                    th(cls := "px-4 py-2 text-right", "Costo unitario max"),
-                    th(cls := "px-4 py-2 text-right", "Valore"),
-                    th(cls := "px-4 py-2 text-right", "Prezzo cliente"),
-                    th(cls := "px-4 py-2", "Fornitori"),
+                    sort.header("code", "Codice", "px-4 py-2"),
+                    sort.header("description", "Descrizione", "px-4 py-2"),
+                    sort.header("type", "Tipologia", "px-4 py-2"),
+                    sort.header("unit", "UdM", "px-4 py-2"),
+                    sort.header("quantity", "Quantità", "px-4 py-2 text-right"),
+                    sort.header("maxCost", "Costo unitario max", "px-4 py-2 text-right"),
+                    sort.header("value", "Valore", "px-4 py-2 text-right"),
+                    sort.header("price", "Prezzo cliente", "px-4 py-2 text-right"),
+                    sort.header("suppliers", "Fornitori", "px-4 py-2"),
                   ),
                 ),
                 tbody(rows.map(renderRow)),

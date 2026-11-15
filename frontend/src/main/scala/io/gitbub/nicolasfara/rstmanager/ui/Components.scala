@@ -283,21 +283,23 @@ object Components:
     textInput(query.signal, Observer[String] { text => query.set(text); pager.reset() }, placeholderText, "search")
 
   /**
-   * A loaded list searched and paginated on screen: keeps the rows of `all` whose `fields` match `query` term by term (see [[SearchTerms]]), renders
-   * the current page with `render` and the pager below it; `noMatch` is shown when the query matches nothing.
+   * A loaded list searched and paginated on screen (`all` is a signal so that a [[TableSort]] can reorder it): keeps the rows of `all` whose `fields`
+   * match `query` term by term (see [[SearchTerms]]), renders the current page with `render` and the pager below it; `noMatch` is shown when the
+   * query matches nothing.
    */
-  def searchedPages[A](all: List[A], query: Signal[String], fields: A => List[String], pager: Pagination, noMatch: String)(
+  def searchedPages[A](all: Signal[List[A]], query: Signal[String], fields: A => List[String], pager: Pagination, noMatch: String)(
       render: List[A] => HtmlElement,
   ): HtmlElement =
     searchedPages(all, query, Signal.fromValue(fields), pager, noMatch)(render)
 
   /** Variant of [[searchedPages]] whose search fields depend on other loaded data (e.g. the name of a referenced customer). */
   @targetName("searchedPagesWithFieldsSignal")
-  def searchedPages[A](all: List[A], query: Signal[String], fields: Signal[A => List[String]], pager: Pagination, noMatch: String)(
+  def searchedPages[A](all: Signal[List[A]], query: Signal[String], fields: Signal[A => List[String]], pager: Pagination, noMatch: String)(
       render: List[A] => HtmlElement,
   ): HtmlElement =
-    pager.view(query.combineWith(fields).map((typed, fieldsOf) => all.filter(row => SearchTerms.matchesAny(typed, fieldsOf(row))))) { shown =>
-      if shown.isEmpty then div(cls := "p-4", emptyState(noMatch)) else render(shown)
+    pager.view(all.combineWith(query, fields).map((rows, typed, fieldsOf) => rows.filter(row => SearchTerms.matchesAny(typed, fieldsOf(row))))) {
+      shown =>
+        if shown.isEmpty then div(cls := "p-4", emptyState(noMatch)) else render(shown)
     }
 
   // ---- Modal -------------------------------------------------------------------------------------

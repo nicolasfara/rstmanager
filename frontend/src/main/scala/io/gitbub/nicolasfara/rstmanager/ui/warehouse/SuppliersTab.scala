@@ -9,8 +9,9 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging, TableSort }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** Supplier registry of the warehouse: the suppliers the material MPNs are bought from. Same layout as the customer registry. */
 object SuppliersTab:
@@ -65,6 +66,11 @@ object SuppliersTab:
     val data = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
     val query = Var("")
     val pager = Pagination(Paging.defaultPageSize)
+    val sort = TableSort[SupplierResponse](pager)(
+      "supplier" -> Column.text(_.name),
+      "contacts" -> Column.optionalText(s => s.email.orElse(s.phone)),
+      "address" -> Column.optionalText(_.address),
+    )
 
     def textField(
         labelText: String,
@@ -122,7 +128,7 @@ object SuppliersTab:
         renderResult(data) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun fornitore registrato."))
           else
-            searchedPages(all, query.signal, ListSearch.supplier, pager, "Nessun fornitore corrisponde alla ricerca.") { suppliers =>
+            searchedPages(sort.sorted(all), query.signal, ListSearch.supplier, pager, "Nessun fornitore corrisponde alla ricerca.") { suppliers =>
               div(
                 cls := "overflow-x-auto",
                 table(
@@ -130,9 +136,9 @@ object SuppliersTab:
                   thead(
                     cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                     tr(
-                      th(cls := "px-4 py-2", "Fornitore"),
-                      th(cls := "px-4 py-2", "Contatti"),
-                      th(cls := "px-4 py-2", "Indirizzo"),
+                      sort.header("supplier", "Fornitore", "px-4 py-2"),
+                      sort.header("contacts", "Contatti", "px-4 py-2"),
+                      sort.header("address", "Indirizzo", "px-4 py-2"),
                       th(cls := "px-4 py-2"),
                     ),
                   ),

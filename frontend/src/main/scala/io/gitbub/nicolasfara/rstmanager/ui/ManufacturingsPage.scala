@@ -11,6 +11,7 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** Catalog of reusable manufacturings composed from live catalog task references. */
 object ManufacturingsPage:
@@ -46,6 +47,12 @@ object ManufacturingsPage:
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
     val query = Var("")
     val pager = Pagination(Paging.defaultPageSize)
+    val sort = TableSort[ManufacturingCatalogResponse](pager)(
+      "code" -> Column.text(_.code),
+      "name" -> Column.text(_.name),
+      "tasks" -> Column.by(_.tasks.size),
+      "duration" -> Column.by(_.totalRequiredMinutes),
+    )
     val manufacturingsSnapshot = Var(List.empty[ManufacturingCatalogResponse])
     // Synchronous view of catalog tasks by id, used to propose a task's default employee when it is picked in a row.
     val tasksSnapshot = Var(Map.empty[String, TaskResponse])
@@ -385,32 +392,37 @@ object ManufacturingsPage:
       ),
       card(
         cls := "overflow-hidden",
-        div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca per codice, nome, task…", pager)),
+        div(
+          cls := "space-y-2 border-b border-slate-100 p-3",
+          searchBox(query, "Cerca per codice, nome, task…", pager),
+          div(cls := "md:hidden", sort.picker(List("code" -> "Codice", "name" -> "Nome", "tasks" -> "Task", "duration" -> "Durata"))),
+        ),
         renderResult(manufacturingsData) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessuna lavorazione nel catalogo."))
           else
-            searchedPages(all, query.signal, ListSearch.manufacturing, pager, "Nessuna lavorazione corrisponde alla ricerca.") { manufacturings =>
-              div(
-                // Mobile: stacked cards. Desktop (md+): the table.
-                div(cls := "divide-y divide-slate-100 md:hidden", manufacturings.map(renderCard)),
+            searchedPages(sort.sorted(all), query.signal, ListSearch.manufacturing, pager, "Nessuna lavorazione corrisponde alla ricerca.") {
+              manufacturings =>
                 div(
-                  cls := "hidden overflow-x-auto md:block",
-                  table(
-                    cls := "w-full text-sm",
-                    thead(
-                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                      tr(
-                        th(cls := "px-4 py-2", "Codice"),
-                        th(cls := "px-4 py-2", "Nome"),
-                        th(cls := "px-4 py-2", "Task"),
-                        th(cls := "px-4 py-2", "Durata"),
-                        th(cls := "px-4 py-2"),
+                  // Mobile: stacked cards. Desktop (md+): the table.
+                  div(cls := "divide-y divide-slate-100 md:hidden", manufacturings.map(renderCard)),
+                  div(
+                    cls := "hidden overflow-x-auto md:block",
+                    table(
+                      cls := "w-full text-sm",
+                      thead(
+                        cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                        tr(
+                          sort.header("code", "Codice", "px-4 py-2"),
+                          sort.header("name", "Nome", "px-4 py-2"),
+                          sort.header("tasks", "Task", "px-4 py-2"),
+                          sort.header("duration", "Durata", "px-4 py-2"),
+                          th(cls := "px-4 py-2"),
+                        ),
                       ),
+                      tbody(manufacturings.map(renderRow)),
                     ),
-                    tbody(manufacturings.map(renderRow)),
                   ),
-                ),
-              )
+                )
             }
         },
       ),

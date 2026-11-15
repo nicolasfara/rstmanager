@@ -14,6 +14,7 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.OrderDrafts.{ MfgCoreState, MfgSnapshot, TaskState }
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /**
  * Orders: filterable list with lifecycle transitions, a nested create form, and a full edit modal covering order data (priority, work deadline,
@@ -1385,6 +1386,22 @@ object OrdersPage:
       )
     end renderRow
 
+    // Status in lifecycle order, priority urgent first: sorting by them groups the rows the way the filter chips list them.
+    val statusRank = statusFilters.map(_._1).filter(_.nonEmpty).zipWithIndex.toMap
+    val sort = TableSort[OrderResponse](
+      customersMap.map { customers =>
+        Map(
+          "number" -> Column.text(_.number),
+          "customer" -> Column.optionalText(o => customers.get(o.customerId)),
+          "status" -> Column.by(o => statusRank.getOrElse(o.status, statusRank.size)),
+          "priority" -> Column.by(o => if o.priority == "urgent" then 0 else 1),
+          "delivery" -> Column.text(_.deliveryDate),
+          "manufacturings" -> Column.by(_.manufacturings.size),
+        )
+      },
+      pager,
+    )
+
     val filterBar =
       div(
         cls := "mb-4 flex flex-wrap items-center gap-2",
@@ -1397,14 +1414,27 @@ object OrdersPage:
           )
         },
         div(cls := "w-full sm:ml-auto sm:w-80", searchBox(query, "Cerca per numero, cliente, lavorazione…", pager)),
+        div(
+          cls := "w-full md:hidden",
+          sort.picker(
+            List(
+              "number" -> "Ordine",
+              "customer" -> "Cliente",
+              "status" -> "Stato",
+              "priority" -> "Priorità",
+              "delivery" -> "Consegna",
+              "manufacturings" -> "Lavorazioni",
+            ),
+          ),
+        ),
       )
 
     val searchFields: Signal[OrderResponse => List[String]] =
       customersMap.map(customers => order => ListSearch.order(order, customers.get(order.customerId)))
 
     def ordersTable(orders: List[OrderResponse]): HtmlElement =
-      val filtered = statusFilter.signal.combineWith(query.signal, searchFields).map { (filter, typed, fieldsOf) =>
-        orders.filter(o => (filter.isEmpty || o.status == filter) && SearchTerms.matchesAny(typed, fieldsOf(o)))
+      val filtered = sort.sorted(orders).combineWith(statusFilter.signal, query.signal, searchFields).map { (sorted, filter, typed, fieldsOf) =>
+        sorted.filter(o => (filter.isEmpty || o.status == filter) && SearchTerms.matchesAny(typed, fieldsOf(o)))
       }
       pager.view(filtered) { visible =>
         if visible.isEmpty then div(cls := "p-4", emptyState("Nessun ordine corrisponde ai filtri."))
@@ -1418,12 +1448,12 @@ object OrdersPage:
                 thead(
                   cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                   tr(
-                    th(cls := "px-4 py-2", "Ordine"),
-                    th(cls := "px-4 py-2", "Cliente"),
-                    th(cls := "px-4 py-2", "Stato"),
-                    th(cls := "px-4 py-2", "Priorità"),
-                    th(cls := "px-4 py-2", "Consegna"),
-                    th(cls := "px-4 py-2", "Lavorazioni"),
+                    sort.header("number", "Ordine", "px-4 py-2"),
+                    sort.header("customer", "Cliente", "px-4 py-2"),
+                    sort.header("status", "Stato", "px-4 py-2"),
+                    sort.header("priority", "Priorità", "px-4 py-2"),
+                    sort.header("delivery", "Consegna", "px-4 py-2"),
+                    sort.header("manufacturings", "Lavorazioni", "px-4 py-2"),
                     th(cls := "px-4 py-2"),
                   ),
                 ),

@@ -5,8 +5,9 @@ import java.util.UUID
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, TableSort, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.WarehouseViews.Granularity
 
 /**
@@ -38,6 +39,18 @@ object FlowsTab:
     )
     val spend = loadable(AppBus.warehouseTicks.combineWith(appliedPeriod))(() => ApiClient.supplierSpend(applied.now().from, applied.now().to))
     val expanded = Var(Set.empty[UUID])
+    val bucketSort = TableSort.unpaged[FlowBucketResponse](
+      "period" -> Column.text(_.start),
+      "in" -> Column.decimal(_.totals.inValue),
+      "purchases" -> Column.decimal(_.totals.purchaseValue),
+      "out" -> Column.decimal(_.totals.outValue),
+      "net" -> Column.decimal(_.totals.net),
+    )
+    val spendSort = TableSort.unpaged[SupplierSpendResponse](
+      "supplier" -> Column.text(_.name),
+      "purchases" -> Column.by(_.purchases),
+      "amount" -> Column.decimal(_.amount),
+    )
 
     def selectGranularity(next: Granularity): Unit =
       val previous = granularity.now()
@@ -182,26 +195,28 @@ object FlowsTab:
               thead(
                 cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                 tr(
-                  th(cls := "px-4 py-2", "Periodo"),
-                  th(cls := "px-4 py-2 text-right", "Entrate"),
-                  th(cls := "px-4 py-2 text-right", "di cui acquisti"),
-                  th(cls := "px-4 py-2 text-right", "Uscite"),
-                  th(cls := "px-4 py-2 text-right", "Netto"),
+                  bucketSort.header("period", "Periodo", "px-4 py-2"),
+                  bucketSort.header("in", "Entrate", "px-4 py-2 text-right"),
+                  bucketSort.header("purchases", "di cui acquisti", "px-4 py-2 text-right"),
+                  bucketSort.header("out", "Uscite", "px-4 py-2 text-right"),
+                  bucketSort.header("net", "Netto", "px-4 py-2 text-right"),
                   th(cls := "px-4 py-2", "Quantità (entrate / uscite)"),
                 ),
               ),
               tbody(
-                report.buckets.map { bucket =>
-                  tr(
-                    cls := "border-b border-slate-100 align-top last:border-0",
-                    td(
-                      cls := "px-4 py-2",
-                      div(cls := "font-medium text-slate-800", WarehouseViews.bucketLabel(bucket)),
-                      div(cls := "text-xs text-slate-400", WarehouseViews.bucketRange(bucket.from, bucket.to)),
-                    ),
-                    amountCells(bucket.totals),
-                  )
-                },
+                children <-- bucketSort
+                  .sorted(report.buckets)
+                  .map(_.map { bucket =>
+                    tr(
+                      cls := "border-b border-slate-100 align-top last:border-0",
+                      td(
+                        cls := "px-4 py-2",
+                        div(cls := "font-medium text-slate-800", WarehouseViews.bucketLabel(bucket)),
+                        div(cls := "text-xs text-slate-400", WarehouseViews.bucketRange(bucket.from, bucket.to)),
+                      ),
+                      amountCells(bucket.totals),
+                    )
+                  }),
               ),
               tfoot(
                 cls := "border-t border-slate-200 bg-slate-50 font-medium",
@@ -258,9 +273,13 @@ object FlowsTab:
             cls := "w-full text-sm",
             thead(
               cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-              tr(th(cls := "px-4 py-2", "Fornitore"), th(cls := "px-4 py-2 text-right", "Acquisti"), th(cls := "px-4 py-2 text-right", "Importo")),
+              tr(
+                spendSort.header("supplier", "Fornitore", "px-4 py-2"),
+                spendSort.header("purchases", "Acquisti", "px-4 py-2 text-right"),
+                spendSort.header("amount", "Importo", "px-4 py-2 text-right"),
+              ),
             ),
-            report.suppliers.map(supplierRows),
+            children <-- spendSort.sorted(report.suppliers).map(_.map(supplierRows)),
             tfoot(
               cls := "border-t border-slate-200 bg-slate-50 font-medium",
               tr(

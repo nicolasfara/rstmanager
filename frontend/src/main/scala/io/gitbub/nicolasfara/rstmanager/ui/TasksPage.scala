@@ -10,6 +10,7 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** Catalog of reusable tasks (name, description, required hours) referenced when building orders. */
 object TasksPage:
@@ -78,6 +79,20 @@ object TasksPage:
     val searchFields: Signal[TaskResponse => List[String]] = employeesById.map { employees => task =>
       ListSearch.task(task, task.defaultEmployeeId.flatMap(id => employees.get(id.toString)).map(e => s"${e.name} ${e.surname}"))
     }
+
+    def employeeName(employees: Map[String, EmployeeResponse], task: TaskResponse): Option[String] =
+      task.defaultEmployeeId.flatMap(id => employees.get(id.toString)).map(e => s"${e.name} ${e.surname}")
+    val sort = TableSort[TaskResponse](
+      employeesById.map { employees =>
+        Map(
+          "name" -> Column.text(_.name),
+          "description" -> Column.optionalText(_.description),
+          "duration" -> Column.by(_.requiredMinutes),
+          "employee" -> Column.optionalText(employeeName(employees, _)),
+        )
+      },
+      pager,
+    )
 
     def defaultEmployeeLabel(task: TaskResponse): Signal[String] =
       employeesById.map { employees =>
@@ -171,11 +186,18 @@ object TasksPage:
         ),
         card(
           cls := "overflow-hidden",
-          div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca per nome, descrizione, dipendente…", pager)),
+          div(
+            cls := "space-y-2 border-b border-slate-100 p-3",
+            searchBox(query, "Cerca per nome, descrizione, dipendente…", pager),
+            div(
+              cls := "md:hidden",
+              sort.picker(List("name" -> "Nome", "description" -> "Descrizione", "duration" -> "Durata", "employee" -> "Dipendente")),
+            ),
+          ),
           renderResult(data) { all =>
             if all.isEmpty then div(cls := "p-4", emptyState("Nessun task nel catalogo."))
             else
-              searchedPages(all, query.signal, searchFields, pager, "Nessun task corrisponde alla ricerca.") { tasks =>
+              searchedPages(sort.sorted(all), query.signal, searchFields, pager, "Nessun task corrisponde alla ricerca.") { tasks =>
                 div(
                   // Mobile: stacked cards. Desktop (md+): the table.
                   div(cls := "divide-y divide-slate-100 md:hidden", tasks.map(renderCard)),
@@ -186,10 +208,10 @@ object TasksPage:
                       thead(
                         cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                         tr(
-                          th(cls := "px-4 py-2", "Nome"),
-                          th(cls := "px-4 py-2", "Descrizione"),
-                          th(cls := "px-4 py-2", "Durata"),
-                          th(cls := "px-4 py-2", "Dipendente"),
+                          sort.header("name", "Nome", "px-4 py-2"),
+                          sort.header("description", "Descrizione", "px-4 py-2"),
+                          sort.header("duration", "Durata", "px-4 py-2"),
+                          sort.header("employee", "Dipendente", "px-4 py-2"),
                           th(cls := "px-4 py-2"),
                         ),
                       ),

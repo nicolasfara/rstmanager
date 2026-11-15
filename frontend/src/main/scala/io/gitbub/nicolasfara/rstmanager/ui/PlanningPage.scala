@@ -167,6 +167,26 @@ object PlanningPage:
     val editLookup: Signal[(Map[UUID, ScheduledTaskDto], Map[UUID, String])] =
       scheduledTaskById.combineWith(scheduledTaskNames)
     val editAndPref = editLookup.flatMapSwitch(el => preferredByMfg.map((el, _)))
+    val catalogData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
+    val catalogList: Signal[List[ManufacturingCatalogResponse]] = catalogData.map {
+      case Some(Right(list)) => list
+      case _ => Nil
+    }
+
+    // ---- Board filters ---------------------------------------------------------------------------
+    val boardFilter = Var(PlanningFilter.empty)
+    // Resolves what a slice is filtered on: its employee, its catalog task and its manufacturing template code.
+    val sliceKeys: Signal[ScheduledTaskSliceDto => PlanningFilter.Keys] =
+      scheduledTaskById.combineWith(manufacturingCodes).map { (byId, codes) => slice =>
+        PlanningFilter.Keys(
+          slice.candidateEmployee.employeeId.toString,
+          byId.get(slice.taskId).map(_.taskId.toString).getOrElse(""),
+          codes.getOrElse(slice.manufacturingId, ""),
+        )
+      }
+    val catalogTaskLabels: Signal[Map[String, String]] = catalogNames.map(_.map((id, name) => id.toString -> name))
+    val employeeLabels: Signal[Map[String, String]] = employeeNames.map(_.map((id, name) => id.toString -> name))
+    val manufacturingLabels: Signal[Map[String, String]] = catalogList.map(_.map(entry => entry.code -> s"${entry.code} · ${entry.name}").toMap)
 
     // ---- Task modal ------------------------------------------------------------------------------
     def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String, preferred: Option[UUID]): Unit =
@@ -451,6 +471,58 @@ object PlanningPage:
         else div(cls := "space-y-2", slices.map(sliceCard)),
       )
 
+    /** Employee / task / manufacturing selects over the values present in the plan, with a reset and a count of the matching slices. */
+    def filterBar(slices: List[ScheduledTaskSliceDto], matching: Signal[Int]): HtmlElement =
+      val planKeys: Signal[List[PlanningFilter.Keys]] = sliceKeys.map(slices.map)
+      def filterSelect(
+          labelText: String,
+          anyLabel: String,
+          labels: Signal[Map[String, String]],
+          keyOf: PlanningFilter.Keys => String,
+          valueOf: PlanningFilter => String,
+          withValue: (PlanningFilter, String) => PlanningFilter,
+      ): HtmlElement =
+        field(
+          labelText,
+          selectInput(
+            boardFilter.signal.map(valueOf),
+            Observer[String](value => boardFilter.update(withValue(_, value))),
+            planKeys.combineWith(labels, boardFilter.signal).map { (keys, names, filter) =>
+              PlanningFilter.options(anyLabel, keys.map(keyOf), valueOf(filter), value => names.getOrElse(value, value.take(8)))
+            },
+          ),
+        )
+      div(
+        cls := "mb-4 flex flex-wrap items-end gap-3 border-b border-slate-100 pb-4",
+        div(
+          cls := "grid w-full grid-cols-1 gap-3 sm:grid-cols-3 lg:w-auto lg:flex-1",
+          filterSelect("Dipendente", "Tutti i dipendenti", employeeLabels, _.employeeId, _.employeeId, (f, v) => f.copy(employeeId = v)),
+          filterSelect("Task", "Tutti i task", catalogTaskLabels, _.taskId, _.taskId, (f, v) => f.copy(taskId = v)),
+          filterSelect(
+            "Lavorazione",
+            "Tutte le lavorazioni",
+            manufacturingLabels,
+            _.manufacturingCode,
+            _.manufacturingCode,
+            (f, v) => f.copy(manufacturingCode = v),
+          ),
+        ),
+        child <-- boardFilter.signal.map(_.isEmpty).distinct.map { unfiltered =>
+          if unfiltered then emptyNode
+          else
+            div(
+              cls := "flex items-center gap-3",
+              span(
+                cls := "text-xs tabular-nums text-slate-500",
+                aria.live := "polite",
+                child.text <-- matching.map(n => s"$n di ${slices.size} task pianificati"),
+              ),
+              button(tpe := "button", cls := btnGhost, "Azzera filtri", onClick --> (_ => boardFilter.set(PlanningFilter.empty))),
+            )
+        },
+      )
+    end filterBar
+
     def board(state: PlanningStateDto): HtmlElement =
       val days = slicesByDay(state)
       if days.isEmpty then
@@ -458,10 +530,17 @@ object PlanningPage:
       else
         // Normalize each day to a YYYY-MM-DD key so that weekKey and weekDays align regardless of the
         // timezone or time component in the backend-produced datetime strings.
-        val byWeek: List[(String, Map[String, List[ScheduledTaskSliceDto]])] =
-          days.map { case (day, slices) => Formats.dateKey(day) -> slices }.groupBy { case (dk, _) => Formats.weekKey(dk) }.toList
-            .sortBy(_._1)
-            .map { case (wk, pairs) => wk -> pairs.toMap }
+        val byDate: List[(String, List[ScheduledTaskSliceDto])] = days.map { case (day, slices) => Formats.dateKey(day) -> slices }
+        // Weeks come from the whole plan, so filtering never removes a week from the navigation.
+        val weeks: List[String] = byDate.map { case (dk, _) => Formats.weekKey(dk) }.distinct.sorted
+        val filteredByDate: Signal[Map[String, List[ScheduledTaskSliceDto]]] =
+          boardFilter.signal
+            .combineWith(sliceKeys)
+            .map { (filter, keysOf) =>
+              byDate.map { case (dk, slices) => dk -> slices.filter(slice => filter.matches(keysOf(slice))) }.toMap
+            }
+            .distinct
+        val matching: Signal[Int] = filteredByDate.map(_.values.map(_.size).sum)
 
         def renderWeekGrid(wk: String, slicesByDate: Map[String, List[ScheduledTaskSliceDto]]): HtmlElement =
           div(
@@ -469,52 +548,68 @@ object PlanningPage:
             Formats.weekDays(wk).map(dk => dayColumn(dk, slicesByDate.getOrElse(dk, Nil))),
           )
 
-        if byWeek.size <= 1 then
-          val (wk, slicesByDate) = byWeek.head
-          renderWeekGrid(wk, slicesByDate)
-        else
-          val totalWeeks = byWeek.size
-          val clampedIdx: Signal[Int] = weekIndex.signal.map(i => math.min(i, totalWeeks - 1))
-          val weekRangeLabel: Signal[String] = clampedIdx.map { i =>
-            val (wk, _) = byWeek(i)
-            val wd = Formats.weekDays(wk)
-            s"${Formats.date(wd.head)} – ${Formats.date(wd.last)}"
-          }
+        val noMatch: HtmlElement = div(
+          cls := "space-y-2",
+          emptyState("Nessun task pianificato corrisponde ai filtri selezionati."),
           div(
-            cls := "space-y-3",
-            div(
-              cls := "flex items-center justify-between gap-4",
-              button(
-                tpe := "button",
-                cls := s"$btnSmall disabled:opacity-40 disabled:cursor-not-allowed",
-                "← Settimana prec.",
-                disabled <-- clampedIdx.map(_ <= 0),
-                onClick --> (_ => weekIndex.update(i => math.max(0, i - 1))),
-              ),
-              div(
-                cls := "flex flex-col items-center gap-0.5",
-                span(cls := "text-sm font-semibold text-slate-700", child.text <-- weekRangeLabel),
-                span(
-                  cls := "text-xs text-slate-400",
-                  child.text <-- clampedIdx.map(i => s"Settimana ${i + 1} di $totalWeeks"),
-                ),
-              ),
-              button(
-                tpe := "button",
-                cls := s"$btnSmall disabled:opacity-40 disabled:cursor-not-allowed",
-                "Settimana succ. →",
-                disabled <-- clampedIdx.map(_ >= totalWeeks - 1),
-                onClick --> (_ => weekIndex.update(i => math.min(totalWeeks - 1, i + 1))),
-              ),
-            ),
-            child <-- clampedIdx.map { i =>
-              val (wk, slicesByDate) = byWeek(i)
-              renderWeekGrid(wk, slicesByDate)
-            },
-          )
-        end if
+            cls := "text-center",
+            button(tpe := "button", cls := btnGhost, "Azzera filtri", onClick --> (_ => boardFilter.set(PlanningFilter.empty))),
+          ),
+        )
+
+        div(
+          filterBar(byDate.flatMap(_._2), matching),
+          child <-- matching.map(_ == 0).distinct.map { empty =>
+            if empty then noMatch else weekNavigation(weeks, filteredByDate, renderWeekGrid)
+          },
+        )
       end if
     end board
+
+    def weekNavigation(
+        weeks: List[String],
+        filteredByDate: Signal[Map[String, List[ScheduledTaskSliceDto]]],
+        renderWeekGrid: (String, Map[String, List[ScheduledTaskSliceDto]]) => HtmlElement,
+    ): HtmlElement =
+      if weeks.size <= 1 then div(child <-- filteredByDate.map(renderWeekGrid(weeks.head, _)))
+      else
+        val totalWeeks = weeks.size
+        val clampedIdx: Signal[Int] = weekIndex.signal.map(i => math.min(i, totalWeeks - 1))
+        val weekRangeLabel: Signal[String] = clampedIdx.map { i =>
+          val wd = Formats.weekDays(weeks(i))
+          s"${Formats.date(wd.head)} – ${Formats.date(wd.last)}"
+        }
+        div(
+          cls := "space-y-3",
+          div(
+            cls := "flex items-center justify-between gap-4",
+            button(
+              tpe := "button",
+              cls := s"$btnSmall disabled:opacity-40 disabled:cursor-not-allowed",
+              "← Settimana prec.",
+              disabled <-- clampedIdx.map(_ <= 0),
+              onClick --> (_ => weekIndex.update(i => math.max(0, i - 1))),
+            ),
+            div(
+              cls := "flex flex-col items-center gap-0.5",
+              span(cls := "text-sm font-semibold text-slate-700", child.text <-- weekRangeLabel),
+              span(
+                cls := "text-xs text-slate-400",
+                child.text <-- clampedIdx.map(i => s"Settimana ${i + 1} di $totalWeeks"),
+              ),
+            ),
+            button(
+              tpe := "button",
+              cls := s"$btnSmall disabled:opacity-40 disabled:cursor-not-allowed",
+              "Settimana succ. →",
+              disabled <-- clampedIdx.map(_ >= totalWeeks - 1),
+              onClick --> (_ => weekIndex.update(i => math.min(totalWeeks - 1, i + 1))),
+            ),
+          ),
+          child <-- clampedIdx.combineWith(filteredByDate).map((i, slicesByDate) => renderWeekGrid(weeks(i), slicesByDate)),
+        )
+      end if
+    end weekNavigation
 
     // ---- Completed tasks -------------------------------------------------------------------------
     def completedRow(row: CompletedRow): HtmlElement =
@@ -810,11 +905,6 @@ object PlanningPage:
     val simSelected = Var(List.empty[UUID])
     val simRunning = Var(false)
     val simResult = Var(Option.empty[ApiClient.Result[OrderSimulationResponse]])
-    val catalogData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
-    val catalogList: Signal[List[ManufacturingCatalogResponse]] = catalogData.map {
-      case Some(Right(list)) => list
-      case _ => Nil
-    }
     // Selection grouped per template with its occurrence count, for the selected-items list.
     val simRows: Signal[List[(ManufacturingCatalogResponse, Int)]] =
       catalogList.combineWith(simSelected.signal).map { case (catalog, selected) =>

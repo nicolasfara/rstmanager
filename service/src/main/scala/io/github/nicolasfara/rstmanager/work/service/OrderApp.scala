@@ -6,7 +6,7 @@ import java.util.UUID
 import scala.concurrent.duration.*
 
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
-import io.github.nicolasfara.rstmanager.service.registry.RegistryBackend
+import io.github.nicolasfara.rstmanager.service.registry.{ RegistryBackend, StreamReader }
 import io.github.nicolasfara.rstmanager.work.domain.order.*
 import io.github.nicolasfara.rstmanager.work.domain.order.events.OrderEvent
 
@@ -14,7 +14,7 @@ import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.DateTime
 import edomata.backend.Backend
-import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
+import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import io.github.iltotore.iron.*
@@ -30,7 +30,7 @@ object OrderApp:
 
   type EntityBackend = EventSourcedBackend[IO, Order, OrderEvent, OrderError, OrderService.Notification]
 
-  final case class Store(entity: EntityBackend, registry: RegistryBackend.Backend)
+  final case class Store(entity: EntityBackend, registry: RegistryBackend.Backend, reader: StreamReader[Order, OrderEvent, OrderError])
 
   def build(pool: Resource[IO, Session[IO]]): Resource[IO, Store] =
     for
@@ -41,7 +41,8 @@ object OrderApp:
         .withRetryConfig(retryInitialDelay = 2.seconds)
         .build
       registry <- RegistryBackend.build("order_index", pool)
-    yield Store(entity, registry)
+      reader <- Resource.eval(StreamReader[Order, OrderEvent, OrderError]("orders", pool, StreamReader.entityCacheSize))
+    yield Store(entity, registry, reader)
 
   /**
    * The id is registered *before* dispatching: the creation notification triggers the planning recalculation (outbox consumer), which reads the open
@@ -70,17 +71,16 @@ object OrderApp:
   def delete(store: Store, id: OrderId, reason: Option[String :| CancellationReason]): IO[Either[OrderError, Unit]] =
     dispatch(store, id, OrderService.Command.Cancel(reason))
 
-  def get(store: Store, id: OrderId): IO[Option[Order]] =
-    store.entity.repository.get(id.toString).map {
-      case AggregateState.Valid(Order.NewOrder, _) => None
-      case AggregateState.Valid(order, _) => Some(order)
-      case _ => None
-    }
+  def get(store: Store, id: OrderId): IO[Option[Order]] = getMany(store, List(id)).map(_.get(id))
+
+  /** The existing orders among `ids`, read in a single query. */
+  def getMany(store: Store, ids: List[OrderId]): IO[Map[OrderId, Order]] =
+    store.reader.valid(ids)(_.toString).map(_.filter((_, order) => order != Order.NewOrder))
 
   def exists(store: Store, id: OrderId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Order]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, OrderId(id)))).map(_.flatten)
+    RegistryBackend.ids(store.registry).map(_.toList.map(OrderId(_))).flatMap(ids => getMany(store, ids).map(found => ids.flatMap(found.get)))
 
   private def dispatch(store: Store, id: OrderId, command: OrderService.Command): IO[Either[OrderError, Unit]] =
     val service = store.entity.compile(OrderService[IO])

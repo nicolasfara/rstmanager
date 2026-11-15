@@ -6,14 +6,14 @@ import java.util.UUID
 import scala.concurrent.duration.*
 
 import io.github.nicolasfara.rstmanager.service.codecs.WarehouseCodecs.given
-import io.github.nicolasfara.rstmanager.service.registry.RegistryBackend
+import io.github.nicolasfara.rstmanager.service.registry.{ RegistryBackend, StreamReader }
 import io.github.nicolasfara.rstmanager.warehouse.domain.deliverynote.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.deliverynote.events.DeliveryNoteEvent
 
 import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
 import edomata.backend.Backend
-import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
+import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import io.github.iltotore.iron.:|
@@ -31,7 +31,11 @@ object DeliveryNoteApp:
 
   type EntityBackend = EventSourcedBackend[IO, DeliveryNoteAggregate, DeliveryNoteEvent, DeliveryNoteError, DeliveryNoteService.Notification]
 
-  final case class Store(entity: EntityBackend, registry: RegistryBackend.Backend)
+  final case class Store(
+      entity: EntityBackend,
+      registry: RegistryBackend.Backend,
+      reader: StreamReader[DeliveryNoteAggregate, DeliveryNoteEvent, DeliveryNoteError],
+  )
 
   def build(pool: Resource[IO, Session[IO]]): Resource[IO, Store] =
     for
@@ -42,7 +46,10 @@ object DeliveryNoteApp:
         .withRetryConfig(retryInitialDelay = 2.seconds)
         .build
       registry <- RegistryBackend.build("delivery_note_index", pool)
-    yield Store(entity, registry)
+      reader <- Resource.eval(
+        StreamReader[DeliveryNoteAggregate, DeliveryNoteEvent, DeliveryNoteError]("delivery_notes", pool, StreamReader.entityCacheSize),
+      )
+    yield Store(entity, registry, reader)
 
   def register(store: Store, info: DeliveryNoteInfo): IO[Either[DeliveryNoteError, Unit]] =
     dispatch(store, info.id, DeliveryNoteService.Command.Register(info)).flatTap {
@@ -58,17 +65,21 @@ object DeliveryNoteApp:
     dispatch(store, id, DeliveryNoteService.Command.Cancel(reason))
 
   /** The note, registered or cancelled. */
-  def find(store: Store, id: DeliveryNoteId): IO[Option[DeliveryNoteAggregate]] =
-    store.entity.repository.get(id.toString).map {
-      case AggregateState.Valid(note @ (DeliveryNoteAggregate.Registered(_) | DeliveryNoteAggregate.Cancelled(_, _, _)), _) => Some(note)
-      case _ => None
-    }
+  def find(store: Store, id: DeliveryNoteId): IO[Option[DeliveryNoteAggregate]] = findMany(store, List(id)).map(_.get(id))
+
+  /** The notes among `ids`, registered or cancelled, read in a single query. */
+  def findMany(store: Store, ids: List[DeliveryNoteId]): IO[Map[DeliveryNoteId, DeliveryNoteAggregate]] =
+    store.reader
+      .valid(ids)(_.toString)
+      .map(_.collect { case (id, note @ (DeliveryNoteAggregate.Registered(_) | DeliveryNoteAggregate.Cancelled(_, _, _))) =>
+        id -> note
+      })
 
   /** Every note id of the registry, in a stable order. */
   def ids(store: Store): IO[List[DeliveryNoteId]] = RegistryBackend.ids(store.registry).map(_.toList.sortBy(_.toString).map(DeliveryNoteId(_)))
 
   /** Every note, cancelled ones included. */
-  def listAll(store: Store): IO[List[DeliveryNoteAggregate]] = ids(store).flatMap(_.traverse(find(store, _))).map(_.flatten)
+  def listAll(store: Store): IO[List[DeliveryNoteAggregate]] = ids(store).flatMap(ids => findMany(store, ids).map(found => ids.flatMap(found.get)))
 
   private def dispatch(store: Store, id: DeliveryNoteId, command: DeliveryNoteService.Command): IO[Either[DeliveryNoteError, Unit]] =
     val service = store.entity.compile(DeliveryNoteService[IO])

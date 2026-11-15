@@ -490,7 +490,7 @@ object MaterialHttpApi:
 
   /** The suppliers referenced by `ids`, active or deleted, each read once. */
   private[service] def suppliersById(suppliers: SupplierApp.Store, ids: List[SupplierId]): IO[Map[SupplierId, StoredSupplier]] =
-    ids.distinct.traverseFilter(id => SupplierApp.getAny(suppliers, id).map(_.map(id -> _))).map(_.toMap)
+    SupplierApp.getManyAny(suppliers, ids.distinct)
 
   /** Responses for `materials`, with their stock today, reading each referenced supplier (active or deleted) once. */
   private def hydrate(suppliers: SupplierApp.Store, materials: List[StoredMaterial]): IO[List[MaterialResponse]] =

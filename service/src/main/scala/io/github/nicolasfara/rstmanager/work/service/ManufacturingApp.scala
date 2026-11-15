@@ -6,7 +6,7 @@ import java.util.UUID
 import scala.concurrent.duration.*
 
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
-import io.github.nicolasfara.rstmanager.service.registry.RegistryBackend
+import io.github.nicolasfara.rstmanager.service.registry.{ RegistryBackend, StreamReader }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
@@ -14,7 +14,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.TaskId
 import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
 import edomata.backend.Backend
-import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
+import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import skunk.Session
@@ -26,7 +26,11 @@ object ManufacturingApp:
 
   type EntityBackend = EventSourcedBackend[IO, ManufacturingAggregate, ManufacturingEvent, ManufacturingError, ManufacturingService.Notification]
 
-  final case class Store(entity: EntityBackend, registry: RegistryBackend.Backend)
+  final case class Store(
+      entity: EntityBackend,
+      registry: RegistryBackend.Backend,
+      reader: StreamReader[ManufacturingAggregate, ManufacturingEvent, ManufacturingError],
+  )
 
   def build(pool: Resource[IO, Session[IO]]): Resource[IO, Store] =
     for
@@ -37,7 +41,10 @@ object ManufacturingApp:
         .withRetryConfig(retryInitialDelay = 2.seconds)
         .build
       registry <- RegistryBackend.build("manufacturing_index", pool)
-    yield Store(entity, registry)
+      reader <- Resource.eval(
+        StreamReader[ManufacturingAggregate, ManufacturingEvent, ManufacturingError]("manufacturings", pool, StreamReader.entityCacheSize),
+      )
+    yield Store(entity, registry, reader)
 
   def create(store: Store, manufacturing: Manufacturing): IO[Either[ManufacturingError, Unit]] =
     dispatch(store, manufacturing.id, ManufacturingService.Command.Create(manufacturing)).flatTap {
@@ -54,16 +61,16 @@ object ManufacturingApp:
       case Left(_) => IO.unit
     }
 
-  def get(store: Store, id: ManufacturingId): IO[Option[Manufacturing]] =
-    store.entity.repository.get(id.toString).map {
-      case AggregateState.Valid(ManufacturingAggregate.Active(manufacturing), _) => Some(manufacturing)
-      case _ => None
-    }
+  def get(store: Store, id: ManufacturingId): IO[Option[Manufacturing]] = getMany(store, List(id)).map(_.get(id))
+
+  /** The active entities among `ids`, read in a single query. */
+  def getMany(store: Store, ids: List[ManufacturingId]): IO[Map[ManufacturingId, Manufacturing]] =
+    store.reader.valid(ids)(_.toString).map(_.collect { case (id, ManufacturingAggregate.Active(manufacturing)) => id -> manufacturing })
 
   def exists(store: Store, id: ManufacturingId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Manufacturing]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, ManufacturingId(id)))).map(_.flatten)
+    RegistryBackend.ids(store.registry).map(_.toList.map(ManufacturingId(_))).flatMap(ids => getMany(store, ids).map(found => ids.flatMap(found.get)))
 
   def findByTaskId(store: Store, taskId: TaskId): IO[List[Manufacturing]] =
     list(store).map(_.filter(_.taskIds.exists(_.equals(taskId))))

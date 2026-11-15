@@ -11,6 +11,7 @@ import io.github.nicolasfara.rstmanager.hr.domain.calendar.CompanyCalendar
 import io.github.nicolasfara.rstmanager.planning.*
 import io.github.nicolasfara.rstmanager.planning.PlanningService.{ Command, Notification }
 import io.github.nicolasfara.rstmanager.planning.events.PlanningEvent
+import io.github.nicolasfara.rstmanager.service.registry.StreamReader
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
@@ -27,7 +28,7 @@ import cats.data.{ NonEmptyChain, NonEmptyList }
 import cats.effect.{ IO, IOApp, Resource }
 import com.github.nscala_time.time.Imports.{ DateTime, LocalDate }
 import edomata.backend.Backend
-import edomata.backend.eventsourcing.Backend as EventSourcedBackend
+import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import io.github.iltotore.iron.*
@@ -49,17 +50,25 @@ object PlanningApp:
   /** Address of the singleton planning aggregate: planning attempts are serialized on this stream. */
   val planningAddress: String = "production-planning"
 
-  /** Event-sourced planning backend type. */
-  type PlanningBackend = EventSourcedBackend[IO, Planning, PlanningEvent, PlanningError, Notification]
+  /** The event-sourced planning backend plus a cached reader of the planning stream, which every recalculation and every board view reads. */
+  final case class PlanningBackend(
+      entity: EventSourcedBackend[IO, Planning, PlanningEvent, PlanningError, Notification],
+      reader: StreamReader[Planning, PlanningEvent, PlanningError],
+  ):
+    /** The current state of the singleton planning aggregate. */
+    def current: IO[AggregateState[Planning, PlanningEvent, PlanningError]] = reader.get(planningAddress)
 
   /** Builds the event-sourced planning backend on top of a skunk session pool. */
   def backend(pool: Resource[IO, Session[IO]]): Resource[IO, PlanningBackend] =
-    Backend
-      .builder(PlanningService)
-      .use(SkunkDriver("planning", pool))
-      .inMemSnapshot(200)
-      .withRetryConfig(retryInitialDelay = 2.seconds)
-      .build
+    for
+      entity <- Backend
+        .builder(PlanningService)
+        .use(SkunkDriver("planning", pool))
+        .inMemSnapshot(1)
+        .withRetryConfig(retryInitialDelay = 2.seconds)
+        .build
+      reader <- Resource.eval(StreamReader[Planning, PlanningEvent, PlanningError]("planning", pool, 1))
+    yield PlanningBackend(entity, reader)
 
   /** Sends one `ComputePlan` command to the compiled service. */
   def computePlan(
@@ -80,7 +89,7 @@ object PlanningApp:
       employees: List[Employee],
       calendar: CompanyCalendar,
   ): IO[Either[NonEmptyChain[PlanningError], String]] =
-    val service = backend.compile(PlanningService[IO])
+    val service = backend.entity.compile(PlanningService[IO])
     service(CommandMessage(commandId, Instant.now().nn, planningAddress, Command.ComputePlan(request, orders, employees, calendar)))
       .map(_.map(_ => commandId))
 end PlanningApp

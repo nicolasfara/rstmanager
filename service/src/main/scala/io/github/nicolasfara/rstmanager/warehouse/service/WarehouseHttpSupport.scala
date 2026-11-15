@@ -36,11 +36,9 @@ object WarehouseHttpSupport:
 
   /** The labels of the orders the consumptions among `movements` belong to; an order that cannot be loaded is left out. */
   def orderLabels(orders: OrderApp.Store, movements: List[StockMovement]): IO[Map[OrderId, OrderLabel]] =
-    movements
-      .flatMap(_.consumption.map(_.orderId))
-      .distinct
-      .traverse(id => OrderApp.get(orders, id).map(_.flatMap(OrderLabel.of).map(id -> _)))
-      .map(_.flatten.toMap)
+    OrderApp
+      .getMany(orders, movements.flatMap(_.consumption.map(_.orderId)).distinct)
+      .map(_.flatMap((id, order) => OrderLabel.of(order).map(id -> _)))
 
   /** The `.xlsx` content type as a tapir codec format, so that the body is documented, sent, and served with it. */
   object XlsxFormat extends CodecFormat:

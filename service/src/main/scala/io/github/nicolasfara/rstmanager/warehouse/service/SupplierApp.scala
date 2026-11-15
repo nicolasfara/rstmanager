@@ -6,14 +6,14 @@ import java.util.UUID
 import scala.concurrent.duration.*
 
 import io.github.nicolasfara.rstmanager.service.codecs.WarehouseCodecs.given
-import io.github.nicolasfara.rstmanager.service.registry.RegistryBackend
+import io.github.nicolasfara.rstmanager.service.registry.{ RegistryBackend, StreamReader }
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.supplier.events.SupplierEvent
 
 import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
 import edomata.backend.Backend
-import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
+import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import skunk.Session
@@ -30,7 +30,11 @@ object SupplierApp:
 
   type EntityBackend = EventSourcedBackend[IO, SupplierAggregate, SupplierEvent, SupplierError, SupplierService.Notification]
 
-  final case class Store(entity: EntityBackend, registry: RegistryBackend.Backend)
+  final case class Store(
+      entity: EntityBackend,
+      registry: RegistryBackend.Backend,
+      reader: StreamReader[SupplierAggregate, SupplierEvent, SupplierError],
+  )
 
   /** A stored supplier, active or (soft) deleted. */
   final case class StoredSupplier(supplier: Supplier, deleted: Boolean)
@@ -44,7 +48,8 @@ object SupplierApp:
         .withRetryConfig(retryInitialDelay = 2.seconds)
         .build
       registry <- RegistryBackend.build("supplier_index", pool)
-    yield Store(entity, registry)
+      reader <- Resource.eval(StreamReader[SupplierAggregate, SupplierEvent, SupplierError]("suppliers", pool, StreamReader.entityCacheSize))
+    yield Store(entity, registry, reader)
 
   def create(store: Store, supplier: Supplier): IO[Either[SupplierError, Unit]] =
     dispatch(store, supplier.id, SupplierService.Command.Create(supplier)).flatTap {
@@ -60,12 +65,16 @@ object SupplierApp:
     dispatch(store, id, SupplierService.Command.Delete)
 
   /** The supplier, active or deleted. */
-  def getAny(store: Store, id: SupplierId): IO[Option[StoredSupplier]] =
-    store.entity.repository.get(id.toString).map {
-      case AggregateState.Valid(SupplierAggregate.Active(supplier), _) => Some(StoredSupplier(supplier, deleted = false))
-      case AggregateState.Valid(SupplierAggregate.Deleted(supplier), _) => Some(StoredSupplier(supplier, deleted = true))
-      case _ => None
-    }
+  def getAny(store: Store, id: SupplierId): IO[Option[StoredSupplier]] = getManyAny(store, List(id)).map(_.get(id))
+
+  /** The suppliers among `ids`, active or deleted, read in a single query. */
+  def getManyAny(store: Store, ids: List[SupplierId]): IO[Map[SupplierId, StoredSupplier]] =
+    store.reader
+      .valid(ids)(_.toString)
+      .map(_.collect {
+        case (id, SupplierAggregate.Active(supplier)) => id -> StoredSupplier(supplier, deleted = false)
+        case (id, SupplierAggregate.Deleted(supplier)) => id -> StoredSupplier(supplier, deleted = true)
+      })
 
   /** The supplier, if it is active. */
   def get(store: Store, id: SupplierId): IO[Option[Supplier]] =
@@ -75,7 +84,9 @@ object SupplierApp:
 
   /** Every active supplier. */
   def list(store: Store): IO[List[Supplier]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, SupplierId(id)))).map(_.flatten)
+    RegistryBackend.ids(store.registry).map(_.toList.map(SupplierId(_))).flatMap { ids =>
+      getManyAny(store, ids).map(found => ids.flatMap(found.get).collect { case StoredSupplier(supplier, false) => supplier })
+    }
 
   private def dispatch(store: Store, id: SupplierId, command: SupplierService.Command): IO[Either[SupplierError, Unit]] =
     val service = store.entity.compile(SupplierService[IO])

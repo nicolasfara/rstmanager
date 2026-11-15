@@ -8,7 +8,7 @@ import scala.concurrent.duration.*
 import io.github.nicolasfara.rstmanager.service.codecs.RegistryCodecs.given
 
 import cats.effect.{ IO, Resource }
-import edomata.backend.Backend
+import edomata.backend.Backend as EdomataBackend
 import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
@@ -24,19 +24,25 @@ object RegistryBackend:
   given BackendCodec[EntityRegistryEvent] = CirceCodec.jsonb
   given BackendCodec[EntityRegistryService.Notification] = CirceCodec.jsonb
 
-  type Backend = EventSourcedBackend[IO, EntityRegistry, EntityRegistryEvent, EntityRegistryError, EntityRegistryService.Notification]
+  type CommandBackend = EventSourcedBackend[IO, EntityRegistry, EntityRegistryEvent, EntityRegistryError, EntityRegistryService.Notification]
+
+  /** The registry of one entity type: its command backend plus a cached reader of the id set. */
+  final case class Backend(commands: CommandBackend, reader: StreamReader[EntityRegistry, EntityRegistryEvent, EntityRegistryError])
 
   /** Singleton stream id holding the id set for one entity type. */
   val address: String = "registry"
 
   /** Builds a registry backend on the given journal `namespace` (must be a string literal, required by `SkunkDriver`). */
   inline def build(inline namespace: String, pool: Resource[IO, Session[IO]]): Resource[IO, Backend] =
-    Backend
-      .builder(EntityRegistryService)
-      .use(SkunkDriver(namespace, pool))
-      .inMemSnapshot(200)
-      .withRetryConfig(retryInitialDelay = 2.seconds)
-      .build
+    for
+      commands <- EdomataBackend
+        .builder(EntityRegistryService)
+        .use(SkunkDriver(namespace, pool))
+        .inMemSnapshot(1)
+        .withRetryConfig(retryInitialDelay = 2.seconds)
+        .build
+      reader <- Resource.eval(StreamReader[EntityRegistry, EntityRegistryEvent, EntityRegistryError](namespace, pool, 1))
+    yield Backend(commands, reader)
 
   /** Records that `id` exists (idempotent: a duplicate registration is ignored). */
   def register(backend: Backend, id: UUID): IO[Unit] = dispatch(backend, EntityRegistryService.Command.Register(id))
@@ -46,13 +52,13 @@ object RegistryBackend:
 
   /** Reads the current set of registered ids. */
   def ids(backend: Backend): IO[Set[UUID]] =
-    backend.repository.get(address).map {
+    backend.reader.get(address).map {
       case AggregateState.Valid(registry, _) => registry.ids
       case _ => Set.empty
     }
 
   private def dispatch(backend: Backend, command: EntityRegistryService.Command): IO[Unit] =
-    val service = backend.compile(EntityRegistryService[IO])
+    val service = backend.commands.compile(EntityRegistryService[IO])
     for
       commandId <- IO(UUID.randomUUID().nn.toString)
       now <- IO(Instant.now().nn)

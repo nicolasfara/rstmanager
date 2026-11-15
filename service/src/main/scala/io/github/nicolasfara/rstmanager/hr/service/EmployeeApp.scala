@@ -8,12 +8,12 @@ import scala.concurrent.duration.*
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.hr.domain.events.EmployeeEvent
 import io.github.nicolasfara.rstmanager.service.codecs.HrCodecs.given
-import io.github.nicolasfara.rstmanager.service.registry.RegistryBackend
+import io.github.nicolasfara.rstmanager.service.registry.{ RegistryBackend, StreamReader }
 
 import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
 import edomata.backend.Backend
-import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
+import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import skunk.Session
@@ -29,7 +29,11 @@ object EmployeeApp:
 
   type EntityBackend = EventSourcedBackend[IO, EmployeeAggregate, EmployeeEvent, EmployeeError, EmployeeService.Notification]
 
-  final case class Store(entity: EntityBackend, registry: RegistryBackend.Backend)
+  final case class Store(
+      entity: EntityBackend,
+      registry: RegistryBackend.Backend,
+      reader: StreamReader[EmployeeAggregate, EmployeeEvent, EmployeeError],
+  )
 
   def build(pool: Resource[IO, Session[IO]]): Resource[IO, Store] =
     for
@@ -40,7 +44,8 @@ object EmployeeApp:
         .withRetryConfig(retryInitialDelay = 2.seconds)
         .build
       registry <- RegistryBackend.build("employee_index", pool)
-    yield Store(entity, registry)
+      reader <- Resource.eval(StreamReader[EmployeeAggregate, EmployeeEvent, EmployeeError]("employees", pool, StreamReader.entityCacheSize))
+    yield Store(entity, registry, reader)
 
   /**
    * The id is registered *before* dispatching: the creation notification triggers the workforce planning recalculation (outbox consumer), which reads
@@ -63,16 +68,16 @@ object EmployeeApp:
       case Left(_) => IO.unit
     }
 
-  def get(store: Store, id: EmployeeId): IO[Option[Employee]] =
-    store.entity.repository.get(id.toString).map {
-      case AggregateState.Valid(EmployeeAggregate.Active(employee), _) => Some(employee)
-      case _ => None
-    }
+  def get(store: Store, id: EmployeeId): IO[Option[Employee]] = getMany(store, List(id)).map(_.get(id))
+
+  /** The active entities among `ids`, read in a single query. */
+  def getMany(store: Store, ids: List[EmployeeId]): IO[Map[EmployeeId, Employee]] =
+    store.reader.valid(ids)(_.toString).map(_.collect { case (id, EmployeeAggregate.Active(employee)) => id -> employee })
 
   def exists(store: Store, id: EmployeeId): IO[Boolean] = get(store, id).map(_.isDefined)
 
   def list(store: Store): IO[List[Employee]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => get(store, EmployeeId(id)))).map(_.flatten)
+    RegistryBackend.ids(store.registry).map(_.toList.map(EmployeeId(_))).flatMap(ids => getMany(store, ids).map(found => ids.flatMap(found.get)))
 
   private def dispatch(store: Store, id: EmployeeId, command: EmployeeService.Command): IO[Either[EmployeeError, Unit]] =
     val service = store.entity.compile(EmployeeService[IO])

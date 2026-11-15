@@ -56,14 +56,16 @@ object PlanningEntityGateway:
       override def loadCalendar: IO[CompanyCalendar] = CompanyCalendarApp.get(calendar)
 
   private def loadSelectedOpenOrders(store: OrderApp.Store, ids: List[UUID]): IO[Either[LoadError, List[InProgressOrder]]] =
-    ids.distinct.traverse(id => OrderApp.get(store, OrderId(id)).map(id -> _)).map { loaded =>
+    val distinct = ids.distinct
+    OrderApp.getMany(store, distinct.map(OrderId(_))).map(found => distinct.map(id => id -> found.get(OrderId(id)))).map { loaded =>
       val invalid = loaded.collect { case (id, order) if !order.exists(isOpen) => id }
       if invalid.nonEmpty then LoadError.UnknownOrders(invalid).asLeft
       else loaded.flatMap { case (_, order) => order.collect { case open: InProgressOrder => open } }.asRight
     }
 
   private def loadSelectedEmployees(store: EmployeeApp.Store, ids: List[UUID]): IO[Either[LoadError, List[Employee]]] =
-    ids.distinct.traverse(id => EmployeeApp.get(store, EmployeeId(id)).map(id -> _)).map { loaded =>
+    val distinct = ids.distinct
+    EmployeeApp.getMany(store, distinct.map(EmployeeId(_))).map(found => distinct.map(id => id -> found.get(EmployeeId(id)))).map { loaded =>
       val missing = loaded.collect { case (id, None) => id }
       if missing.nonEmpty then LoadError.UnknownEmployees(missing).asLeft
       else loaded.collect { case (_, Some(employee)) => employee }.asRight

@@ -6,7 +6,7 @@ import java.util.UUID
 import scala.concurrent.duration.*
 
 import io.github.nicolasfara.rstmanager.service.codecs.WarehouseCodecs.given
-import io.github.nicolasfara.rstmanager.service.registry.RegistryBackend
+import io.github.nicolasfara.rstmanager.service.registry.{ RegistryBackend, StreamReader }
 import io.github.nicolasfara.rstmanager.warehouse.domain.ReportedMaterial
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.*
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.events.MaterialEvent
@@ -16,7 +16,7 @@ import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.LocalDate
 import edomata.backend.Backend
-import edomata.backend.eventsourcing.{ AggregateState, Backend as EventSourcedBackend }
+import edomata.backend.eventsourcing.Backend as EventSourcedBackend
 import edomata.core.CommandMessage
 import edomata.skunk.{ BackendCodec, CirceCodec, SkunkDriver }
 import io.github.iltotore.iron.:|
@@ -34,7 +34,11 @@ object MaterialApp:
 
   type EntityBackend = EventSourcedBackend[IO, MaterialAggregate, MaterialEvent, MaterialError, MaterialService.Notification]
 
-  final case class Store(entity: EntityBackend, registry: RegistryBackend.Backend)
+  final case class Store(
+      entity: EntityBackend,
+      registry: RegistryBackend.Backend,
+      reader: StreamReader[MaterialAggregate, MaterialEvent, MaterialError],
+  )
 
   /** A stored material, active (`archivedOn` empty) or archived. */
   final case class StoredMaterial(material: MaterialRecord, archivedOn: Option[LocalDate]):
@@ -54,7 +58,8 @@ object MaterialApp:
         .withRetryConfig(retryInitialDelay = 2.seconds)
         .build
       registry <- RegistryBackend.build("product_index", pool)
-    yield Store(entity, registry)
+      reader <- Resource.eval(StreamReader[MaterialAggregate, MaterialEvent, MaterialError]("products", pool, StreamReader.entityCacheSize))
+    yield Store(entity, registry, reader)
 
   def create(store: Store, info: MaterialInfo): IO[Either[MaterialError, Unit]] =
     dispatch(store, info.id, MaterialService.Command.Create(info)).flatTap {
@@ -105,12 +110,16 @@ object MaterialApp:
     dispatchAs(store, id, command, commandId)
 
   /** The material, active or archived. */
-  def find(store: Store, id: MaterialId): IO[Option[StoredMaterial]] =
-    store.entity.repository.get(id.toString).map {
-      case AggregateState.Valid(MaterialAggregate.Active(material), _) => Some(StoredMaterial(material, None))
-      case AggregateState.Valid(MaterialAggregate.Archived(material, archivedOn), _) => Some(StoredMaterial(material, Some(archivedOn)))
-      case _ => None
-    }
+  def find(store: Store, id: MaterialId): IO[Option[StoredMaterial]] = findMany(store, List(id)).map(_.get(id))
+
+  /** The materials among `ids`, active or archived, read in a single query. */
+  def findMany(store: Store, ids: List[MaterialId]): IO[Map[MaterialId, StoredMaterial]] =
+    store.reader
+      .valid(ids)(_.toString)
+      .map(_.collect {
+        case (id, MaterialAggregate.Active(material)) => id -> StoredMaterial(material, None)
+        case (id, MaterialAggregate.Archived(material, archivedOn)) => id -> StoredMaterial(material, Some(archivedOn))
+      })
 
   /** The material, if it is active. */
   def get(store: Store, id: MaterialId): IO[Option[MaterialRecord]] =
@@ -118,7 +127,7 @@ object MaterialApp:
 
   /** Every material, archived ones included. */
   def listAll(store: Store): IO[List[StoredMaterial]] =
-    RegistryBackend.ids(store.registry).flatMap(_.toList.traverse(id => find(store, MaterialId(id)))).map(_.flatten)
+    RegistryBackend.ids(store.registry).map(_.toList.map(MaterialId(_))).flatMap(ids => findMany(store, ids).map(found => ids.flatMap(found.get)))
 
   /** Every active material. */
   def list(store: Store): IO[List[MaterialRecord]] =

@@ -101,13 +101,17 @@ Postgres 18 stores data in a major-version-specific directory inside the `postgr
 Postgres 17 and Compose reports existing data under `/var/lib/postgresql/data`, reset disposable local data with `docker compose down -v`, or
 migrate/restore the old database before starting Postgres 18.
 
-The backend image uses a multi-stage build: the build stage starts from `eclipse-temurin:17-jdk-jammy` and installs sbt `1.12.11`, while the runtime
-stage starts from `eclipse-temurin:17-jre-jammy` and runs only the assembled service jar. These can be overridden with `RSTMANAGER_JDK_IMAGE`,
-`RSTMANAGER_RUNTIME_IMAGE`, and `RSTMANAGER_SBT_VERSION`.
+The backend image uses a multi-stage build: the build stage starts from an `sbtscala/scala-sbt` image (JDK 25 + sbt), while the runtime stage
+starts from `eclipse-temurin:25-jre` and runs only the assembled service jar. Some dependencies need Java 21+, so the runtime must not be older.
 
-The frontend image also uses a multi-stage build: the build stage starts from `cimg/openjdk:17.0-node`, which includes JDK, sbt, and Node, and runs
-`npm run build`; the runtime stage starts from `nginx:1.27-alpine`, serves `dist`, and proxies `/api` plus `/docs` to the backend service. Override
-those base images with `RSTMANAGER_FRONTEND_BUILD_IMAGE` and `RSTMANAGER_NGINX_IMAGE`.
+The frontend image also uses a multi-stage build: the build stage starts from `cimg/openjdk:25-node`, which includes JDK, sbt, and Node, and runs
+`npm run build`; the runtime stage starts from `nginx:alpine`, serves `dist`, and proxies `/api`, `/docs`, and `/auth` to the backend and Keycloak.
+
+The exact base images are the `ARG` defaults in `Dockerfile.service` and `Dockerfile.frontend`. Override them at build time, e.g.
+`docker compose build --build-arg RUNTIME_IMAGE=eclipse-temurin:25-jre-jammy planning-service`.
+
+If a container fails with `UnknownHostException: postgres` (or nginx cannot resolve `planning-service`), it was created on a Compose network that
+has since been recreated: run `docker compose up -d --force-recreate` (or `docker compose down` first; the database volume is kept).
 
 To remove the persisted database volume:
 

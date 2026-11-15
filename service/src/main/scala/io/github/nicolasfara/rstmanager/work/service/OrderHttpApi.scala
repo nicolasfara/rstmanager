@@ -260,7 +260,7 @@ object OrderHttpApi:
     val taskIds = data.setOfManufacturing.toList.flatMap(_.info.tasks.toList.map(_.taskId)).distinct
     for
       customerOk <- CustomerApp.exists(customers, data.customerId)
-      missingTasks <- taskIds.filterA(taskId => TaskApp.exists(tasks, taskId).map(!_))
+      missingTasks <- TaskApp.getMany(tasks, taskIds).map(found => taskIds.filterNot(found.contains))
     yield
       if !customerOk then Some(ApiError.notFound("Customer", data.customerId.toString))
       else if missingTasks.nonEmpty then Some(ApiError.notFound("Task", missingTasks.mkString(", ")))
@@ -268,7 +268,7 @@ object OrderHttpApi:
 
   /** The warehouse materials with these ids, active or archived; ids of unknown materials are left out. */
   private def loadMaterials(materials: MaterialApp.Store, ids: List[MaterialId]): IO[Map[MaterialId, StoredMaterial]] =
-    ids.distinct.traverse(id => MaterialApp.find(materials, id).map(_.map(id -> _))).map(_.flatten.toMap)
+    MaterialApp.findMany(materials, ids.distinct)
 
   /** Runs `body` with the catalog of the warehouse materials a request names. */
   private def withCatalog(orders: Orders, ids: List[MaterialId])(
@@ -384,7 +384,7 @@ object OrderHttpApi:
 
   /** Verifies every referenced catalog task id exists, returning a not-found failure listing the missing ones. */
   private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[TaskId]): IO[Option[ApiFailure]] =
-    taskIds.distinct.filterA(taskId => TaskApp.exists(tasks, taskId).map(!_)).map { missing =>
+    TaskApp.getMany(tasks, taskIds.distinct).map(found => taskIds.distinct.filterNot(found.contains)).map { missing =>
       if missing.nonEmpty then Some(ApiError.notFound("Task", missing.mkString(", "))) else None
     }
 

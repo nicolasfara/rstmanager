@@ -256,14 +256,14 @@ object ManufacturingHttpApi:
 
   private def hydrate(tasks: TaskApp.Store, manufacturing: Manufacturing): IO[Either[ApiFailure, ManufacturingResponse]] =
     val ids = manufacturing.taskIds.toList
-    ids.traverse(id => TaskApp.get(tasks, id).map(id -> _)).map { pairs =>
+    TaskApp.getMany(tasks, ids).map(found => ids.map(id => id -> found.get(id))).map { pairs =>
       val missing = pairs.collect { case (id, None) => id }
       if missing.nonEmpty then ApiError.notFound("Task", missing.mkString(", ")).asLeft
       else ManufacturingResponse.fromDomain(manufacturing, pairs.collect { case (_, Some(task)) => task }).asRight
     }
 
   private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[TaskId]): IO[Option[ApiFailure]] =
-    taskIds.distinct.filterA(taskId => TaskApp.exists(tasks, taskId).map(!_)).map { missing =>
+    TaskApp.getMany(tasks, taskIds.distinct).map(found => taskIds.distinct.filterNot(found.contains)).map { missing =>
       if missing.nonEmpty then Some(ApiError.notFound("Task", missing.mkString(", "))) else None
     }
 end ManufacturingHttpApi

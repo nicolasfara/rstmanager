@@ -143,37 +143,42 @@ object PlanningRoutes:
       tasks: TaskApp.Store,
       ids: NonEmptyList[UUID],
   ): IO[Either[ApiFailure, SimulationDemand]] =
-    ids.traverse(id => ManufacturingApp.get(manufacturings, ManufacturingId(id)).map(id -> _)).flatMap { loaded =>
-      val missing = loaded.toList.collect { case (id, None) => id }.distinct
-      if missing.nonEmpty then
-        IO.pure(
-          (StatusCode.UnprocessableEntity ->
-            ApiError("unknown-manufacturings", "Some referenced catalog manufacturings do not exist.", missing.map(_.toString))).asLeft,
-        )
-      else
-        val templates = loaded.map { case (_, template) => template }.toList.flatten
-        templates.traverse(template => template.taskIds.traverse(taskId => TaskApp.get(tasks, taskId).map(taskId -> _)).map(template -> _)).map {
-          resolved =>
-            val missingTasks = resolved.flatMap { case (_, taskList) => taskList.toList }.collect { case (id, None) => id }.distinct
-            if missingTasks.nonEmpty then
-              (StatusCode.UnprocessableEntity ->
-                ApiError(
-                  "unknown-tasks",
-                  "Some catalog tasks referenced by the selected manufacturings do not exist.",
-                  missingTasks.map(_.toString),
-                )).asLeft
-            else
-              val selection = resolved.map { case (template, taskList) =>
-                template -> taskList.map { case (_, task) => task.getOrElse(sys.error("unreachable: missing tasks already rejected")) }
-              }
-              // `templates` mirrors the non-empty `ids`, so the selection is provably non-empty.
-              SimulationDemand.FromManufacturings(NonEmptyList.fromListUnsafe(selection)).asRight
-        }
-      end if
-    }
+    ManufacturingApp
+      .getMany(manufacturings, ids.toList.map(ManufacturingId(_)))
+      .map(found => ids.map(id => id -> found.get(ManufacturingId(id))))
+      .flatMap { loaded =>
+        val missing = loaded.toList.collect { case (id, None) => id }.distinct
+        if missing.nonEmpty then
+          IO.pure(
+            (StatusCode.UnprocessableEntity ->
+              ApiError("unknown-manufacturings", "Some referenced catalog manufacturings do not exist.", missing.map(_.toString))).asLeft,
+          )
+        else
+          val templates = loaded.map { case (_, template) => template }.toList.flatten
+          TaskApp
+            .getMany(tasks, templates.flatMap(_.taskIds.toList))
+            .map(found => templates.map(template => template -> template.taskIds.map(taskId => taskId -> found.get(taskId))))
+            .map { resolved =>
+              val missingTasks = resolved.flatMap { case (_, taskList) => taskList.toList }.collect { case (id, None) => id }.distinct
+              if missingTasks.nonEmpty then
+                (StatusCode.UnprocessableEntity ->
+                  ApiError(
+                    "unknown-tasks",
+                    "Some catalog tasks referenced by the selected manufacturings do not exist.",
+                    missingTasks.map(_.toString),
+                  )).asLeft
+              else
+                val selection = resolved.map { case (template, taskList) =>
+                  template -> taskList.map { case (_, task) => task.getOrElse(sys.error("unreachable: missing tasks already rejected")) }
+                }
+                // `templates` mirrors the non-empty `ids`, so the selection is provably non-empty.
+                SimulationDemand.FromManufacturings(NonEmptyList.fromListUnsafe(selection)).asRight
+            }
+        end if
+      }
 
   private def currentPlanningAttempt(backend: PlanningApp.PlanningBackend): IO[Either[ApiFailure, PlanningStateDto]] =
-    backend.repository.get(PlanningApp.planningAddress).attempt.map {
+    backend.current.attempt.map {
       case Left(error) => unexpectedFailure(error).asLeft
       case Right(aggregate) =>
         PlanningStateDto

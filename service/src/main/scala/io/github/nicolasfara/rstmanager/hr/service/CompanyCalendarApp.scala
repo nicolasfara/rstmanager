@@ -8,6 +8,7 @@ import scala.concurrent.duration.*
 import io.github.nicolasfara.rstmanager.hr.domain.calendar.*
 import io.github.nicolasfara.rstmanager.hr.domain.calendar.events.CompanyCalendarEvent
 import io.github.nicolasfara.rstmanager.service.codecs.HrCodecs.given
+import io.github.nicolasfara.rstmanager.service.registry.StreamReader
 
 import cats.effect.{ IO, Resource }
 import cats.syntax.all.*
@@ -31,16 +32,18 @@ object CompanyCalendarApp:
 
   type EntityBackend = EventSourcedBackend[IO, CompanyCalendar, CompanyCalendarEvent, CompanyCalendarError, CompanyCalendarService.Notification]
 
-  final case class Store(entity: EntityBackend)
+  final case class Store(entity: EntityBackend, reader: StreamReader[CompanyCalendar, CompanyCalendarEvent, CompanyCalendarError])
 
   def build(pool: Resource[IO, Session[IO]]): Resource[IO, Store] =
-    Backend
-      .builder(CompanyCalendarService)
-      .use(SkunkDriver("company_calendar", pool))
-      .inMemSnapshot(10)
-      .withRetryConfig(retryInitialDelay = 2.seconds)
-      .build
-      .map(Store(_))
+    for
+      entity <- Backend
+        .builder(CompanyCalendarService)
+        .use(SkunkDriver("company_calendar", pool))
+        .inMemSnapshot(1)
+        .withRetryConfig(retryInitialDelay = 2.seconds)
+        .build
+      reader <- Resource.eval(StreamReader[CompanyCalendar, CompanyCalendarEvent, CompanyCalendarError]("company_calendar", pool, 1))
+    yield Store(entity, reader)
 
   def add(store: Store, closure: CompanyClosure): IO[Either[CompanyCalendarError, Unit]] =
     dispatch(store, CompanyCalendarService.Command.Add(closure))
@@ -53,7 +56,7 @@ object CompanyCalendarApp:
 
   /** The current calendar: [[CompanyCalendar.empty]] while the stream does not exist yet. */
   def get(store: Store): IO[CompanyCalendar] =
-    store.entity.repository.get(calendarAddress).map {
+    store.reader.get(calendarAddress).map {
       case AggregateState.Valid(calendar, _) => calendar
       // The fold accepts every event, so a conflict cannot happen; the last folded calendar is still the best answer.
       case AggregateState.Conflicted(last, _, _) => last

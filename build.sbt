@@ -3,7 +3,7 @@ import sbtassembly.AssemblyPlugin.autoImport.*
 import sbtassembly.MergeStrategy
 
 lazy val scala3Version = "3.9.0"
-lazy val http4sVersion = "0.23.38"
+lazy val http4sVersion = "0.23.39"
 lazy val slf4jVersion = "2.0.20"
 lazy val logbackVersion = "1.6.7"
 lazy val tapirVersion = "1.14.1"

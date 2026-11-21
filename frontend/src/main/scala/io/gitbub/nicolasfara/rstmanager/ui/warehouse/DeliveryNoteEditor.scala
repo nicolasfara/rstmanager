@@ -210,7 +210,7 @@ object DeliveryNoteEditor:
 
     div(
       cls := "space-y-4",
-      p(cls := "text-xs text-slate-500", "I campi con * sono obbligatori."),
+      requiredLegend,
       formSection(1, "Documento", "Data, numero e fornitore del DDT.", sectionStatus(_.count(isHeaderIssue)))(
         div(
           cls := "grid gap-3 sm:grid-cols-4",

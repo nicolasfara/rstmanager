@@ -39,6 +39,7 @@ final class DraftGuard[A](current: () => A, title: A => String)(using CanEqual[A
       pending.signal.map(_.fold("")(_._1)),
       Signal.fromValue("Le modifiche non salvate andranno perse."),
       "Abbandona",
+      "Continua a modificare",
       DialogTone.Danger,
       () => pending.set(None),
       () =>

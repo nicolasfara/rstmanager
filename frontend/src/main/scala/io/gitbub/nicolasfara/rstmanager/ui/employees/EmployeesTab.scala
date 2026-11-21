@@ -336,7 +336,7 @@ object EmployeesTab:
         .map(_.editingId.isDefined)
         .distinct
         .map(editing => sectionTitle(if editing then "Modifica dipendente" else "Nuovo dipendente")),
-      p(cls := "mt-0.5 text-xs text-slate-500", "I campi con * sono obbligatori."),
+      requiredLegend.amend(cls := "mt-0.5"),
       div(
         cls := "mt-4 space-y-5",
         fieldGroup("Anagrafica")(

@@ -135,7 +135,7 @@ object SuppliersTab:
           formAnchor.bind,
           draft.bind,
           child <-- editing.map(isEditing => sectionTitle(if isEditing then "Modifica fornitore" else "Nuovo fornitore")),
-          p(cls := "mt-1 text-xs text-slate-500", "I campi con * sono obbligatori."),
+          requiredLegend.amend(cls := "mt-1"),
           div(
             cls := "mt-3 grid grid-cols-2 gap-3",
             div(

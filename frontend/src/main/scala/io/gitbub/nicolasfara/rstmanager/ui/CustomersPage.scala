@@ -285,7 +285,7 @@ object CustomersPage:
             .map(_.editingId.isDefined)
             .distinct
             .map(editing => sectionTitle(if editing then "Modifica cliente" else "Nuovo cliente")),
-          p(cls := "mt-0.5 text-xs text-slate-500", "I campi con * sono obbligatori."),
+          requiredLegend.amend(cls := "mt-0.5"),
           div(cls := "mt-4 space-y-5", anagrafica, contatti, indirizzo, datiFiscali, imbarcazione, note),
           child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
           div(

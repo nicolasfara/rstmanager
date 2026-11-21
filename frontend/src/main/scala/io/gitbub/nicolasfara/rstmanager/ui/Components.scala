@@ -896,12 +896,39 @@ object Components:
       onCancel: () => Unit,
       onConfirm: () => Unit,
   ): HtmlElement =
+    confirmDialog(isOpen, titleText, message, confirmLabel, "Annulla", tone, body, confirmEnabled, onCancel, onConfirm)
+
+  /** Variant of [[confirmDialog]] with a custom cancel label (e.g. "Continua a modificare" when discarding a draft). */
+  def confirmDialog(
+      isOpen: Signal[Boolean],
+      titleText: Signal[String],
+      message: Signal[String],
+      confirmLabel: String,
+      cancelLabel: String,
+      tone: DialogTone,
+      onCancel: () => Unit,
+      onConfirm: () => Unit,
+  ): HtmlElement =
+    confirmDialog(isOpen, titleText, message, confirmLabel, cancelLabel, tone, emptyNode, Signal.fromValue(true), onCancel, onConfirm)
+
+  private def confirmDialog(
+      isOpen: Signal[Boolean],
+      titleText: Signal[String],
+      message: Signal[String],
+      confirmLabel: String,
+      cancelLabel: String,
+      tone: DialogTone,
+      body: Modifier[HtmlElement],
+      confirmEnabled: Signal[Boolean],
+      onCancel: () => Unit,
+      onConfirm: () => Unit,
+  ): HtmlElement =
     val (iconWrapCls, iconChar, confirmCls) = tone match
       case DialogTone.Danger => ("bg-rose-100 text-rose-600", "⚠", btnDangerSolid)
       case DialogTone.Neutral => ("bg-sky-100 text-sky-600", "?", s"$btnPrimary justify-center")
     val titleId = nextDomId("dialog-title")
     val messageId = nextDomId("dialog-message")
-    val cancelButton = button(tpe := "button", cls := s"$btnGhost flex-1 justify-center", "Annulla", onClick --> (_ => onCancel()))
+    val cancelButton = button(tpe := "button", cls := s"$btnGhost flex-1 justify-center", cancelLabel, onClick --> (_ => onCancel()))
     val confirmButton =
       button(tpe := "button", cls := s"$confirmCls flex-1", confirmLabel, disabled <-- confirmEnabled.map(!_), onClick --> (_ => onConfirm()))
     val bodyBox = div(body)

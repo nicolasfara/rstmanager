@@ -10,9 +10,15 @@ import org.scalajs.dom
  *
  * Fields are identified by their DOM id (the same one passed to [[FieldSpec]] and [[FormFocus.focus]]).
  */
-final class FormTouch:
-  private val touched = Var(Set.empty[String])
-  private val submitted = Var(false)
+final class FormTouch private (touched: Var[Set[String]], submitted: Var[Boolean], submitCounts: Signal[Boolean]):
+
+  def this() = this(Var(Set.empty[String]), Var(false), Signal.fromValue(true))
+
+  /**
+   * A view of this tracker for a group of fields (e.g. a card added after a failed submit) where a past submit attempt makes errors visible only
+   * while `submitCounts` is true; touches and submit attempts are shared with this tracker.
+   */
+  def scoped(submitCounts: Signal[Boolean]): FormTouch = new FormTouch(touched, submitted, submitCounts)
 
   /** Marks one field as visited. */
   def touch(id: String): Unit = touched.update(_ + id)
@@ -28,12 +34,15 @@ final class FormTouch:
     touched.set(Set.empty)
     submitted.set(false)
 
-  /** True once a submit was attempted. */
-  val submittedSignal: Signal[Boolean] = submitted.signal
+  /** Whether a submit was attempted, read synchronously (event handlers). */
+  def attempted: Boolean = submitted.now()
+
+  /** True once a submit was attempted (and, for a [[scoped]] view, while that attempt counts). */
+  val submittedSignal: Signal[Boolean] = submitted.signal.combineWith(submitCounts).map(_ && _).distinct
 
   /** The `raw` error of field `id`, shown only once the field was touched or a submit was attempted. */
   def visible(id: String, raw: Signal[Option[String]]): Signal[Option[String]] =
-    raw.combineWith(touched.signal, submitted.signal).map((error, visited, attempted) => error.filter(_ => attempted || visited.contains(id)))
+    raw.combineWith(touched.signal, submittedSignal).map((error, visited, attempted) => error.filter(_ => attempted || visited.contains(id)))
 
   private def tracking(id: String): Modifier[HtmlElement] = FormTouch.onFocusOut --> (_ => touch(id))
 

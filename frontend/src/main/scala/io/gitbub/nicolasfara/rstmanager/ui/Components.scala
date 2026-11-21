@@ -5,6 +5,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 import com.raquo.laminar.api.L.*
+import com.raquo.laminar.codecs.StringAsIsCodec
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.ApiError
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
@@ -112,18 +113,18 @@ object Components:
     )
 
   def selectInput(state: Var[String], opts: Signal[List[(String, String)]]): HtmlElement =
-    select(
-      cls := inputCls,
-      controlled(value <-- state.signal, onChange.mapToValue --> state),
-      children <-- opts.map(_.map { case (optValue, optLabel) => option(value := optValue, optLabel) }),
-    )
+    selectInput(state.signal, state.writer, opts)
 
-  /** Variant of [[selectInput]] that accepts a `Signal` for reading and an `Observer` for writing. */
+  /**
+   * Variant of [[selectInput]] that accepts a `Signal` for reading and an `Observer` for writing. The `<option>`s are bound before the controlled
+   * value, and the value is re-applied whenever the options change: a browser drops a `select` value that matches no option yet, so a select mounted
+   * with a value (or whose options load after it) would otherwise show its first option instead of the bound value.
+   */
   def selectInput(valueSignal: Signal[String], writer: Observer[String], opts: Signal[List[(String, String)]]): HtmlElement =
     select(
       cls := inputCls,
-      controlled(value <-- valueSignal, onChange.mapToValue --> writer),
       children <-- opts.map(_.map { case (optValue, optLabel) => option(value := optValue, optLabel) }),
+      controlled(value <-- valueSignal.combineWith(opts).map((selected, _) => selected), onChange.mapToValue --> writer),
     )
 
   /** Case-insensitive substring match of the typed text on an option label (blank text matches everything). */
@@ -187,7 +188,18 @@ object Components:
   ): HtmlElement =
     combobox(valueSignal, writer, opts, SearchTerms.matches, placeholderText, maxResults, inputMods)
 
-  /** The combobox behind both [[searchableSelect]] variants: `matches(typed, searchText)` decides which options are listed while typing. */
+  /** Sequence behind the DOM ids that shared components generate for ARIA references (listbox, dialog title). */
+  private var domIdSeq = 0
+
+  private def nextDomId(prefix: String): String =
+    domIdSeq += 1
+    s"$prefix-$domIdSeq"
+
+  /**
+   * The combobox behind both [[searchableSelect]] variants: `matches(typed, searchText)` decides which options are listed while typing. It follows
+   * the ARIA combobox pattern: the list opens on click, on typing and on ArrowDown (not on focus, so a programmatic focus never covers the field's
+   * error); ArrowUp/ArrowDown move the active option (`aria-activedescendant`, kept scrolled into view), Enter picks it, Escape closes the list.
+   */
   private def combobox(
       valueSignal: Signal[String],
       writer: Observer[String],
@@ -197,50 +209,124 @@ object Components:
       maxResults: Int,
       inputMods: Modifier[HtmlElement],
   ): HtmlElement =
+    val listId = nextDomId("combobox-list")
+    def optionId(index: Int): String = s"$listId-opt-$index"
     // `None` = not editing (show the selected label); `Some(text)` = the search text being typed.
     val query = Var(Option.empty[String])
     val open = Var(false)
+    // Index of the highlighted option among the visible ones; -1 = none.
+    val active = Var(-1)
+    // Synchronous mirrors read by the keyboard handlers.
+    val latestOpts = Var(List.empty[(String, String, String)])
+    val latestValue = Var("")
+    // Visible matches plus how many further matches were cut off by `maxResults`.
+    def visibleOf(typed: Option[String], options: List[(String, String, String)]): (List[(String, String, String)], Int) =
+      val matching = typed.fold(options)(text => options.filter((_, _, searchText) => matches(text, searchText)))
+      (matching.take(maxResults), (matching.size - maxResults).max(0))
+    def visibleNow(): List[(String, String, String)] = visibleOf(query.now(), latestOpts.now())._1
     val displayValue: Signal[String] =
       query.signal.combineWith(valueSignal, opts).map { case (typed, selected, options) =>
         typed.getOrElse(options.collectFirst { case (id, labelText, _) if id == selected => labelText }.getOrElse(""))
       }
-    // Visible matches plus how many further matches were cut off by `maxResults`.
-    val filtered: Signal[(List[(String, String, String)], Int)] =
-      query.signal.combineWith(opts).map { case (typed, options) =>
-        val matching = typed.fold(options)(text => options.filter((_, _, searchText) => matches(text, searchText)))
-        (matching.take(maxResults), (matching.size - maxResults).max(0))
+    val filtered: Signal[(List[(String, String, String)], Int)] = query.signal.combineWith(opts).map(visibleOf)
+    val activeDescendant: Signal[String] =
+      open.signal.combineWith(active.signal, filtered).map { case (isOpen, index, (options, _)) =>
+        if isOpen && index >= 0 && index < options.size then optionId(index) else ""
       }
+
+    def scrollActiveIntoView(): Unit =
+      (dom.document.getElementById(listId), dom.document.getElementById(optionId(active.now()))) match
+        case (list: dom.HTMLElement, item: dom.HTMLElement) =>
+          if item.offsetTop < list.scrollTop then list.scrollTop = item.offsetTop
+          else if item.offsetTop + item.offsetHeight > list.scrollTop + list.clientHeight then
+            list.scrollTop = item.offsetTop + item.offsetHeight - list.clientHeight
+        case _ => ()
+    def openList(): Unit =
+      if !open.now() then
+        active.set(ComboboxNav.initial(visibleNow().map(_._1), latestValue.now()))
+        open.set(true)
+        scrollActiveIntoView()
+    def close(): Unit =
+      open.set(false)
+      query.set(None)
+      active.set(-1)
+    def moveActive(delta: Int): Unit =
+      active.set(ComboboxNav.move(active.now(), delta, visibleNow().size))
+      scrollActiveIntoView()
     def choose(id: String): Unit =
       writer.onNext(id)
-      query.set(None)
-      open.set(false)
+      close()
+    def onKey(event: dom.KeyboardEvent): Unit = event.key match
+      case "ArrowDown" =>
+        event.preventDefault()
+        if !open.now() then openList() else if !event.altKey then moveActive(1)
+      case "ArrowUp" =>
+        if open.now() then
+          event.preventDefault()
+          moveActive(-1)
+      case "Enter" =>
+        if open.now() then
+          visibleNow().lift(active.now()).foreach { (id, _, _) =>
+            event.preventDefault()
+            choose(id)
+          }
+      case "Escape" =>
+        // Consumed only while there is something to close, so a second Escape still reaches an enclosing dialog.
+        if open.now() || query.now().isDefined then
+          event.stopPropagation()
+          close()
+      case _ => ()
+
     div(
       cls := "relative",
+      opts --> latestOpts.writer,
+      valueSignal --> latestValue.writer,
       input(
         typ := "text",
         cls := inputCls,
         placeholder := placeholderText,
-        controlled(value <-- displayValue, onInput.mapToValue --> { text => query.set(Some(text)); open.set(true) }),
-        onFocus --> { _ => open.set(true) },
+        role := "combobox",
+        aria.autoComplete := "list",
+        aria.controls := listId,
+        aria.expanded <-- open.signal,
+        aria.activeDescendant <-- activeDescendant,
+        autoComplete := "off",
+        spellCheck := false,
+        controlled(
+          value <-- displayValue,
+          onInput.mapToValue --> { text =>
+            query.set(Some(text))
+            active.set(0)
+            open.set(true)
+          },
+        ),
+        onClick --> (_ => openList()),
         // Selection happens on the options' mousedown, which fires before this blur.
-        onBlur --> { _ => open.set(false); query.set(None) },
-        onKeyDown.filter(_.key == "Escape") --> { _ => open.set(false); query.set(None) },
+        onBlur --> (_ => close()),
+        onKeyDown --> (event => onKey(event)),
         inputMods,
       ),
       child <-- open.signal.combineWith(filtered).map { case (isOpen, options, hiddenCount) =>
         if !isOpen then emptyNode
         else
           div(
+            idAttr := listId,
+            role := "listbox",
             cls := "absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg",
             if options.isEmpty then div(cls := "px-2.5 py-2 text-sm text-slate-400", "Nessun risultato")
             else
-              options.map { case (id, labelText, _) =>
+              options.zipWithIndex.map { case ((id, labelText, _), index) =>
                 div(
-                  cls := "cursor-pointer px-2.5 py-1.5 text-sm text-slate-700 hover:bg-slate-100",
-                  cls <-- valueSignal.map(selected => if selected == id then "bg-slate-50 font-medium" else ""),
+                  idAttr := optionId(index),
+                  role := "option",
+                  aria.selected <-- valueSignal.map(_ == id),
+                  cls := "cursor-pointer px-2.5 py-1.5 text-sm text-slate-700",
+                  cls <-- active.signal.map(current => if current == index then "bg-slate-100" else ""),
+                  cls <-- valueSignal.map(selected => if selected == id then "font-medium" else ""),
                   labelText,
+                  onMouseEnter --> (_ => active.set(index)),
                   // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
-                  onMouseDown.preventDefault --> { _ => choose(id) },
+                  onMouseDown.preventDefault --> (_ => choose(id)),
                 )
               }
             ,
@@ -269,6 +355,32 @@ object Components:
     checks.foldLeft(Signal.fromValue(List.empty[String]): Signal[List[String]]) { (acc, s) =>
       acc.combineWith(s).map { case (errs, opt) => errs ++ opt.toList }
     }
+
+  /** Combines a dynamic list of signals into one signal of their values; an empty list gives a constant empty list (`combineSeq` alone would not). */
+  def combineAll[A](signals: List[Signal[A]]): Signal[List[A]] =
+    if signals.isEmpty then Signal.fromValue(List.empty[A]) else Signal.combineSeq(signals).map(_.toList)
+
+  /**
+   * The inline error under a control, with DOM id `id` (the target of the control's `aria-describedby`): a polite live region showing `error`, empty
+   * while there is none.
+   */
+  def fieldError(id: String, error: Signal[Option[String]]): HtmlElement =
+    div(
+      idAttr := id,
+      aria.live := "polite",
+      cls <-- error.map(current => if current.isDefined then "mt-1 text-xs font-medium text-rose-600" else ""),
+      child.text <-- error.map(_.getOrElse("")),
+    )
+
+  /** The legend of a form with required fields: "I campi con * sono obbligatori.", the `*` styled like the fields' required markers. */
+  def requiredLegend: HtmlElement =
+    p(
+      cls := "text-xs text-slate-500",
+      "I campi con ",
+      span(aria.hidden := true, cls := "text-rose-600", "*"),
+      span(cls := "sr-only", "asterisco"),
+      " sono obbligatori.",
+    )
 
   // ---- Form building blocks ----------------------------------------------------------------------
 
@@ -332,12 +444,7 @@ object Components:
       label(forId := spec.id, cls := labelCls, spec.labelText, requiredMarker(spec.required)),
       control(bind),
       spec.hintText.fold[Modifier[HtmlElement]](emptyNode)(text => div(idAttr := spec.hintId, cls := "mt-1 text-xs text-slate-400", text)),
-      div(
-        idAttr := spec.errorId,
-        aria.live := "polite",
-        cls <-- invalid.map(isInvalid => if isInvalid then "mt-1 text-xs font-medium text-rose-600" else ""),
-        child.text <-- spec.error.map(_.getOrElse("")),
-      ),
+      fieldError(spec.errorId, spec.error),
     )
   end field
 
@@ -518,10 +625,16 @@ object Components:
 
   /**
    * A form page with a sticky summary: `main` on the left, `sidebar` sticky on the right from `lg` up (below the sticky header), and on smaller
-   * screens `mobileBar` fixed at the bottom instead (the main column gets bottom padding so the bar never covers its end).
+   * screens `mobileBar` fixed at the bottom instead (the main column gets bottom padding so the bar never covers its end). While mounted, the
+   * document gets a scroll padding (bottom below `lg`, top for the sticky header), so a control reached with Tab is scrolled clear of the bar and the
+   * header.
    */
   def summaryLayout(main: HtmlElement, sidebar: HtmlElement, mobileBar: HtmlElement): HtmlElement =
     div(
+      onMountUnmountCallback(
+        _ => summaryScrollPaddingCls.foreach(dom.document.documentElement.classList.add),
+        _ => summaryScrollPaddingCls.foreach(dom.document.documentElement.classList.remove),
+      ),
       div(
         cls := "grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]",
         div(cls := "min-w-0 pb-28 lg:pb-0", main),
@@ -533,6 +646,9 @@ object Components:
       ),
     )
 
+  /** Scroll padding of the document while a [[summaryLayout]] is mounted (literal Tailwind classes, so the scanner generates them). */
+  private val summaryScrollPaddingCls = List("max-lg:scroll-pb-32", "scroll-pt-24")
+
   /** One `label · value` line of a summary. */
   def summaryRow(labelText: String, value: Signal[String]): HtmlElement =
     div(
@@ -542,23 +658,24 @@ object Components:
     )
 
   /**
-   * The checklist of what is still missing: each issue is a button that calls `onSelect` (e.g. reveal and focus the field). Neutral (slate/amber)
-   * until `emphasize` (typically [[FormTouch.submittedSignal]]), then red; "✓ Pronto" when empty. A polite live region. Re-renders on every emission
-   * of `issues`, so pass a `distinct` signal.
+   * The checklist of what is still missing: each issue is a full-width button that calls `onSelect` (e.g. reveal and focus the field). An issue is
+   * neutral (slate/amber) until `emphasize` says so (typically once a submit was attempted, see [[FormTouch.submittedSignal]]), then red; "✓ Pronto"
+   * when empty. A polite live region. Re-renders on every emission of `issues`, so pass a `distinct` signal.
    */
-  def issueList[A](issues: Signal[List[A]], text: A => String, emphasize: Signal[Boolean], onSelect: A => Unit): HtmlElement =
+  def issueList[A](issues: Signal[List[A]], text: A => String, emphasize: Signal[A => Boolean], onSelect: A => Unit): HtmlElement =
     div(
       aria.live := "polite",
-      child <-- issues.combineWith(emphasize).map { (list, strong) =>
+      child <-- issues.combineWith(emphasize).map { (list, isStrong) =>
         if list.isEmpty then div(cls := "text-sm font-medium text-emerald-700", "✓ Pronto")
         else
           ul(
-            cls := "space-y-1",
+            cls := "-mx-2 space-y-0.5",
             list.map { issue =>
+              val strong = isStrong(issue)
               li(
                 button(
                   tpe := "button",
-                  cls := "flex w-full items-start gap-1.5 rounded-sm text-left text-xs hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400",
+                  cls := "flex min-h-9 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs hover:bg-slate-50 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400",
                   cls := (if strong then "text-rose-700" else "text-slate-600"),
                   span(aria.hidden := true, cls := (if strong then "text-rose-500" else "text-amber-500"), "•"),
                   span(text(issue)),
@@ -609,7 +726,7 @@ object Components:
       case "suspended" | "paused" => "bg-amber-50 text-amber-700 border-amber-200"
       case "rejected" | "cancelled" => "bg-rose-50 text-rose-700 border-rose-200"
       case _ => "bg-slate-50 text-slate-600 border-slate-200"
-    badge(status.replace('_', ' ').nn, color)
+    badge(OrderStatus.label(status).replace('_', ' ').nn, color)
 
   def spinner: HtmlElement =
     div(cls := "flex items-center gap-2 p-6 text-sm text-slate-400", "Caricamento…")
@@ -689,6 +806,58 @@ object Components:
 
   // ---- Modal -------------------------------------------------------------------------------------
 
+  /** `aria-modal`, which Laminar does not predefine. */
+  private val ariaModal: HtmlAttr[String] = htmlAttr("aria-modal", StringAsIsCodec)
+
+  /** Elements that take the keyboard focus inside a dialog. */
+  private val focusableSelector =
+    "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])"
+
+  /** The rendered (not `hidden`) focusable elements inside `root`, in document order. */
+  private def focusablesIn(root: dom.Element): List[dom.HTMLElement] =
+    val nodes = root.querySelectorAll(focusableSelector)
+    (0 until nodes.length).toList.flatMap { index =>
+      nodes(index) match
+        case element: dom.HTMLElement if element.getClientRects().length > 0 => Some(element)
+        case _ => None
+    }
+
+  /** Keeps Tab / Shift+Tab cycling among the focusable elements of `root` (a dialog), so the focus never reaches the page underneath. */
+  private def trapTab(root: dom.Element, event: dom.KeyboardEvent): Unit =
+    // Handled by the innermost dialog only (a dialog may sit inside another one's content).
+    event.stopPropagation()
+    val items = focusablesIn(root)
+    val current = dom.document.activeElement
+    (items.headOption, items.lastOption) match
+      case (Some(first), Some(last)) =>
+        val outside = !root.contains(current)
+        if event.shiftKey && (outside || (current eq first)) then
+          event.preventDefault()
+          last.focus()
+        else if !event.shiftKey && (outside || (current eq last)) then
+          event.preventDefault()
+          first.focus()
+      case _ => event.preventDefault()
+
+  /**
+   * Focus handling of a dialog shown while `isOpen`: on opening it remembers the focused element and, on the next frame (once the dialog is
+   * displayed), focuses `initial()`; on closing it gives the focus back to the remembered element if it is still in the page.
+   */
+  private def dialogFocus(isOpen: Signal[Boolean], initial: () => Option[dom.HTMLElement]): Modifier[HtmlElement] =
+    var wasOpen = false
+    var previous = Option.empty[dom.HTMLElement]
+    isOpen --> { open =>
+      if open && !wasOpen then
+        previous = dom.document.activeElement match
+          case element: dom.HTMLElement => Some(element)
+          case _ => None
+        val _ = dom.window.requestAnimationFrame(_ => initial().foreach(_.focus()))
+      else if !open && wasOpen then
+        previous.filter(element => dom.document.body.contains(element)).foreach(_.focus())
+        previous = None
+      wasOpen = open
+    }
+
   /** Visual tone of a [[confirmDialog]]: destructive actions get a warning look, everything else a neutral one. */
   enum DialogTone derives CanEqual:
     case Danger, Neutral
@@ -697,6 +866,9 @@ object Components:
    * A compact, centered confirmation dialog — the house style for "are you sure?" prompts across the app. Shows a tonal icon, a title and message,
    * and a Cancel/Confirm pair (stacked on mobile, inline on desktop). Clicking the backdrop cancels. Drive `isOpen`/`titleText`/`message` from the
    * caller's state (typically a `Var[Option[T]]`); `onCancel`/`onConfirm` should also flip that state closed.
+   *
+   * It is an ARIA `alertdialog`: on opening the focus moves to the safest choice ("Annulla" for a [[DialogTone.Danger]] dialog, otherwise the first
+   * field of `body` or the confirm button), Tab cycles inside the dialog, Escape cancels, and on closing the focus returns where it was.
    */
   def confirmDialog(
       isOpen: Signal[Boolean],
@@ -727,42 +899,53 @@ object Components:
     val (iconWrapCls, iconChar, confirmCls) = tone match
       case DialogTone.Danger => ("bg-rose-100 text-rose-600", "⚠", btnDangerSolid)
       case DialogTone.Neutral => ("bg-sky-100 text-sky-600", "?", s"$btnPrimary justify-center")
+    val titleId = nextDomId("dialog-title")
+    val messageId = nextDomId("dialog-message")
+    val cancelButton = button(tpe := "button", cls := s"$btnGhost flex-1 justify-center", "Annulla", onClick --> (_ => onCancel()))
+    val confirmButton =
+      button(tpe := "button", cls := s"$confirmCls flex-1", confirmLabel, disabled <-- confirmEnabled.map(!_), onClick --> (_ => onConfirm()))
+    val bodyBox = div(body)
+    val dialogCard = card(
+      cls := "p-6",
+      role := "alertdialog",
+      ariaModal := "true",
+      aria.labelledBy := titleId,
+      aria.describedBy := messageId,
+      onClick.stopPropagation --> (_ => ()),
+      div(
+        cls := "flex flex-col items-center gap-4 text-center",
+        div(
+          aria.hidden := true,
+          cls := s"flex h-12 w-12 items-center justify-center rounded-full $iconWrapCls",
+          span(cls := "text-2xl leading-none", iconChar),
+        ),
+        div(
+          cls := "space-y-1",
+          h2(idAttr := titleId, cls := "text-base font-semibold text-slate-900", child.text <-- titleText),
+          p(idAttr := messageId, cls := "text-sm text-slate-500", child.text <-- message),
+        ),
+      ),
+      bodyBox,
+      div(cls := "mt-6 flex flex-col-reverse gap-2 sm:flex-row", cancelButton, confirmButton),
+    )
+    def initialFocus(): Option[dom.HTMLElement] = tone match
+      case DialogTone.Danger => Some(cancelButton.ref)
+      case DialogTone.Neutral => focusablesIn(bodyBox.ref).headOption.orElse(focusablesIn(dialogCard.ref).lastOption)
     div(
       cls := "fixed inset-0 z-50 items-center justify-center overflow-y-auto bg-slate-900/50 p-4",
       cls <-- isOpen.map(open => if open then "flex" else "hidden"),
       // Clicking the backdrop (but not the card) cancels.
       onClick --> (_ => onCancel()),
-      div(
-        cls := "w-full max-w-sm",
-        card(
-          cls := "p-6",
-          onClick.stopPropagation --> (_ => ()),
-          div(
-            cls := "flex flex-col items-center gap-4 text-center",
-            div(
-              cls := s"flex h-12 w-12 items-center justify-center rounded-full $iconWrapCls",
-              span(cls := "text-2xl leading-none", iconChar),
-            ),
-            div(
-              cls := "space-y-1",
-              h2(cls := "text-base font-semibold text-slate-900", child.text <-- titleText),
-              p(cls := "text-sm text-slate-500", child.text <-- message),
-            ),
-          ),
-          body,
-          div(
-            cls := "mt-6 flex flex-col-reverse gap-2 sm:flex-row",
-            button(tpe := "button", cls := s"$btnGhost flex-1 justify-center", "Annulla", onClick --> (_ => onCancel())),
-            button(
-              tpe := "button",
-              cls := s"$confirmCls flex-1",
-              confirmLabel,
-              disabled <-- confirmEnabled.map(!_),
-              onClick --> (_ => onConfirm()),
-            ),
-          ),
-        ),
-      ),
+      onKeyDown --> { event =>
+        event.key match
+          case "Escape" =>
+            event.stopPropagation()
+            onCancel()
+          case "Tab" => trapTab(dialogCard.ref, event)
+          case _ => ()
+      },
+      dialogFocus(isOpen, () => initialFocus()),
+      div(cls := "w-full max-w-sm", dialogCard),
     )
   end confirmDialog
 
@@ -774,22 +957,62 @@ object Components:
 
   /**
    * Variant of [[modal]] driven by a `Signal` (typically derived from a `Var[Option[T]]` holding what the modal is about), with the card width as a
-   * Tailwind `max-w-*` class; `onClose` runs when the ✕ is clicked and should flip the caller's state closed.
+   * Tailwind `max-w-*` class; `onClose` runs when the ✕ is clicked or Escape is pressed, and should flip the caller's state closed. An ARIA `dialog`
+   * labelled by its title: on opening the focus moves into the card, Tab cycles inside it, and on closing the focus returns where it was.
    */
   def modal(isOpen: Signal[Boolean], titleText: Signal[String], maxWidthCls: String, onClose: () => Unit)(content: HtmlElement): HtmlElement =
+    val titleId = nextDomId("dialog-title")
+    val dialogCard = card(
+      role := "dialog",
+      ariaModal := "true",
+      aria.labelledBy := titleId,
+      // Focusable only programmatically: the initial focus lands on the card itself, not on the first control (which may be a combobox).
+      tabIndex := -1,
+      cls := "focus:outline-none",
+      div(
+        cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
+        h2(idAttr := titleId, cls := "text-sm font-semibold text-slate-800", child.text <-- titleText),
+        button(
+          tpe := "button",
+          cls := "text-slate-400 hover:text-slate-700",
+          aria.label := "Chiudi",
+          title := "Chiudi",
+          "✕",
+          onClick --> (_ => onClose()),
+        ),
+      ),
+      div(cls := "p-4", content),
+    )
     div(
       cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-4",
       cls <-- isOpen.map(open => if open then "flex" else "hidden"),
-      div(
-        cls := s"mt-8 w-full $maxWidthCls",
-        card(
-          div(
-            cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
-            h2(cls := "text-sm font-semibold text-slate-800", child.text <-- titleText),
-            button(tpe := "button", cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => onClose())),
-          ),
-          div(cls := "p-4", content),
-        ),
-      ),
+      onKeyDown --> { event =>
+        event.key match
+          case "Escape" =>
+            event.stopPropagation()
+            onClose()
+          case "Tab" => trapTab(dialogCard.ref, event)
+          case _ => ()
+      },
+      dialogFocus(isOpen, () => Some(dialogCard.ref)),
+      div(cls := s"mt-8 w-full $maxWidthCls", dialogCard),
     )
+  end modal
 end Components
+
+/**
+ * Pure keyboard navigation of the combobox list ([[Components.searchableSelect]]): which option is active (highlighted) among `size` visible ones, as
+ * an index where -1 means none.
+ */
+private[ui] object ComboboxNav:
+
+  /** The active index after moving by `delta` from `current`, wrapping around; from none, down starts at the first and up at the last. */
+  def move(current: Int, delta: Int, size: Int): Int =
+    if size <= 0 then -1
+    else if current < 0 || current >= size then (if delta >= 0 then 0 else size - 1)
+    else Math.floorMod(current + delta, size)
+
+  /** The option active when the list opens: the selected value if it is listed, else the first one; none when the list is empty. */
+  def initial(ids: List[String], selected: String): Int =
+    if ids.isEmpty then -1 else ids.indexOf(selected).max(0)
+end ComboboxNav

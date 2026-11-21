@@ -146,9 +146,6 @@ object OrderCreateView:
   private def catalogLookup(list: List[ManufacturingCatalogResponse])(rawId: String): Option[ManufacturingCatalogResponse] =
     parseUuid(rawId).flatMap(id => list.find(_.id == id))
 
-  private def combineAll[A](signals: List[Signal[A]]): Signal[List[A]] =
-    if signals.isEmpty then Signal.fromValue(List.empty[A]) else Signal.combineSeq(signals).map(_.toList)
-
   /** A label over a control that is not a labelable element (a segmented group). */
   private def labelled(text: String, control: HtmlElement): HtmlElement = div(div(cls := labelCls, text), control)
 
@@ -237,12 +234,23 @@ object OrderCreateView:
     // One card open at a time; `seen` are the cards collapsed at least once, whose status is shown from then on.
     val expanded = Var(Option.empty[Int])
     val seen = Var(Set.empty[Int])
+    // Cards added after the last failed submit: that attempt does not make their errors visible until they are touched, collapsed or submitted again.
+    val fresh = Var(Set.empty[Int])
     val submitting = Var(false)
     val submitError = Var(Option.empty[ApiError])
     val leaveOpen = Var(false)
     val removing = Var(Option.empty[Int])
 
     def catalogById(rawId: String): Option[ManufacturingCatalogResponse] = catalogLookup(catalogs.now())(rawId)
+
+    /** The touch tracker of the fields of card `key`: a past submit attempt counts unless the card is [[fresh]]. */
+    def touchOf(key: Int): FormTouch = touch.scoped(fresh.signal.map(set => !set.contains(key)).distinct)
+
+    /** Whether an issue is shown as an error (red) in the checklist: after a submit attempt, except for the fresh cards. */
+    val emphasized: Signal[Issue => Boolean] =
+      touch.submittedSignal
+        .combineWith(fresh.signal)
+        .map((attempted, freshKeys) => issue => attempted && !mfgKeyOf(issue.target).exists(freshKeys.contains))
 
     def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "", Set.empty, "")), Var(false))
 
@@ -292,6 +300,7 @@ object OrderCreateView:
 
     def collapse(key: Int): Unit =
       seen.update(_ + key)
+      fresh.update(_ - key)
       if expanded.now().contains(key) then expanded.set(None)
 
     def toggle(key: Int): Unit = if expanded.now().contains(key) then collapse(key) else expand(key)
@@ -319,6 +328,7 @@ object OrderCreateView:
         Var(if mode == "custom" then List(newTask()) else Nil),
         Var(Nil),
       )
+      if touch.attempted then fresh.update(_ + m.key)
       mfgs.update(_ :+ m)
       expand(m.key)
       FormFocus.focus(mfgFieldId(m.key, if mode == "catalog" then MfgField.Catalog else MfgField.Code))
@@ -343,6 +353,7 @@ object OrderCreateView:
         currentIssues() match
           case first :: _ =>
             touch.attemptSubmit()
+            fresh.set(Set.empty)
             reveal(first)
           case Nil =>
             val h = header.now()
@@ -497,7 +508,18 @@ object OrderCreateView:
 
     def renderTask(m: MfgDraft, t: TaskDraft): HtmlElement =
       val k = m.key
+      val cardTouch = touchOf(k)
       val rowIndex = m.tasks.signal.map(_.indexWhere(_.key == t.key)).distinct
+
+      /** Removes the row and moves the focus to the next row's task (the previous one when it was the last), or to "+ Task". */
+      def removeRow(): Unit =
+        val rows = m.tasks.now()
+        val index = rows.indexWhere(_.key == t.key)
+        val remaining = rows.filterNot(_.key == t.key)
+        m.tasks.set(remaining)
+        FormFocus.focus(
+          remaining.lift(index).orElse(remaining.lastOption).fold(mfgFieldId(k, MfgField.Tasks))(row => taskFieldId(k, row.key, TaskField.Task)),
+        )
       def rowRaw(field: TaskField): Signal[Option[String]] = rawAt(rowIndex.map(index => IssueTarget.Task(k, index, field)))
 
       def pickTask(next: String): Unit =
@@ -524,14 +546,14 @@ object OrderCreateView:
         cls := "rounded-md border border-slate-200 bg-slate-50/60 p-3",
         div(
           cls := "grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_12rem_7rem_auto] sm:items-start",
-          field(touch.spec("Task", taskFieldId(k, t.key, TaskField.Task), true, rowRaw(TaskField.Task))) { bind =>
+          field(cardTouch.spec("Task", taskFieldId(k, t.key, TaskField.Task), true, rowRaw(TaskField.Task))) { bind =>
             searchableSelect(t.state.signal.map(_.taskId), Observer[String](pickTask), taskOptions, "Cerca task…", 20, bind)
           },
           field(FieldSpec("Dipendente", s"oc-mfg-$k-task-${t.key}-employee"))(bind =>
             selectInput(t.state.signal.map(_.employeeId), Observer[String](v => t.state.update(_.copy(employeeId = v))), deps.employeeOptions)
               .amend(bind),
           ),
-          field(touch.spec("Durata (h:mm)", taskFieldId(k, t.key, TaskField.Duration), true, rowRaw(TaskField.Duration))) { bind =>
+          field(cardTouch.spec("Durata (h:mm)", taskFieldId(k, t.key, TaskField.Duration), true, rowRaw(TaskField.Duration))) { bind =>
             textInput(
               t.state.signal.map(_.hours),
               Observer[String] { v =>
@@ -547,7 +569,7 @@ object OrderCreateView:
             aria.label := "Rimuovi task",
             title := "Rimuovi task",
             "✕",
-            onClick --> (_ => m.tasks.update(_.filterNot(_.key == t.key))),
+            onClick --> (_ => removeRow()),
           ),
         ),
         checkboxChips(
@@ -561,25 +583,27 @@ object OrderCreateView:
 
     def catalogBody(m: MfgDraft): HtmlElement =
       val k = m.key
+      val cardTouch = touchOf(k)
       val catalogIdSignal = m.state.signal.map(_.catalogId)
       div(
         cls := "space-y-3",
-        field(touch.spec("Lavorazione a catalogo", mfgFieldId(k, MfgField.Catalog), true, rawFor(IssueTarget.Manufacturing(k, MfgField.Catalog)))) {
-          bind =>
-            searchableSelect(
-              catalogIdSignal,
-              // Selecting a template also prefills the per-task employees from the catalog defaults.
-              Observer[String] { v =>
-                val defaults = catalogById(v).fold(Map.empty[String, String])(
-                  _.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap,
-                )
-                m.state.update(_.copy(catalogId = v, taskEmployees = defaults))
-              },
-              catalogOptions,
-              "Cerca per codice o nome…",
-              20,
-              bind,
-            )
+        field(
+          cardTouch.spec("Lavorazione a catalogo", mfgFieldId(k, MfgField.Catalog), true, rawFor(IssueTarget.Manufacturing(k, MfgField.Catalog))),
+        ) { bind =>
+          searchableSelect(
+            catalogIdSignal,
+            // Selecting a template also prefills the per-task employees from the catalog defaults.
+            Observer[String] { v =>
+              val defaults = catalogById(v).fold(Map.empty[String, String])(
+                _.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap,
+              )
+              m.state.update(_.copy(catalogId = v, taskEmployees = defaults))
+            },
+            catalogOptions,
+            "Cerca per codice o nome…",
+            20,
+            bind,
+          )
         },
         catalogPreview(catalogIdSignal, catalogs.signal),
         catalogTaskEmployeeOverrides(
@@ -594,14 +618,16 @@ object OrderCreateView:
 
     def customBody(m: MfgDraft): HtmlElement =
       val k = m.key
+      val cardTouch = touchOf(k)
       val tasksId = mfgFieldId(k, MfgField.Tasks)
-      val tasksError = touch.visible(tasksId, rawFor(IssueTarget.Manufacturing(k, MfgField.Tasks)))
+      val tasksError = cardTouch.visible(tasksId, rawFor(IssueTarget.Manufacturing(k, MfgField.Tasks)))
       div(
         cls := "space-y-4",
         div(
           cls := "grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]",
-          field(touch.spec("Codice lavorazione", mfgFieldId(k, MfgField.Code), true, rawFor(IssueTarget.Manufacturing(k, MfgField.Code)))) { bind =>
-            textInput(m.state.signal.map(_.code), Observer[String](v => m.state.update(_.copy(code = v))), "MFG-2026-001").amend(bind)
+          field(cardTouch.spec("Codice lavorazione", mfgFieldId(k, MfgField.Code), true, rawFor(IssueTarget.Manufacturing(k, MfgField.Code)))) {
+            bind =>
+              textInput(m.state.signal.map(_.code), Observer[String](v => m.state.update(_.copy(code = v))), "MFG-2026-001").amend(bind)
           },
           field(FieldSpec("Descrizione lavorazione", s"oc-mfg-$k-description"))(bind =>
             textInput(m.state.signal.map(_.description), Observer[String](v => m.state.update(_.copy(description = v))), "Opzionale").amend(bind),
@@ -625,12 +651,7 @@ object OrderCreateView:
                 FormFocus.focus(taskFieldId(k, row.key, TaskField.Task))
               },
             ),
-            div(
-              idAttr := s"$tasksId-error",
-              aria.live := "polite",
-              cls := "mt-1 text-xs font-medium text-rose-600",
-              child.text <-- tasksError.map(_.getOrElse("")),
-            ),
+            fieldError(s"$tasksId-error", tasksError),
           ),
         ),
       )
@@ -681,7 +702,7 @@ object OrderCreateView:
       val position = mfgs.signal.map(_.indexWhere(_.key == k) + 1).distinct
       val snapshot = snapshotSignal(m)
       val cardIssueCount = issues.map(_.count(issue => mfgKeyOf(issue.target).contains(k))).distinct
-      val showStatus = touch.submittedSignal.combineWith(seen.signal).map((attempted, collapsed) => attempted || collapsed.contains(k)).distinct
+      val showStatus = touchOf(k).submittedSignal.combineWith(seen.signal).map((attempted, collapsed) => attempted || collapsed.contains(k)).distinct
       val cardTotals = snapshot
         .combineWith(catalogs.signal, materialsContext.signal)
         .map((s, templates, context) => OrderDrafts.mfgTotals(s, catalogLookup(templates), context))
@@ -759,11 +780,7 @@ object OrderCreateView:
             )
           else addButtons
         },
-        div(
-          aria.live := "polite",
-          cls := "text-xs font-medium text-rose-600",
-          child.text <-- touch.visible(addMfgId, rawFor(IssueTarget.NoManufacturings)).map(_.getOrElse("")),
-        ),
+        fieldError(s"$addMfgId-error", touch.visible(addMfgId, rawFor(IssueTarget.NoManufacturings))),
       )
 
     // ---- Section 3: Riepilogo e conferma -----------------------------------------------------------
@@ -787,7 +804,7 @@ object OrderCreateView:
                       span(cls := "mr-1.5 tabular-nums text-slate-400", s"#${index + 1}"),
                       span(
                         cls := (if label.isEmpty then "italic text-slate-400" else "text-slate-800"),
-                        if label.isEmpty then "Senza nome" else label,
+                        if label.isEmpty then "Nuova lavorazione" else label,
                       ),
                     ),
                     span(
@@ -811,10 +828,14 @@ object OrderCreateView:
         div(
           cls := "space-y-2 lg:hidden",
           subheading("Da completare"),
-          issueList(issues, _.message, touch.submittedSignal, reveal),
+          issueList(issues, _.message, emphasized, reveal),
         ),
         child.maybe <-- submitError.signal.map(_.map(err => div(idAttr := submitErrorId, errorBanner(err)))),
-        formActions("Crea ordine", "Creazione…", submitting.signal, Some(() => requestLeave()), () => submit()),
+        // The one "Crea ordine" is in the sidebar (from `lg`) or in the bottom bar (below); here only "Annulla", on mobile.
+        div(
+          cls := "flex justify-end border-t border-slate-100 pt-3 lg:hidden",
+          button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => requestLeave())),
+        ),
       )
 
     // ---- Sidebar & mobile bar ----------------------------------------------------------------------
@@ -840,7 +861,7 @@ object OrderCreateView:
         div(
           cls := "space-y-2 border-t border-slate-100 pt-3",
           div(cls := subheadingCls, child.text <-- issues.map(list => if list.isEmpty then "Da completare" else s"Da completare (${list.size})")),
-          issueList(issues, _.message, touch.submittedSignal, reveal),
+          issueList(issues, _.message, emphasized, reveal),
         ),
         formActions("Crea ordine", "Creazione…", submitting.signal, Some(() => requestLeave()), () => submit()),
       )
@@ -893,11 +914,11 @@ object OrderCreateView:
     val removeDialog =
       confirmDialog(
         removing.signal.map(_.isDefined),
-        Signal.fromValue("Rimuovere la lavorazione?"),
-        removing.signal.combineWith(mfgs.signal).map { (pending, list) =>
-          val position = pending.map(key => list.indexWhere(_.key == key) + 1).filter(_ > 0)
-          s"I dati inseriti nella lavorazione${position.fold("")(n => s" #$n")} andranno persi."
+        removing.signal.combineWith(snapshots, catalogs.signal).map { (pending, list, templates) =>
+          val label = pending.flatMap(key => list.find(_.key == key)).map(s => mfgLabel(s.core, catalogLookup(templates))).getOrElse("")
+          if label.isEmpty then "Rimuovere la lavorazione?" else s"Rimuovere la lavorazione «$label»?"
         },
+        Signal.fromValue("I dati inseriti nella lavorazione andranno persi."),
         "Rimuovi",
         DialogTone.Danger,
         () => removing.set(None),
@@ -917,13 +938,7 @@ object OrderCreateView:
       div(
         button(tpe := "button", cls := btnLink, "← Torna agli ordini", onClick --> (_ => requestLeave())),
         h1(cls := "mt-3 text-xl font-semibold text-slate-900", "Nuovo ordine"),
-        p(
-          cls := "mt-1 text-sm text-slate-500",
-          "I campi con ",
-          span(aria.hidden := true, cls := "text-rose-600", "*"),
-          span(cls := "sr-only", "asterisco"),
-          " sono obbligatori.",
-        ),
+        requiredLegend.amend(cls := "mt-1"),
       ),
       summaryLayout(div(cls := "space-y-6", headerSection, mfgsSection, confirmSection), sidebar, mobileBar),
       leaveDialog,

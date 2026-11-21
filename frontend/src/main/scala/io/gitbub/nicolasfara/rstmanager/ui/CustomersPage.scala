@@ -9,64 +9,11 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messageFor, FieldIssue }
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** Customer registry: minimal CRUD, needed to reference a customer when creating an order. */
 object CustomersPage:
-
-  private val typeOptions = List("individual" -> "Privato", "company" -> "Azienda")
-
-  private final case class CustomerFormState(
-      editingId: Option[UUID],
-      name: String,
-      surname: String,
-      email: String,
-      phone: String,
-      street: String,
-      city: String,
-      postalCode: String,
-      country: String,
-      fiscalCode: String,
-      customerType: String,
-      businessName: String,
-      pec: String,
-      notes: String,
-      boatModel: String,
-      boatName: String,
-      boatBerth: String,
-      port: String,
-  ):
-    def isCompany: Boolean = customerType == "company"
-
-    def request: CustomerRequest =
-      CustomerRequest(
-        name.trim.nn,
-        surname.trim.nn,
-        opt(email),
-        opt(phone),
-        opt(street),
-        opt(city),
-        opt(postalCode),
-        opt(country),
-        opt(fiscalCode),
-        customerType,
-        opt(businessName),
-        opt(pec),
-        opt(notes),
-        opt(boatModel),
-        opt(boatName),
-        opt(boatBerth),
-        opt(port),
-      )
-
-    def errors: List[String] =
-      List(
-        Option.when(name.trim.nn.isEmpty)("Nome obbligatorio"),
-        Option.when(surname.trim.nn.isEmpty)("Cognome obbligatorio"),
-      ).flatten
-  end CustomerFormState
-
-  private def opt(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
 
   private def boatCell(c: CustomerResponse): HtmlElement =
     val mooring = List(c.port, c.boatBerth.map(b => s"posto $b")).flatten.mkString(", ")
@@ -85,57 +32,48 @@ object CustomersPage:
     if c.email.isEmpty && c.phone.isEmpty then div(cls := "text-xs text-slate-400", "—")
     else div(c.email.map(e => div(e)), c.phone.map(p => div(cls := "text-xs", p)))
 
-  private object CustomerFormState:
-    val empty: CustomerFormState =
-      CustomerFormState(None, "", "", "", "", "", "", "", "IT", "", "individual", "", "", "", "", "", "", "")
-
-    def fromResponse(c: CustomerResponse): CustomerFormState =
-      CustomerFormState(
-        Some(c.id),
-        c.name,
-        c.surname,
-        c.email.getOrElse(""),
-        c.phone.getOrElse(""),
-        c.street.getOrElse(""),
-        c.city.getOrElse(""),
-        c.postalCode.getOrElse(""),
-        c.country.getOrElse(""),
-        c.fiscalCode.getOrElse(""),
-        c.customerType,
-        c.businessName.getOrElse(""),
-        c.pec.getOrElse(""),
-        c.notes.getOrElse(""),
-        c.boatModel.getOrElse(""),
-        c.boatName.getOrElse(""),
-        c.boatBerth.getOrElse(""),
-        c.port.getOrElse(""),
-      )
-  end CustomerFormState
-
   def apply(): HtmlElement =
     val formError = Var(Option.empty[ApiError])
-    val form = Var(CustomerFormState.empty)
+    val form = Var(CustomerForm.empty)
+    val touch = FormTouch()
+    val submitting = Var(false)
 
     def resetForm(): Unit =
-      form.set(CustomerFormState.empty)
+      form.set(CustomerForm.empty)
       formError.set(None)
+      touch.reset()
 
     val formAnchor = FormAnchor()
 
     def edit(c: CustomerResponse): Unit =
       formAnchor.reveal()
-      form.set(CustomerFormState.fromResponse(c))
+      form.set(CustomerForm.fromResponse(c))
       formError.set(None)
+      touch.reset()
 
+    // Always clickable: an invalid form reveals every error and focuses the first one instead of sending; re-entrant clicks are ignored.
     def submit(): Unit =
       val current = form.now()
-      val effect = current.editingId match
-        case Some(id) => ApiClient.updateCustomer(id, current.request)
-        case None => ApiClient.createCustomer(current.request)
-      effect.foreach {
-        case Right(_) => resetForm(); AppBus.mutatedCustomers()
-        case Left(err) => showError(formError, "Salvataggio cliente")(err)
-      }
+      if !submitting.now() then
+        current.issues.headOption match
+          case Some(first) =>
+            touch.attemptSubmit()
+            FormFocus.focus(CustomerForm.fieldId(first.field))
+          case None =>
+            submitting.set(true)
+            val effect = current.editingId match
+              case Some(id) => ApiClient.updateCustomer(id, current.request)
+              case None => ApiClient.createCustomer(current.request)
+            effect.foreach { result =>
+              submitting.set(false)
+              result match
+                case Right(_) =>
+                  resetForm()
+                  Notifications.success(if current.editingId.isDefined then "Cliente salvato" else "Cliente creato")
+                  AppBus.mutatedCustomers()
+                case Left(err) => showError(formError, "Salvataggio cliente")(err)
+            }
+    end submit
 
     def delete(id: UUID): Unit =
       ApiClient.deleteCustomer(id).foreach {
@@ -143,7 +81,106 @@ object CustomersPage:
         case Left(err) => showError(formError, "Eliminazione cliente")(err)
       }
 
-    val formErrors: Signal[List[String]] = form.signal.map(_.errors)
+    val issues: Signal[List[FieldIssue[CustomerForm.Field]]] = form.signal.map(_.issues)
+    def errorOf(field: CustomerForm.Field): Signal[Option[String]] = issues.map(_.messageFor(field)).distinct
+
+    /** An optional text field without a validation rule. */
+    def plainSpec(labelText: String, id: String): FieldSpec = FieldSpec(labelText, id)
+
+    /** A text field with a validation rule, its error gated by [[FormTouch]]. */
+    def checkedSpec(labelText: String, field: CustomerForm.Field, required: Boolean): FieldSpec =
+      touch.spec(labelText, CustomerForm.fieldId(field), required, errorOf(field))
+
+    def textField(
+        spec: FieldSpec,
+        get: CustomerForm.State => String,
+        set: (CustomerForm.State, String) => CustomerForm.State,
+        placeholderText: String,
+        inputType: String,
+    ): HtmlElement =
+      Components.field(spec)(bind =>
+        textInput(form.signal.map(get), Observer[String](v => form.update(set(_, v))), placeholderText, inputType).amend(bind),
+      )
+
+    def wide(el: HtmlElement): HtmlElement = el.amend(cls := "col-span-2")
+
+    val anagrafica = fieldGroup("Anagrafica")(
+      Components.field(FieldSpec("Tipo", "cust-type"))(bind =>
+        segmented(
+          form.signal.map(_.customerType),
+          Observer[String](v => form.update(_.copy(customerType = v))),
+          CustomerForm.typeOptions,
+          List(bind, aria.label := "Tipo cliente"),
+        ),
+      ),
+      // The business name is optional on the server: shown for a company (or when a stored individual still has one, so it is never hidden).
+      child.maybe <-- form.signal.map(s => s.isCompany || s.businessName.trim.nn.nonEmpty).distinct.map { shown =>
+        Option.when(shown)(
+          textField(
+            FieldSpec("Ragione sociale", "cust-business-name", hintText = Some("Nome e cognome sono quelli del referente.")),
+            _.businessName,
+            (s, v) => s.copy(businessName = v),
+            "Cantiere Rossi Srl",
+            "text",
+          ),
+        )
+      },
+      div(
+        cls := "grid grid-cols-2 gap-3",
+        textField(checkedSpec("Nome", CustomerForm.Field.Name, required = true), _.name, (s, v) => s.copy(name = v), "", "text"),
+        textField(checkedSpec("Cognome", CustomerForm.Field.Surname, required = true), _.surname, (s, v) => s.copy(surname = v), "", "text"),
+      ),
+    )
+
+    val contatti = fieldGroup("Contatti")(
+      div(
+        cls := "grid grid-cols-2 gap-3",
+        wide(
+          textField(
+            checkedSpec("Email", CustomerForm.Field.Email, required = false),
+            _.email,
+            (s, v) => s.copy(email = v),
+            "nome@esempio.it",
+            "email",
+          ),
+        ),
+        textField(checkedSpec("Telefono", CustomerForm.Field.Phone, required = false), _.phone, (s, v) => s.copy(phone = v), "+393331234567", "tel"),
+        textField(checkedSpec("PEC", CustomerForm.Field.Pec, required = false), _.pec, (s, v) => s.copy(pec = v), "nome@pec.it", "email"),
+      ),
+    )
+
+    val indirizzo = fieldGroup("Indirizzo")(
+      div(
+        cls := "grid grid-cols-[6rem_minmax(0,1fr)] gap-3",
+        wide(textField(plainSpec("Via", "cust-street"), _.street, (s, v) => s.copy(street = v), "Via Roma 1", "text")),
+        textField(checkedSpec("CAP", CustomerForm.Field.PostalCode, required = false), _.postalCode, (s, v) => s.copy(postalCode = v), "", "text"),
+        textField(plainSpec("Città", "cust-city"), _.city, (s, v) => s.copy(city = v), "", "text"),
+        wide(textField(plainSpec("Paese", "cust-country"), _.country, (s, v) => s.copy(country = v), "IT", "text")),
+      ),
+    )
+
+    // The label (and the format checked) follow the customer type; rebuilt only when the type changes, not on every keystroke.
+    val datiFiscali = fieldGroup("Dati fiscali")(
+      child <-- form.signal.map(_.fiscalCodeLabel).distinct.map { labelText =>
+        textField(checkedSpec(labelText, CustomerForm.Field.FiscalCode, required = false), _.fiscalCode, (s, v) => s.copy(fiscalCode = v), "", "text")
+      },
+    )
+
+    val imbarcazione = fieldGroup("Imbarcazione")(
+      div(
+        cls := "grid grid-cols-2 gap-3",
+        textField(plainSpec("Nome barca", "cust-boat-name"), _.boatName, (s, v) => s.copy(boatName = v), "", "text"),
+        textField(plainSpec("Modello", "cust-boat-model"), _.boatModel, (s, v) => s.copy(boatModel = v), "", "text"),
+        textField(plainSpec("Porto", "cust-port"), _.port, (s, v) => s.copy(port = v), "", "text"),
+        textField(plainSpec("Posto barca", "cust-berth"), _.boatBerth, (s, v) => s.copy(boatBerth = v), "", "text"),
+      ),
+    )
+
+    val note = fieldGroup("Note")(
+      Components.field(FieldSpec("Note generiche", "cust-notes"))(bind =>
+        textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "").amend(bind),
+      ),
+    )
 
     val data = loadable(AppBus.customersTicks)(() => ApiClient.listCustomers())
     val query = Var("")
@@ -162,58 +199,24 @@ object CustomersPage:
         card(
           cls := "self-start p-4",
           formAnchor.bind,
-          sectionTitle("Nuovo cliente"),
-          div(
-            cls := "mt-3 grid grid-cols-2 gap-3",
-            field("Nome", textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "")),
-            field("Cognome", textInput(form.signal.map(_.surname), Observer[String](v => form.update(_.copy(surname = v))), "")),
-            div(
-              cls := "col-span-2",
-              field(
-                "Ragione sociale",
-                textInput(form.signal.map(_.businessName), Observer[String](v => form.update(_.copy(businessName = v))), "Opzionale"),
-              ),
-            ),
-            field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "Opzionale", "email")),
-            field("Telefono", textInput(form.signal.map(_.phone), Observer[String](v => form.update(_.copy(phone = v))), "Opzionale")),
-            field("Via", textInput(form.signal.map(_.street), Observer[String](v => form.update(_.copy(street = v))), "Opzionale")),
-            field("Città", textInput(form.signal.map(_.city), Observer[String](v => form.update(_.copy(city = v))), "Opzionale")),
-            field("CAP", textInput(form.signal.map(_.postalCode), Observer[String](v => form.update(_.copy(postalCode = v))), "Opzionale")),
-            field("Paese", textInput(form.signal.map(_.country), Observer[String](v => form.update(_.copy(country = v))), "Opzionale")),
-            field("Tipo", staticSelect(form.signal.map(_.customerType), Observer[String](v => form.update(_.copy(customerType = v))), typeOptions)),
-            child <-- form.signal.map(_.isCompany).distinct.map { company =>
-              field(
-                if company then "Partita IVA" else "Codice fiscale",
-                textInput(form.signal.map(_.fiscalCode), Observer[String](v => form.update(_.copy(fiscalCode = v))), "Opzionale"),
-              )
-            },
-            div(
-              cls := "col-span-2",
-              field("PEC", textInput(form.signal.map(_.pec), Observer[String](v => form.update(_.copy(pec = v))), "Opzionale", "email")),
-            ),
-            field("Modello barca", textInput(form.signal.map(_.boatModel), Observer[String](v => form.update(_.copy(boatModel = v))), "Opzionale")),
-            field("Nome barca", textInput(form.signal.map(_.boatName), Observer[String](v => form.update(_.copy(boatName = v))), "Opzionale")),
-            field("Posto barca", textInput(form.signal.map(_.boatBerth), Observer[String](v => form.update(_.copy(boatBerth = v))), "Opzionale")),
-            field("Porto", textInput(form.signal.map(_.port), Observer[String](v => form.update(_.copy(port = v))), "Opzionale")),
-            div(
-              cls := "col-span-2",
-              field(
-                "Note",
-                textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)"),
-              ),
-            ),
-          ),
+          child <-- form.signal
+            .map(_.editingId.isDefined)
+            .distinct
+            .map(editing => sectionTitle(if editing then "Modifica cliente" else "Nuovo cliente")),
+          p(cls := "mt-0.5 text-xs text-slate-500", "I campi con * sono obbligatori."),
+          div(cls := "mt-4 space-y-5", anagrafica, contatti, indirizzo, datiFiscali, imbarcazione, note),
           child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
           div(
-            cls := "mt-3 flex gap-2",
-            button(
-              tpe := "button",
-              cls := btnPrimary,
-              child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
-              disabled <-- formErrors.map(_.nonEmpty),
-              onClick --> (_ => submit()),
-            ),
-            child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+            cls := "mt-4",
+            child <-- form.signal.map(_.editingId.isDefined).distinct.map { editing =>
+              formActions(
+                if editing then "Salva" else "Crea",
+                "Salvataggio…",
+                submitting.signal,
+                Option.when(editing)(() => resetForm()),
+                () => submit(),
+              )
+            },
           ),
         ),
       ),

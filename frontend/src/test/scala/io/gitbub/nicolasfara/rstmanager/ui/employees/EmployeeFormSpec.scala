@@ -60,4 +60,16 @@ final class EmployeeFormSpec extends AnyFunSuite with Matchers:
     base.copy(contractKind = "fixed_term").errors shouldBe List("Data fine obbligatoria")
     base.copy(contractKind = "part_time", weeklyHours = "0").errors shouldBe List("Ore settimanali non valide")
     base.copy(budget = "x").errors shouldBe List("Budget non valido")
+
+  test("issues are addressed to their field and the focus goes to the first one on screen"):
+    import EmployeeForm.Field
+    val base = EmployeeForm.empty.copy(name = "A", surname = "B", startDate = "2026-02-01")
+    EmployeeForm.empty.issues.map(_.field) shouldBe List(Field.Name, Field.Surname, Field.StartDate)
+    // The budget is listed before the contract fields, but sits after them on screen.
+    val invalid = base.copy(contractKind = "fixed_term", budget = "x")
+    invalid.issues.map(_.field) shouldBe List(Field.Budget, Field.EndDate)
+    invalid.firstIssueOnScreen.map(_.field) shouldBe Some(Field.EndDate)
+    base.copy(contractKind = "part_time", weeklyHours = "").firstIssueOnScreen.map(_.field) shouldBe Some(Field.WeeklyHours)
+    base.firstIssueOnScreen shouldBe None
+    EmployeeForm.fieldId(Field.EndDate) shouldBe "emp-end"
 end EmployeeFormSpec

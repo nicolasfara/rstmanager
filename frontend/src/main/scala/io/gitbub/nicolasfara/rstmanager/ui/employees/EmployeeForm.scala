@@ -3,10 +3,11 @@ package io.gitbub.nicolasfara.rstmanager.ui.employees
 import java.util.UUID
 
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ EmployeeContractDto, EmployeeRequest, EmployeeResponse, HoursOverrideDto }
+import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messages, FieldIssue }
 import io.gitbub.nicolasfara.rstmanager.ui.Formats
 
 /**
- * Pure (DOM-free) state of the employee create/edit form: request building and validation messages.
+ * Pure (DOM-free) state of the employee create/edit form: request building and field-addressed validation.
  *
  * `PUT /employees/{id}` replaces the whole record, overrides included, while this form edits only the registry data: the overrides of the employee
  * being edited ride along unchanged in `overrides` (they have their own editor), so saving the form never drops them.
@@ -35,16 +36,43 @@ object EmployeeForm:
     def request: EmployeeRequest =
       EmployeeRequest(name.trim.nn, surname.trim.nn, contract, budget.toIntOption.getOrElse(0), overrides)
 
-    def errors: List[String] =
+    /** True when the contract kind needs an end date (fixed term). */
+    def needsEndDate: Boolean = contractKind == "fixed_term"
+
+    /** True when the contract kind needs the contractual weekly hours (part time). */
+    def needsWeeklyHours: Boolean = contractKind == "part_time"
+
+    /** The issues: name, surname, start date, budget, then the fields required only by the chosen contract kind. */
+    def issues: List[FieldIssue[Field]] =
       List(
-        Option.when(name.trim.nn.isEmpty)("Nome obbligatorio"),
-        Option.when(surname.trim.nn.isEmpty)("Cognome obbligatorio"),
-        Option.when(startDate.trim.nn.isEmpty)("Data inizio obbligatoria"),
-        Option.when(budget.toIntOption.isEmpty)("Budget non valido"),
-        Option.when(contractKind == "fixed_term" && endDate.trim.nn.isEmpty)("Data fine obbligatoria"),
-        Option.when(contractKind == "part_time" && weeklyHours.toIntOption.forall(_ <= 0))("Ore settimanali non valide"),
+        Option.when(name.trim.nn.isEmpty)(FieldIssue(Field.Name, "Nome obbligatorio")),
+        Option.when(surname.trim.nn.isEmpty)(FieldIssue(Field.Surname, "Cognome obbligatorio")),
+        Option.when(startDate.trim.nn.isEmpty)(FieldIssue(Field.StartDate, "Data inizio obbligatoria")),
+        Option.when(budget.toIntOption.isEmpty)(FieldIssue(Field.Budget, "Budget non valido")),
+        Option.when(needsEndDate && endDate.trim.nn.isEmpty)(FieldIssue(Field.EndDate, "Data fine obbligatoria")),
+        Option.when(needsWeeklyHours && weeklyHours.toIntOption.forall(_ <= 0))(FieldIssue(Field.WeeklyHours, "Ore settimanali non valide")),
       ).flatten
+
+    def errors: List[String] = issues.messages
+
+    /** The first issue in on-screen order (the budget sits after the contract fields), i.e. where an invalid submit moves the focus. */
+    def firstIssueOnScreen: Option[FieldIssue[Field]] = issues.minByOption(issue => screenOrder.indexOf(issue.field))
   end State
+
+  /** The fields that can carry a validation issue. */
+  enum Field derives CanEqual:
+    case Name, Surname, StartDate, EndDate, WeeklyHours, Budget
+
+  private val screenOrder: List[Field] = List(Field.Name, Field.Surname, Field.StartDate, Field.EndDate, Field.WeeklyHours, Field.Budget)
+
+  /** DOM id of the control of `field` (label `for`, inline error anchor, focus target). */
+  def fieldId(field: Field): String = field match
+    case Field.Name => "emp-name"
+    case Field.Surname => "emp-surname"
+    case Field.StartDate => "emp-start"
+    case Field.EndDate => "emp-end"
+    case Field.WeeklyHours => "emp-weekly-hours"
+    case Field.Budget => "emp-budget"
 
   val empty: State = State(None, "", "", "full_time", "", "", "20", "40", Nil)
 

@@ -18,8 +18,6 @@ import io.gitbub.nicolasfara.rstmanager.ui.MaterialDrafts.{ Context, Row }
  */
 object MaterialsEditor:
 
-  private def hint(text: String): HtmlElement = div(cls := "mt-1 text-xs text-slate-400", text)
-
   /** The active warehouse materials, loaded when the returned signal is first observed. */
   private def activeMaterials(): Signal[Option[ApiClient.Result[List[MaterialResponse]]]] =
     loadable(AppBus.warehouseTicks)(() => ApiClient.listMaterials(false))
@@ -119,7 +117,7 @@ object MaterialsEditor:
           ),
         ),
       ),
-      child.maybe <-- errors.map(list => Option.when(list.nonEmpty)(ul(cls := "list-disc pl-5 text-xs text-rose-600", list.map(e => li(e))))),
+      errorList(errors),
     )
   end rowsEditor
 
@@ -130,9 +128,17 @@ object MaterialsEditor:
    * is also written to `contextSink`, which the form validates the lines against on submit.
    */
   def draftEditor(rows: Var[List[Row]], nextKey: () => Int, contextSink: Observer[Context]): HtmlElement =
+    draftEditor(rows, nextKey, contextSink, emptyMod)
+
+  /** Variant of [[draftEditor]] whose block carries DOM id `anchorId`, the target [[FormFocus.focus]] moves to for a material issue. */
+  def draftEditor(rows: Var[List[Row]], nextKey: () => Int, contextSink: Observer[Context], anchorId: String): HtmlElement =
+    draftEditor(rows, nextKey, contextSink, idAttr := anchorId)
+
+  private def draftEditor(rows: Var[List[Row]], nextKey: () => Int, contextSink: Observer[Context], anchor: Modifier[HtmlElement]): HtmlElement =
     div(
-      cls := "mt-2 space-y-2",
-      div(cls := "text-xs font-medium text-slate-500", "Materiali"),
+      cls := "space-y-2",
+      anchor,
+      subheading("Materiali"),
       child <-- rows.signal.map(_.isEmpty).distinct.map { empty =>
         if empty then
           div(
@@ -188,7 +194,7 @@ object MaterialsEditor:
       cls := "mt-3 rounded-md border border-slate-100 bg-slate-50/60 px-3 py-2",
       div(
         cls := "flex flex-wrap items-center justify-between gap-2",
-        div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Materiali"),
+        subheading("Materiali"),
         div(
           cls := "flex items-center gap-2 text-xs text-slate-500",
           "Costo materiali: ",

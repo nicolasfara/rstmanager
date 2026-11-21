@@ -25,7 +25,10 @@ object SuppliersTab:
       form.set(SupplierForm.empty)
       formError.set(None)
 
+    val formAnchor = FormAnchor()
+
     def edit(s: SupplierResponse): Unit =
+      formAnchor.reveal()
       form.set(SupplierForm.fromResponse(s))
       formError.set(None)
 
@@ -86,6 +89,7 @@ object SuppliersTab:
       roleGated(Role.Admin)(
         card(
           cls := "self-start p-4",
+          formAnchor.bind,
           sectionTitle("Nuovo fornitore"),
           div(
             cls := "mt-3 grid grid-cols-2 gap-3",

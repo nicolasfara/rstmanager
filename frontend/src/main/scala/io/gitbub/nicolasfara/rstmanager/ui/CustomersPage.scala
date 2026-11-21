@@ -120,7 +120,10 @@ object CustomersPage:
       form.set(CustomerFormState.empty)
       formError.set(None)
 
+    val formAnchor = FormAnchor()
+
     def edit(c: CustomerResponse): Unit =
+      formAnchor.reveal()
       form.set(CustomerFormState.fromResponse(c))
       formError.set(None)
 
@@ -158,6 +161,7 @@ object CustomersPage:
       roleGated(Role.Admin)(
         card(
           cls := "self-start p-4",
+          formAnchor.bind,
           sectionTitle("Nuovo cliente"),
           div(
             cls := "mt-3 grid grid-cols-2 gap-3",

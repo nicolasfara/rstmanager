@@ -28,7 +28,10 @@ object CompanyCalendarTab:
       form.set(ClosureForm.empty)
       formError.set(None)
 
+    val formAnchor = FormAnchor()
+
     def edit(c: ClosureResponse): Unit =
+      formAnchor.reveal()
       form.set(ClosureForm.fromResponse(c))
       formError.set(None)
 
@@ -113,6 +116,7 @@ object CompanyCalendarTab:
       roleGated(Role.Admin)(
         card(
           cls := "self-start p-4",
+          formAnchor.bind,
           child <-- form.signal
             .map(_.editingId.isDefined)
             .distinct

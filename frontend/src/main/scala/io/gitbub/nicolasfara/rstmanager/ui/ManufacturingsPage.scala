@@ -84,7 +84,10 @@ object ManufacturingsPage:
       form.set(freshForm())
       formError.set(None)
 
+    val formAnchor = FormAnchor()
+
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
+      formAnchor.reveal()
       val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
       val defaultEmployeeMap = manufacturing.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap
       val overrideMinutesMap = manufacturing.taskDurations.map(h => h.taskId.toString -> h.minutes).toMap
@@ -352,6 +355,7 @@ object ManufacturingsPage:
       roleGated(Role.Admin)(
         card(
           cls := "self-start p-4",
+          formAnchor.bind,
           sectionTitle("Nuova lavorazione"),
           div(
             cls := "mt-3 space-y-3",

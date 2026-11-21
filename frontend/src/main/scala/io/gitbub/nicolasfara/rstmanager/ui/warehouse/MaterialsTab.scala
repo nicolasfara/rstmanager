@@ -72,7 +72,10 @@ object MaterialsTab:
       editedSuppliers.set(Nil)
       formError.set(None)
 
+    val formAnchor = FormAnchor()
+
     def edit(material: MaterialResponse): Unit =
+      formAnchor.reveal()
       form.set(MaterialForm.fromResponse(material))
       editedSuppliers.set(material.suppliers)
       formError.set(None)
@@ -170,6 +173,7 @@ object MaterialsTab:
     def formCard: HtmlElement =
       card(
         cls := "self-start p-4",
+        formAnchor.bind,
         child <-- form.signal
           .map(_.editingId.isDefined)
           .distinct

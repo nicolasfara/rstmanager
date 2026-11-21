@@ -71,7 +71,10 @@ object EmployeesTab:
       form.set(EmployeeForm.empty)
       pageError.set(None)
 
+    val formAnchor = FormAnchor()
+
     def edit(emp: EmployeeResponse): Unit =
+      formAnchor.reveal()
       form.set(EmployeeForm.fromResponse(emp))
       pageError.set(None)
 
@@ -272,6 +275,7 @@ object EmployeesTab:
       roleGated(Role.Admin)(
         card(
           cls := "self-start p-4",
+          formAnchor.bind,
           child <-- form.signal
             .map(_.editingId.isDefined)
             .distinct

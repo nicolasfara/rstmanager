@@ -113,6 +113,7 @@ object PlanningPage:
     val planningData = loadable(planningTick)(() => ApiClient.currentPlanning())
     val ordersData = loadable(AppBus.ordersTicks)(() => ApiClient.listOrders())
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
+    val customersData = loadable(AppBus.customersTicks)(() => ApiClient.listCustomers())
     val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
     val closuresList: Signal[List[ClosureResponse]] = loadable(AppBus.calendarTicks)(() => ApiClient.listClosures()).map {
       case Some(Right(list)) => list
@@ -137,6 +138,13 @@ object PlanningPage:
     }
     val ordersById: Signal[Map[UUID, OrderResponse]] =
       ordersList.map(_.map(order => order.id -> order).toMap)
+    // Order id -> "Nome Cognome" of the customer the order belongs to.
+    val orderCustomerNames: Signal[Map[UUID, String]] = ordersList.combineWith(customersData).map {
+      case (orders, Some(Right(customers))) =>
+        val names = customers.map(c => c.id -> s"${c.name} ${c.surname}").toMap
+        orders.flatMap(order => names.get(order.customerId).map(order.id -> _)).toMap
+      case _ => Map.empty
+    }
     val manufacturingContexts: Signal[Map[UUID, ManufacturingContext]] =
       ordersList.map { orders =>
         orders.flatMap(order => order.manufacturings.map(manufacturing => manufacturing.id -> ManufacturingContext(order, manufacturing))).toMap
@@ -359,6 +367,7 @@ object PlanningPage:
       val manufacturingDescription: Signal[Option[String]] =
         manufacturingContexts.map(_.get(slice.manufacturingId).flatMap(_.manufacturing.description).map(_.trim.nn).filter(_.nonEmpty))
       val taskName: Signal[String] = scheduledTaskNames.map(_.getOrElse(slice.taskId, Formats.shortId(slice.taskId)))
+      val customerName: Signal[Option[String]] = orderCustomerNames.map(_.get(slice.orderId))
       val employeeName: Signal[String] =
         employeeNames.map(_.getOrElse(slice.candidateEmployee.employeeId, Formats.shortId(slice.candidateEmployee.employeeId)))
       val deadlineHint: Signal[String] = manufacturingDeadlines.map(
@@ -380,12 +389,18 @@ object PlanningPage:
         aria.label <-- manufacturingCode.combineWith(taskName).map((code, task) => s"Lavorazione $code, task $task: aggiorna avanzamento"),
         onClick.compose(_.sample(editAndPref)) --> openSlice,
         onKeyDown.filter(e => e.key == "Enter" || e.key == " ").preventDefault.compose(_.sample(editAndPref)) --> openSlice,
-        // Order number (context) + urgency badge vs the manufacturing deadline
+        // Order number + customer (context) + urgency badge vs the manufacturing deadline
         div(
           cls := "flex items-center justify-between gap-2",
           span(
-            cls := "truncate text-[11px] font-medium uppercase tracking-wide text-slate-500",
-            child.text <-- orderNames.map(names => s"Ordine ${names.getOrElse(slice.orderId, Formats.shortId(slice.orderId))}"),
+            cls := "flex min-w-0 items-baseline gap-1 text-[11px] text-slate-500",
+            span(
+              cls := "shrink-0 font-medium uppercase tracking-wide",
+              child.text <-- orderNames.map(names => s"Ordine ${names.getOrElse(slice.orderId, Formats.shortId(slice.orderId))}"),
+            ),
+            child.maybe <-- customerName.map(
+              _.map(name => span(cls := "truncate text-slate-600", title := s"Cliente: $name", s"· $name")),
+            ),
           ),
           child <-- urgency.map { u =>
             if u.label.isEmpty then emptyNode

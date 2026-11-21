@@ -238,14 +238,46 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
     outcome.slices.map(_.day) shouldEqual List(tuesday)
 
-  it should "split a task over multiple employees on the same day" in:
+  it should "assign a task to a single employee even when several could share it on the same day" in:
     val task = pendingTask(TaskId(UUID.randomUUID().nn), 12)
     val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
     val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA), employee(employeeB)))
 
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.assignedDuration.value / 60)) shouldEqual List((monday, 8), (tuesday, 4))
+    outcome.slices.map(_.candidateEmployee.employeeId).distinct should have size 1
+
+  it should "give a task to the employee who completes it first" in:
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val vacation = VacationOverride.createVacationOverride(monday.toLocalDate, monday.toLocalDate).toOption.getOrElse(fail("invalid vacation"))
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.one(task))))
+    // A is off on Monday: B can do the whole task on Monday, while A could only start on Tuesday.
+    val outcome = scheduleOrFail(
+      request(monday, List(orderId)),
+      List(theOrder),
+      List(employee(employeeA, overrides = List(vacation)), employee(employeeB)),
+    )
+
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.employeeId)) shouldEqual List((monday, employeeB))
+
+  it should "assign parallel tasks to different employees instead of sharing one task" in:
+    val first = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val second = pendingTask(TaskId(UUID.randomUUID().nn), 8)
+    val theOrder = order(orderId, friday, NonEmptyList.one(manufacturing(manufacturingId, friday, NonEmptyList.of(first, second))))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA), employee(employeeB)))
+
+    val employeesByTask = outcome.slices.groupBy(_.taskId).view.mapValues(_.map(_.candidateEmployee.employeeId).toSet).toMap
+    employeesByTask.values.foreach(_ should have size 1)
+    employeesByTask.values.flatten.toSet shouldEqual Set(employeeA, employeeB)
     outcome.slices.map(_.day).distinct shouldEqual List(monday)
-    outcome.slices.map(_.candidateEmployee.assignedDuration.value / 60).sum shouldEqual 12
-    outcome.slices.map(_.candidateEmployee.employeeId).toSet shouldEqual Set(employeeA, employeeB)
+
+  it should "keep a task on the preferred employee across days rather than sharing it" in:
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 12)
+    val base = manufacturing(manufacturingId, friday, NonEmptyList.one(task))
+    val withPreference = ScheduledManufacturing.NotStartedManufacturing(base.info.copy(preferredEmployeeId = Some(employeeB)))
+    val theOrder = order(orderId, friday, NonEmptyList.one(withPreference))
+    val outcome = scheduleOrFail(request(monday, List(orderId)), List(theOrder), List(employee(employeeA), employee(employeeB)))
+
+    outcome.slices.map(slice => (slice.day, slice.candidateEmployee.employeeId)) shouldEqual List((monday, employeeB), (tuesday, employeeB))
 
   it should "schedule a dependent task starting the day after its prerequisite completes" in:
     val prerequisiteTemplate: TaskId = TaskId(UUID.randomUUID().nn)

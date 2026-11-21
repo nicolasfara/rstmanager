@@ -45,8 +45,8 @@ final case class SchedulingOutcome(
  *     an [[UnplannedOrder]];
  *   - inside a manufacturing, tasks are visited in dependency order and a dependent task may start only on the next usable production day after all
  *     its prerequisites are fully scheduled;
- *   - a task requiring more hours than one day offers is split into multiple [[ScheduledTaskSlice]] values over future production days and, when
- *     useful, over multiple employees on the same day.
+ *   - each task is atomic with respect to the workforce: it is assigned to exactly one employee, never shared among several; a task requiring more
+ *     hours than one day offers is split into multiple [[ScheduledTaskSlice]] values over that employee's future production days.
  *
  * The algorithm is greedy and deterministic. There is no business end date: allocation stops only when work is complete or when the known workforce
  * proves that no future positive-capacity production day exists.
@@ -346,10 +346,12 @@ object SchedulingService:
       )
 
   /**
-   * Assigns the required minutes of one task starting from `startIdx`, splitting over days and employees as needed.
+   * Assigns the required minutes of one task starting from `startIdx` to a single employee, splitting over days only.
    *
-   * Employees with the most remaining minutes are picked first, with the employee id as a deterministic tie-break. Returns the updated state and the
-   * day index of the last slice, or [[UnplannedReason.NoFutureCapacity]] when no future positive-capacity production day exists.
+   * A task is atomic with respect to the workforce: all its slices go to the same employee. The preferred employee is used whenever they can complete
+   * the task; otherwise the employee completing it on the earliest day wins, then the one left with the most spare minutes on that day, with the
+   * employee id as a deterministic tie-break. Returns the updated state and the day index of the last slice, or [[UnplannedReason.NoFutureCapacity]]
+   * when no employee has enough future capacity to complete the task alone.
    */
   private def allocateTask(
       state: PlannerState,
@@ -363,46 +365,57 @@ object SchedulingService:
   ): Either[UnplannedReason, (PlannerState, Int)] =
     val requiredDuration = TaskDuration.applyUnsafe(minutes)
 
+    // Places the whole task on `employee`; gives up once past `bound` (a better allocation is already known) or when they have no capacity left.
     @tailrec
-    def go(
+    def placeOn(
+        employee: Employee,
         current: PlannerState,
         idx: Int,
         needed: Int,
         slices: Vector[ScheduledTaskSlice],
-        lastIdx: Int,
-    ): Either[UnplannedReason, (PlannerState, Int)] =
-      if needed <= 0 then Right((current.copy(slices = current.slices ++ slices), lastIdx))
+        bound: Option[Int],
+    ): Option[EmployeeAllocation] =
+      if bound.exists(idx > _) then None
       else
         ensureDay(current, idx, employees) match
-          case None => Left(UnplannedReason.NoFutureCapacity(requiredDuration))
+          case None => None
           case Some(expanded) =>
-            val allCandidates = expanded.remaining(idx).toList.filter { case (_, left) => left > 0 }.sortBy { case (id, left) =>
-              (-left, id.toString)
-            }
-            val candidates = preferredEmployeeId.fold(allCandidates) { preferred =>
-              val pref = allCandidates.filter(_._1.equals(preferred))
-              if pref.nonEmpty then pref else allCandidates
-            }
-            val (dayCapacity, daySlices, neededAfter) = candidates.foldLeft((expanded.remaining(idx), Vector.empty[ScheduledTaskSlice], needed)) {
-              case ((capacity, acc, toPlace), (employeeId, employeeMinutes)) =>
-                if toPlace <= 0 then (capacity, acc, toPlace)
-                else
-                  val assigned = math.min(toPlace, employeeMinutes)
-                  val slice = ScheduledTaskSlice(
-                    orderId,
-                    manufacturingId,
-                    taskId,
-                    expanded.days(idx),
-                    CandidateEmployee(employeeId, expanded.base(idx)(employeeId), TaskDuration.applyUnsafe(assigned)),
-                    TaskDuration.applyUnsafe(toPlace - assigned),
-                  )
-                  (capacity.updated(employeeId, employeeMinutes - assigned), acc :+ slice, toPlace - assigned)
-            }
-            val progressed = if daySlices.nonEmpty then idx else lastIdx
-            go(expanded.copy(remaining = expanded.remaining.updated(idx, dayCapacity)), idx + 1, neededAfter, slices ++ daySlices, progressed)
+            val available = expanded.remaining(idx).getOrElse(employee.id, 0)
+            if available <= 0 then
+              if nextCapacityDayForEmployee(nextDay(expanded.days(idx)), employee, expanded.calendar).isEmpty then None
+              else placeOn(employee, expanded, idx + 1, needed, slices, bound)
+            else
+              val assigned = math.min(needed, available)
+              val slice = ScheduledTaskSlice(
+                orderId,
+                manufacturingId,
+                taskId,
+                expanded.days(idx),
+                CandidateEmployee(employee.id, expanded.base(idx)(employee.id), TaskDuration.applyUnsafe(assigned)),
+                TaskDuration.applyUnsafe(needed - assigned),
+              )
+              val updated =
+                expanded.copy(remaining = expanded.remaining.updated(idx, expanded.remaining(idx).updated(employee.id, available - assigned)))
+              if needed - assigned <= 0 then
+                Some(EmployeeAllocation(updated.copy(slices = updated.slices ++ slices :+ slice), idx, available - assigned))
+              else placeOn(employee, updated, idx + 1, needed - assigned, slices :+ slice, bound)
 
-    go(state, startIdx, minutes, Vector.empty, startIdx - 1)
+    val preferred = preferredEmployeeId.flatMap(id => employees.find(_.id.equals(id)))
+    val preferredAllocation = preferred.flatMap(placeOn(_, state, startIdx, minutes, Vector.empty, None))
+    val allocation = preferredAllocation.orElse {
+      employees.sortBy(_.id.toString).foldLeft(Option.empty[EmployeeAllocation]) { (best, employee) =>
+        placeOn(employee, state, startIdx, minutes, Vector.empty, best.map(_.lastIdx)) match
+          case Some(candidate)
+              if best.forall(b => candidate.lastIdx < b.lastIdx || (candidate.lastIdx == b.lastIdx && candidate.spareOnLastDay > b.spareOnLastDay)) =>
+            Some(candidate)
+          case _ => best
+      }
+    }
+    allocation.map(a => (a.state, a.lastIdx)).toRight(UnplannedReason.NoFutureCapacity(requiredDuration))
   end allocateTask
+
+  /** A complete placement of one task on one employee: the resulting state, the day index of its last slice, and the minutes left on that day. */
+  private final case class EmployeeAllocation(state: PlannerState, lastIdx: Int, spareOnLastDay: Int)
 
   @tailrec
   private def ensureDay(state: PlannerState, idx: Int, employees: List[Employee]): Option[PlannerState] =

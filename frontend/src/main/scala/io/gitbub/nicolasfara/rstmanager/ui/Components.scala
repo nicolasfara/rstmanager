@@ -1035,6 +1035,20 @@ object Components:
           case _ => ()
       },
       dialogFocus(isOpen, () => Some(dialogCard.ref)),
+      // When the focused control was re-rendered away (e.g. after removing a row) the focus falls back to <body>, out of the handler above:
+      // Escape still closes and Tab re-enters the card.
+      documentEvents(_.onKeyDown).withCurrentValueOf(isOpen) --> { (event, open) =>
+        val focusLost = dom.document.activeElement match
+          case element: dom.HTMLElement => element eq dom.document.body
+          case _ => true
+        if open && focusLost then
+          event.key match
+            case "Escape" => onClose()
+            case "Tab" =>
+              event.preventDefault()
+              dialogCard.ref.focus()
+            case _ => ()
+      },
       div(cls := s"mt-8 w-full $maxWidthCls", dialogCard),
     )
   end modal

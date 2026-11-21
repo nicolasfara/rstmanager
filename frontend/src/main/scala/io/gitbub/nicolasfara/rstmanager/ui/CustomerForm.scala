@@ -18,6 +18,9 @@ object CustomerForm:
 
   val typeOptions: List[(String, String)] = List(individual -> "Privato", company -> "Azienda")
 
+  /** The Italian label of a stored customer type ("Privato"/"Azienda"); an unknown value is shown as is. */
+  def typeLabel(customerType: String): String = typeOptions.collectFirst { case (`customerType`, label) => label }.getOrElse(customerType)
+
   /** The fields that can carry a validation issue. */
   enum Field derives CanEqual:
     case Name, Surname, Email, Phone, PostalCode, FiscalCode, Pec
@@ -75,8 +78,13 @@ object CustomerForm:
       boatName: String,
       boatBerth: String,
       port: String,
-  ):
+  ) derives CanEqual:
     def isCompany: Boolean = customerType == company
+
+    /** How the customer is named in the UI: the business name when there is one, else name and surname. */
+    def displayName: String =
+      val business = businessName.trim.nn
+      if business.nonEmpty then business else s"${name.trim} ${surname.trim}".trim.nn
 
     /** "Partita IVA" for a company, "Codice fiscale" for an individual. */
     def fiscalCodeLabel: String = if isCompany then "Partita IVA" else "Codice fiscale"

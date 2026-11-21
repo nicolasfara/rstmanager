@@ -1,7 +1,5 @@
 package io.gitbub.nicolasfara.rstmanager.ui.warehouse
 
-import java.util.UUID
-
 import scala.concurrent.ExecutionContext.Implicits.global
 
 import com.raquo.laminar.api.L.*
@@ -11,6 +9,7 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.{
   AppBus,
+  DraftGuard,
   FormFocus,
   FormTouch,
   ListSearch,
@@ -80,21 +79,38 @@ object MaterialsTab:
 
     val touch = FormTouch()
     val submitting = Var(false)
+    val draft = DraftGuard[MaterialForm.State](
+      () => form.now(),
+      s => DraftGuard.discardTitle(Option.when(s.editingId.isDefined)(s.internalCode.trim.nn), "il nuovo materiale"),
+    )
 
     def resetForm(): Unit =
       form.set(MaterialForm.empty)
       editedSuppliers.set(Nil)
       formError.set(None)
       touch.reset()
+      draft.markClean()
 
     val formAnchor = FormAnchor()
 
+    // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(material: MaterialResponse): Unit =
-      formAnchor.reveal()
-      form.set(MaterialForm.fromResponse(material))
-      editedSuppliers.set(material.suppliers)
-      formError.set(None)
-      touch.reset()
+      draft.discardThen { () =>
+        formAnchor.reveal()
+        form.set(MaterialForm.fromResponse(material))
+        editedSuppliers.set(material.suppliers)
+        formError.set(None)
+        touch.reset()
+        draft.markClean()
+      }
+
+    /** "+ Nuovo materiale" (mobile, where the form follows the table): leaves a material being edited, then shows the form. */
+    def startNew(): Unit =
+      if form.now().editingId.isDefined then
+        draft.discardThen(() =>
+          resetForm(); formAnchor.reveal(),
+        )
+      else formAnchor.reveal()
 
     def submit(): Unit =
       if !submitting.now() then
@@ -114,15 +130,16 @@ object MaterialsTab:
               result match
                 case Right(_) =>
                   resetForm()
-                  Notifications.success(s"Materiale ${request.internalCode} salvato")
+                  Notifications.success(s"Materiale ${request.internalCode} ${if current.editingId.isDefined then "salvato" else "creato"}")
                   AppBus.mutatedWarehouse()
                 case Left(err) => showError(formError, "Salvataggio materiale")(err)
             }
 
-    def archive(id: UUID): Unit =
-      ApiClient.archiveMaterial(id).foreach {
+    def archive(material: MaterialResponse): Unit =
+      ApiClient.archiveMaterial(material.id).foreach {
         case Right(_) =>
-          if form.now().editingId == Some(id) then resetForm()
+          if form.now().editingId == Some(material.id) then resetForm()
+          Notifications.success(s"Materiale ${material.internalCode} archiviato")
           AppBus.mutatedWarehouse()
         case Left(err) => showError(formError, "Archiviazione materiale")(err)
       }
@@ -130,16 +147,14 @@ object MaterialsTab:
     val confirmArchiveModal =
       confirmDialog(
         isOpen = pendingArchive.signal.map(_.isDefined),
-        titleText = Signal.fromValue("Archivia materiale"),
-        message = pendingArchive.signal.map(
-          _.fold("")(p =>
-            s"Archiviare il materiale ${p.internalCode} — ${p.description}? Non sarà più modificabile, ma resterà nello storico del magazzino; codice e MPN tornano disponibili.",
-          ),
+        titleText = pendingArchive.signal.map(_.fold("")(p => s"Archiviare il materiale «${p.internalCode} · ${p.description}»?")),
+        message = Signal.fromValue(
+          "Non sarà più modificabile, ma resterà nello storico del magazzino; codice e MPN tornano disponibili. L'operazione non è reversibile.",
         ),
         confirmLabel = "Archivia",
         tone = DialogTone.Danger,
         onCancel = () => pendingArchive.set(None),
-        onConfirm = () => pendingArchive.now().foreach { p => archive(p.id); pendingArchive.set(None) },
+        onConfirm = () => pendingArchive.now().foreach { p => archive(p); pendingArchive.set(None) },
       )
 
     val issues = form.signal.map(_.issues).distinct
@@ -212,8 +227,10 @@ object MaterialsTab:
 
     def formCard: HtmlElement =
       card(
-        cls := "self-start p-4",
+        // Mobile: the table comes first (finding a material must not mean scrolling past the form); "+ Nuovo materiale" reaches the form.
+        cls := "order-last self-start p-4 lg:order-none",
         formAnchor.bind,
+        draft.bind,
         child <-- form.signal
           .map(_.editingId.isDefined)
           .distinct
@@ -284,7 +301,7 @@ object MaterialsTab:
                 if editing then "Salva" else "Crea",
                 "Salvataggio…",
                 submitting.signal,
-                Option.when(editing)(() => resetForm()),
+                Option.when(editing)(() => draft.discardThen(() => resetForm())),
                 () => submit(),
               ),
             ),
@@ -399,6 +416,7 @@ object MaterialsTab:
         div(
           cls := "flex flex-wrap items-center justify-end gap-3 border-b border-slate-100 px-4 py-2",
           div(cls := "mr-auto w-full sm:w-80", searchBox(query, "Cerca per codice, descrizione, MPN, fornitore…", pager)),
+          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall lg:hidden", "+ Nuovo materiale", onClick --> (_ => startNew()))),
           roleGated(Role.Admin)(
             button(
               tpe := "button",
@@ -475,6 +493,7 @@ object MaterialsTab:
       confirmArchiveModal,
       StockDialogs(stockDialog),
       MaterialImportDialog(importOpen, summary => lastImport.set(Some(summary))),
+      draft.dialog,
     )
   end apply
 end MaterialsTab

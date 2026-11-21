@@ -124,7 +124,7 @@ object DeliveryNoteForm:
     case Quantity
     case UnitCost
 
-  /** What a validation problem is about: a header input, the lines as a whole (none filled in), or one input of the line with key `key`. */
+  /** What a validation problem is about: a header input, the lines as a whole (no row at all), or one input of the line with key `key`. */
   enum Field derives CanEqual:
     case Date
     case Number
@@ -302,8 +302,13 @@ object DeliveryNoteForm:
       val supplier = Option.when(parseUuid(supplierId).isEmpty)(Field.Supplier -> "Seleziona il fornitore")
       val headerProblems = (day ++ numberCheck ++ supplier).toList.map((field, message) => FieldIssue(field, message) -> message)
       val filled = rows.zipWithIndex.filterNot((row, _) => row.isBlank)
+      // With only blank rows the first one is pointed at ("Seleziona il materiale"); the block-level message is for a note without rows.
       val lineProblems =
-        if filled.isEmpty then List(FieldIssue(Field.Lines, "Aggiungi almeno una riga") -> "Aggiungi almeno una riga")
+        if filled.isEmpty then
+          rows.headOption match
+            case Some(first) =>
+              List(FieldIssue(Field.Row(first.key, RowField.Material), "Riga 1: Seleziona il materiale") -> "Seleziona il materiale")
+            case None => List(FieldIssue(Field.Lines, "Aggiungi almeno una riga") -> "Aggiungi almeno una riga")
         else
           filled.flatMap { (row, index) =>
             resolve(row, context).left.getOrElse(Nil).map { (rowField, message) =>

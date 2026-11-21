@@ -50,7 +50,7 @@ object ManufacturingCatalogForm:
       name: String,
       description: String,
       taskRows: List[TaskRow],
-  ):
+  ) derives CanEqual:
     /**
      * The issues in form order: code, name, then the task block. With no task picked at all there is a single "pick a task" issue; otherwise each row
      * reports a missing task (only when there are several rows), a repeated task (the server rejects duplicates) and a missing or malformed duration

@@ -29,7 +29,7 @@ object SupplierForm:
       phone: String,
       address: String,
       notes: String,
-  ):
+  ) derives CanEqual:
     /** The payload to send: text trimmed, blank optional values absent. */
     def request: SupplierRequest =
       SupplierRequest(name.trim.nn, opt(vatNumber), opt(email), opt(phone), opt(address), opt(notes))

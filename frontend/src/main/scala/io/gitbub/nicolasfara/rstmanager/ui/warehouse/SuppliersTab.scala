@@ -1,7 +1,5 @@
 package io.gitbub.nicolasfara.rstmanager.ui.warehouse
 
-import java.util.UUID
-
 import scala.concurrent.ExecutionContext.Implicits.global
 
 import com.raquo.laminar.api.L.*
@@ -9,7 +7,7 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, FormFocus, FormTouch, ListSearch, Notifications, Pagination, Paging, TableSort }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, DraftGuard, FormFocus, FormTouch, ListSearch, Notifications, Pagination, Paging, TableSort }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.messageFor
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
@@ -24,19 +22,36 @@ object SuppliersTab:
 
     val touch = FormTouch()
     val submitting = Var(false)
+    val draft = DraftGuard[SupplierForm.State](
+      () => form.now(),
+      s => DraftGuard.discardTitle(Option.when(s.editingId.isDefined)(s.name.trim.nn), "il nuovo fornitore"),
+    )
 
     def resetForm(): Unit =
       form.set(SupplierForm.empty)
       formError.set(None)
       touch.reset()
+      draft.markClean()
 
     val formAnchor = FormAnchor()
 
+    // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(s: SupplierResponse): Unit =
-      formAnchor.reveal()
-      form.set(SupplierForm.fromResponse(s))
-      formError.set(None)
-      touch.reset()
+      draft.discardThen { () =>
+        formAnchor.reveal()
+        form.set(SupplierForm.fromResponse(s))
+        formError.set(None)
+        touch.reset()
+        draft.markClean()
+      }
+
+    /** "+ Nuovo fornitore" (mobile, where the form follows the list): leaves a supplier being edited, then shows the form. */
+    def startNew(): Unit =
+      if form.now().editingId.isDefined then
+        draft.discardThen(() =>
+          resetForm(); formAnchor.reveal(),
+        )
+      else formAnchor.reveal()
 
     def submit(): Unit =
       if !submitting.now() then
@@ -57,17 +72,18 @@ object SuppliersTab:
               result match
                 case Right(_) =>
                   resetForm()
-                  Notifications.success(s"Fornitore ${request.name} salvato")
+                  Notifications.success(s"Fornitore ${request.name} ${if current.editingId.isDefined then "salvato" else "creato"}")
                   AppBus.mutatedWarehouse()
                 case Left(err) => showError(formError, "Salvataggio fornitore")(err)
             }
         end match
 
     // A supplier referenced by a material is refused with 409 `supplier-in-use`; the error details name the materials.
-    def delete(id: UUID): Unit =
-      ApiClient.deleteSupplier(id).foreach {
+    def delete(supplier: SupplierResponse): Unit =
+      ApiClient.deleteSupplier(supplier.id).foreach {
         case Right(_) =>
-          if form.now().editingId == Some(id) then resetForm()
+          if form.now().editingId == Some(supplier.id) then resetForm()
+          Notifications.success(s"Fornitore ${supplier.name} eliminato")
           AppBus.mutatedWarehouse()
         case Left(err) => showError(formError, "Eliminazione fornitore")(err)
       }
@@ -75,14 +91,12 @@ object SuppliersTab:
     val confirmDeleteModal =
       confirmDialog(
         isOpen = pendingDelete.signal.map(_.isDefined),
-        titleText = Signal.fromValue("Elimina fornitore"),
-        message = pendingDelete.signal.map(
-          _.fold("")(s => s"Eliminare il fornitore “${s.name}”? Non è possibile se un materiale di magazzino ne usa gli MPN."),
-        ),
+        titleText = pendingDelete.signal.map(_.fold("")(s => s"Eliminare il fornitore «${s.name}»?")),
+        message = Signal.fromValue("L'operazione non è reversibile. Non è possibile se un materiale di magazzino ne usa gli MPN."),
         confirmLabel = "Elimina",
         tone = DialogTone.Danger,
         onCancel = () => pendingDelete.set(None),
-        onConfirm = () => pendingDelete.now().foreach { s => delete(s.id); pendingDelete.set(None) },
+        onConfirm = () => pendingDelete.now().foreach { s => delete(s); pendingDelete.set(None) },
       )
 
     val data = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
@@ -116,8 +130,10 @@ object SuppliersTab:
       roleGatedGridCols(Role.Admin, "lg:grid-cols-[24rem_1fr]"),
       roleGated(Role.Admin)(
         card(
-          cls := "self-start p-4",
+          // Mobile: the list comes first (finding a record must not mean scrolling past the form); "+ Nuovo fornitore" reaches the form.
+          cls := "order-last self-start p-4 lg:order-none",
           formAnchor.bind,
+          draft.bind,
           child <-- editing.map(isEditing => sectionTitle(if isEditing then "Modifica fornitore" else "Nuovo fornitore")),
           p(cls := "mt-1 text-xs text-slate-500", "I campi con * sono obbligatori."),
           div(
@@ -134,8 +150,8 @@ object SuppliersTab:
                 "text",
               ),
             ),
-            textField("Partita IVA", "supplier-vat", None, _.vatNumber, (s, v) => s.copy(vatNumber = v), "Opzionale", "text"),
-            textField("Telefono", "supplier-phone", None, _.phone, (s, v) => s.copy(phone = v), "Opzionale", "tel"),
+            textField("Partita IVA", "supplier-vat", None, _.vatNumber, (s, v) => s.copy(vatNumber = v), "01234567890", "text"),
+            textField("Telefono", "supplier-phone", None, _.phone, (s, v) => s.copy(phone = v), "+39051123456", "tel"),
             div(
               cls := "col-span-2",
               textField(
@@ -144,15 +160,18 @@ object SuppliersTab:
                 Some(SupplierForm.Field.Email),
                 _.email,
                 (s, v) => s.copy(email = v),
-                "Opzionale",
+                "ordini@fornitore.it",
                 "email",
               ),
             ),
-            div(cls := "col-span-2", textField("Indirizzo", "supplier-address", None, _.address, (s, v) => s.copy(address = v), "Opzionale", "text")),
+            div(
+              cls := "col-span-2",
+              textField("Indirizzo", "supplier-address", None, _.address, (s, v) => s.copy(address = v), "Via Roma 1, Bologna", "text"),
+            ),
             div(
               cls := "col-span-2",
               field(FieldSpec("Note", "supplier-notes"))(bind =>
-                textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)")
+                textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche")
                   .amend(bind),
               ),
             ),
@@ -166,7 +185,7 @@ object SuppliersTab:
                 if isEditing then "Salva" else "Crea",
                 "Salvataggio…",
                 submitting.signal,
-                Option.when(isEditing)(() => resetForm()),
+                Option.when(isEditing)(() => draft.discardThen(() => resetForm())),
                 () => submit(),
               ),
             ),
@@ -175,7 +194,11 @@ object SuppliersTab:
       ),
       card(
         cls := "overflow-hidden",
-        div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca per nome, P. IVA, contatti…", pager)),
+        div(
+          cls := "flex items-center gap-2 border-b border-slate-100 p-3",
+          div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, P. IVA, contatti…", pager)),
+          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuovo fornitore", onClick --> (_ => startNew()))),
+        ),
         renderResult(data) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun fornitore registrato."))
           else
@@ -229,6 +252,7 @@ object SuppliersTab:
         },
       ),
       confirmDeleteModal,
+      draft.dialog,
     )
   end apply
 end SuppliersTab

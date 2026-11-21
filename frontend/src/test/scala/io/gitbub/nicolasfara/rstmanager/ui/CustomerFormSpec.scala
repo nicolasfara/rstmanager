@@ -20,6 +20,15 @@ final class CustomerFormSpec extends AnyFunSuite with Matchers:
 
   private def fieldsOf(state: CustomerForm.State): List[Field] = state.issues.map(_.field)
 
+  test("the customer type is shown in Italian, an unknown one as is"):
+    CustomerForm.typeLabel(CustomerForm.individual) shouldBe "Privato"
+    CustomerForm.typeLabel(CustomerForm.company) shouldBe "Azienda"
+    CustomerForm.typeLabel("other") shouldBe "other"
+
+  test("the display name prefers the business name"):
+    valid.displayName shouldBe "Mario Rossi"
+    valid.copy(businessName = " Cantiere Rossi Srl ").displayName shouldBe "Cantiere Rossi Srl"
+
   test("only the name and surname are required"):
     CustomerForm.empty.issues shouldBe List(FieldIssue(Field.Name, "Nome obbligatorio"), FieldIssue(Field.Surname, "Cognome obbligatorio"))
     CustomerForm.empty.errors shouldBe List("Nome obbligatorio", "Cognome obbligatorio")

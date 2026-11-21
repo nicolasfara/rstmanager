@@ -7,7 +7,18 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Components, FormFocus, FormTouch, Formats, ListSearch, Notifications, Pagination, Paging }
+import io.gitbub.nicolasfara.rstmanager.ui.{
+  AppBus,
+  Components,
+  DraftGuard,
+  FormFocus,
+  FormTouch,
+  Formats,
+  ListSearch,
+  Notifications,
+  Pagination,
+  Paging,
+}
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messageFor, FieldIssue }
 
@@ -70,19 +81,36 @@ object EmployeesTab:
 
     val touch = FormTouch()
     val submitting = Var(false)
+    val draft = DraftGuard[EmployeeForm.State](
+      () => form.now(),
+      s => DraftGuard.discardTitle(Option.when(s.editingId.isDefined)(s"${s.name} ${s.surname}".trim.nn), "il nuovo dipendente"),
+    )
 
     def resetForm(): Unit =
       form.set(EmployeeForm.empty)
       pageError.set(None)
       touch.reset()
+      draft.markClean()
 
     val formAnchor = FormAnchor()
 
+    // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(emp: EmployeeResponse): Unit =
-      formAnchor.reveal()
-      form.set(EmployeeForm.fromResponse(emp))
-      pageError.set(None)
-      touch.reset()
+      draft.discardThen { () =>
+        formAnchor.reveal()
+        form.set(EmployeeForm.fromResponse(emp))
+        pageError.set(None)
+        touch.reset()
+        draft.markClean()
+      }
+
+    /** "+ Nuovo dipendente" (mobile, where the form follows the list): leaves a record being edited, then shows the form. */
+    def startNew(): Unit =
+      if form.now().editingId.isDefined then
+        draft.discardThen(() =>
+          resetForm(); formAnchor.reveal(),
+        )
+      else formAnchor.reveal()
 
     // Both editors write the whole record: after a save, the other one (if open on the same employee) adopts the stored version, so its next
     // save does not revert what this one changed.
@@ -105,7 +133,7 @@ object EmployeesTab:
                 case Right(saved) =>
                   resetForm()
                   overrideEditor.update(state => if state.editing.exists(_.id == saved.id) then state.copy(editing = Some(saved)) else state)
-                  Notifications.success(if current.editingId.isDefined then "Dipendente salvato" else "Dipendente creato")
+                  Notifications.success(s"Dipendente ${saved.name} ${saved.surname} ${if current.editingId.isDefined then "salvato" else "creato"}")
                   AppBus.mutatedEmployees()
                 case Left(err) => showError(pageError, "Salvataggio dipendente")(err)
             }
@@ -125,7 +153,12 @@ object EmployeesTab:
       ApiClient.updateEmployee(emp.id, request).foreach {
         case Right(saved) =>
           overrideEditor.set(OverrideEditorState.empty)
-          form.update(state => if state.editingId == Some(saved.id) then state.copy(overrides = saved.overrides) else state)
+          // The stored overrides are not an edit of the form: the clean content follows them.
+          val adopt: EmployeeForm.State => EmployeeForm.State =
+            state => if state.editingId == Some(saved.id) then state.copy(overrides = saved.overrides) else state
+          form.update(adopt)
+          draft.rebase(adopt)
+          Notifications.success(s"Override di ${saved.name} ${saved.surname} salvati")
           AppBus.mutatedEmployees()
         case Left(err) => showError(pageError, "Salvataggio override dipendente")(err)
       }
@@ -136,6 +169,7 @@ object EmployeesTab:
         case Right(_) =>
           if form.now().editingId == Some(emp.id) then resetForm()
           if overrideEditor.now().editing.exists(_.id == emp.id) then overrideEditor.set(OverrideEditorState.empty)
+          Notifications.success(s"Dipendente ${emp.name} ${emp.surname} eliminato")
           AppBus.mutatedEmployees()
         case Left(err) => showError(pageError, "Eliminazione dipendente")(err)
       }
@@ -143,8 +177,8 @@ object EmployeesTab:
     val confirmDeleteModal =
       confirmDialog(
         isOpen = pendingDelete.signal.map(_.isDefined),
-        titleText = Signal.fromValue("Elimina dipendente"),
-        message = pendingDelete.signal.map(_.fold("")(e => s"Eliminare il dipendente “${e.name} ${e.surname}”?")),
+        titleText = pendingDelete.signal.map(_.fold("")(e => s"Eliminare il dipendente «${e.name} ${e.surname}»?")),
+        message = Signal.fromValue("Il dipendente viene rimosso dall'anagrafica. L'operazione non è reversibile."),
         confirmLabel = "Elimina",
         tone = DialogTone.Danger,
         onCancel = () => pendingDelete.set(None),
@@ -294,8 +328,10 @@ object EmployeesTab:
       )
 
     val formCard = card(
-      cls := "self-start p-4",
+      // Mobile: the list comes first (finding a record must not mean scrolling past the form); "+ Nuovo dipendente" reaches the form.
+      cls := "order-last self-start p-4 lg:order-none",
       formAnchor.bind,
+      draft.bind,
       child <-- form.signal
         .map(_.editingId.isDefined)
         .distinct
@@ -350,7 +386,7 @@ object EmployeesTab:
             if editing then "Salva" else "Crea",
             "Salvataggio…",
             submitting.signal,
-            Option.when(editing)(() => resetForm()),
+            Option.when(editing)(() => draft.discardThen(() => resetForm())),
             () => submit(),
           )
         },
@@ -363,7 +399,11 @@ object EmployeesTab:
       roleGated(Role.Admin)(formCard),
       card(
         cls := "overflow-hidden",
-        div(cls := "border-b border-slate-100 p-3", searchBox(query, "Cerca dipendente per nome o cognome…", pager)),
+        div(
+          cls := "flex items-center gap-2 border-b border-slate-100 p-3",
+          div(cls := "min-w-0 flex-1", searchBox(query, "Cerca dipendente per nome o cognome…", pager)),
+          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuovo dipendente", onClick --> (_ => startNew()))),
+        ),
         renderResult(data) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun dipendente."))
           else
@@ -377,13 +417,14 @@ object EmployeesTab:
                       div(
                         cls := "flex items-start justify-between gap-3",
                         div(
+                          cls := "min-w-0",
                           div(cls := "font-medium text-slate-800", s"${emp.name} ${emp.surname}"),
                           div(cls := "text-xs text-slate-500", describeContract(emp.contract)),
                           div(cls := "mt-0.5 text-xs text-slate-400", s"Budget ${emp.budgetWeeklyHours}h/sett · ${emp.overrides.size} override"),
                         ),
                         roleGated(Role.Admin)(
                           div(
-                            cls := "flex gap-2",
+                            cls := "flex flex-wrap justify-end gap-2",
                             button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(emp))),
                             button(tpe := "button", cls := btnSmall, "Override", onClick --> (_ => openEditor(emp))),
                             button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(emp)))),
@@ -402,6 +443,7 @@ object EmployeesTab:
         },
       ),
       confirmDeleteModal,
+      draft.dialog,
     )
   end apply
 end EmployeesTab

@@ -1,6 +1,7 @@
 package io.gitbub.nicolasfara.rstmanager.ui.warehouse
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.ui.NavigationGuard
 
 /** A section of the warehouse page. */
 enum WarehouseTab(val label: String) derives CanEqual:
@@ -48,7 +49,8 @@ object WarehousePage:
             tpe := "button",
             cls <-- currentTab.signal.map(active => tabCls(active == tab)),
             tab.label,
-            onClick --> (_ => currentTab.set(tab)),
+            // A tab with a dirty side form asks before leaving it, like the top navigation.
+            onClick --> (_ => if currentTab.now() != tab then NavigationGuard.request(() => currentTab.set(tab))),
           )
         },
       ),

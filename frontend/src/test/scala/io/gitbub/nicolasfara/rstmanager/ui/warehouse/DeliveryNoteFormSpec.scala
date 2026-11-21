@@ -218,12 +218,21 @@ final class DeliveryNoteFormSpec extends AnyFunSuite with Matchers:
 
   // ---- validation and request --------------------------------------------------------------------
 
-  test("the empty form reports the header and the missing lines, and is pristine"):
+  test("the empty form reports the header and its blank first row, and is pristine"):
     val fresh = DeliveryNoteForm.empty(today)
     fresh.pristine shouldBe true
     fresh.date shouldBe today
-    fresh.errors(ctx) shouldBe List("Numero DDT obbligatorio", "Seleziona il fornitore", "Aggiungi almeno una riga")
+    fresh.errors(ctx) shouldBe List("Numero DDT obbligatorio", "Seleziona il fornitore", "Riga 1: Seleziona il materiale")
     fresh.copy(number = "1").pristine shouldBe false
+
+  test("only blank rows point at the first one; no rows at all asks to add one"):
+    val blanks = withRows(Row.empty(4), Row.empty(5))
+    blanks.issues(ctx).map(i => i.field -> i.message) shouldBe List(Field.Row(4, RowField.Material) -> "Riga 1: Seleziona il materiale")
+    blanks.inlineError(Field.Row(4, RowField.Material), ctx) shouldBe Some("Seleziona il materiale")
+    blanks.inlineError(Field.Lines, ctx) shouldBe None
+    val none = withRows()
+    none.issues(ctx).map(i => i.field -> i.message) shouldBe List(Field.Lines -> "Aggiungi almeno una riga")
+    none.focusId(Field.Lines) shouldBe DeliveryNoteForm.addRowId
 
   test("the day must be valid and not after today"):
     val state = withRows(row(0, tesA, "1", "1", true))
@@ -267,8 +276,10 @@ final class DeliveryNoteFormSpec extends AnyFunSuite with Matchers:
 
   // ---- field targeting ---------------------------------------------------------------------------
 
-  test("header issues target their field, the missing lines target the rows block"):
-    DeliveryNoteForm.empty(today).copy(date = "").issues(ctx).map(_.field) shouldBe List(Field.Date, Field.Number, Field.Supplier, Field.Lines)
+  test("header issues target their field, a blank first row targets its material"):
+    DeliveryNoteForm.empty(today).copy(date = "").issues(ctx).map(_.field) shouldBe
+      List(Field.Date, Field.Number, Field.Supplier, Field.Row(0, RowField.Material))
+    DeliveryNoteForm.empty(today).removeRow(0).issues(ctx).map(_.field).lastOption shouldBe Some(Field.Lines)
 
   test("line issues target the input of the row by key, prefixed in the message but bare inline"):
     val state = withRows(Row(5, "", "", "2", "", false), Row.empty(6), Row(7, corNew, "", "x", "1", true))

@@ -27,7 +27,7 @@ object EmployeeForm:
       weeklyHours: String,
       budget: String,
       overrides: List[HoursOverrideDto],
-  ):
+  ) derives CanEqual:
     def contract: EmployeeContractDto = contractKind match
       case "fixed_term" => EmployeeContractDto("fixed_term", Formats.toIso(startDate), Some(Formats.toIso(endDate)), None)
       case "part_time" => EmployeeContractDto("part_time", Formats.toIso(startDate), None, weeklyHours.toIntOption)

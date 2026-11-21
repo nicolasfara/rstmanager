@@ -72,7 +72,7 @@ object MaterialForm:
       customerPrice: String,
       mpns: List[MpnRow],
       nextKey: Int,
-  ):
+  ) derives CanEqual:
     /** True until the user types into a required field or adds an MPN row: validation messages stay hidden on a fresh form. */
     def pristine: Boolean =
       editingId.isEmpty && internalCode.trim.nn.isEmpty && description.trim.nn.isEmpty && customerPrice.trim.nn.isEmpty && mpns.isEmpty

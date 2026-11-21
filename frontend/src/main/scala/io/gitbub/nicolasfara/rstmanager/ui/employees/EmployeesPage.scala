@@ -1,6 +1,7 @@
 package io.gitbub.nicolasfara.rstmanager.ui.employees
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.ui.NavigationGuard
 
 /** A section of the employees page. */
 enum EmployeesPageTab(val label: String) derives CanEqual:
@@ -33,7 +34,8 @@ object EmployeesPage:
             tpe := "button",
             cls <-- currentTab.signal.map(active => tabCls(active == tab)),
             tab.label,
-            onClick --> (_ => currentTab.set(tab)),
+            // A tab with a dirty side form asks before leaving it, like the top navigation.
+            onClick --> (_ => if currentTab.now() != tab then NavigationGuard.request(() => currentTab.set(tab))),
           )
         },
       ),

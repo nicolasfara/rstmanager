@@ -9,7 +9,7 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Notifications, Pagination, Paging }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.BusinessDay
 
@@ -41,7 +41,10 @@ object CompanyCalendarTab:
         case Some(id) => ApiClient.updateClosure(id, current.request)
         case None => ApiClient.createClosure(current.request)
       effect.foreach {
-        case Right(_) => resetForm(); AppBus.mutatedCalendar()
+        case Right(_) =>
+          resetForm()
+          Notifications.success(s"Chiusura ${current.reason.trim} ${if current.editingId.isDefined then "salvata" else "creata"}")
+          AppBus.mutatedCalendar()
         case Left(err) => showError(formError, "Salvataggio chiusura aziendale")(err)
       }
 
@@ -49,6 +52,7 @@ object CompanyCalendarTab:
       ApiClient.deleteClosure(id).foreach {
         case Right(_) =>
           if form.now().editingId == Some(id) then resetForm()
+          Notifications.success("Chiusura eliminata")
           AppBus.mutatedCalendar()
         case Left(err) => showError(formError, "Eliminazione chiusura aziendale")(err)
       }
@@ -56,8 +60,10 @@ object CompanyCalendarTab:
     val confirmDeleteModal =
       confirmDialog(
         isOpen = pendingDelete.signal.map(_.isDefined),
-        titleText = Signal.fromValue("Elimina chiusura"),
-        message = pendingDelete.signal.map(_.fold("")(c => s"Eliminare la chiusura “${c.reason}” (${CompanyCalendarView.describe(c)})?")),
+        titleText = pendingDelete.signal.map(_.fold("")(c => s"Eliminare la chiusura «${c.reason}»?")),
+        message = pendingDelete.signal.map(
+          _.fold("")(c => s"${CompanyCalendarView.describe(c)}: quei giorni tornano lavorativi. L'operazione non è reversibile."),
+        ),
         confirmLabel = "Elimina",
         tone = DialogTone.Danger,
         onCancel = () => pendingDelete.set(None),
@@ -115,7 +121,8 @@ object CompanyCalendarTab:
       roleGatedGridCols(Role.Admin, "lg:grid-cols-[22rem_1fr]"),
       roleGated(Role.Admin)(
         card(
-          cls := "self-start p-4",
+          // Mobile: the list comes first, as in the other registries.
+          cls := "order-last self-start p-4 lg:order-none",
           formAnchor.bind,
           child <-- form.signal
             .map(_.editingId.isDefined)

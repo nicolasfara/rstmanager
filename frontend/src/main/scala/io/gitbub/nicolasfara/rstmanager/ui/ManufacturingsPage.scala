@@ -1,7 +1,5 @@
 package io.gitbub.nicolasfara.rstmanager.ui
 
-import java.util.UUID
-
 import scala.concurrent.ExecutionContext.Implicits.global
 
 import com.raquo.laminar.api.L.*
@@ -59,6 +57,10 @@ object ManufacturingsPage:
       ManufacturingCatalogForm.fresh(GeneratedCodes.next("MFG", manufacturingsSnapshot.now().map(_.code)), nextKey())
 
     val form = Var(freshForm())
+    val draft = DraftGuard[ManufacturingCatalogForm.State](
+      () => form.now(),
+      s => DraftGuard.discardTitle(Option.when(s.editingId.isDefined)(s"${s.code} · ${s.name}"), "la nuova lavorazione"),
+    )
 
     val taskOptions: Signal[List[(String, String)]] = tasksData.map {
       case Some(Right(list)) => list.map(t => t.id.toString -> s"${t.name} (${Formats.duration(t.requiredMinutes)}h)")
@@ -76,14 +78,27 @@ object ManufacturingsPage:
       form.set(freshForm())
       formError.set(None)
       touch.reset()
+      draft.markClean()
 
     val formAnchor = FormAnchor()
 
+    // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
-      formAnchor.reveal()
-      form.set(ManufacturingCatalogForm.fromResponse(manufacturing, () => nextKey()))
-      formError.set(None)
-      touch.reset()
+      draft.discardThen { () =>
+        formAnchor.reveal()
+        form.set(ManufacturingCatalogForm.fromResponse(manufacturing, () => nextKey()))
+        formError.set(None)
+        touch.reset()
+        draft.markClean()
+      }
+
+    /** "+ Nuova lavorazione" (mobile, where the form follows the list): leaves a record being edited, then shows the form. */
+    def startNew(): Unit =
+      if form.now().editingId.isDefined then
+        draft.discardThen(() =>
+          resetForm(); formAnchor.reveal(),
+        )
+      else formAnchor.reveal()
 
     /** Where to move the focus for `field`: the "no task" issue points at the first row's task select. */
     def focusTarget(field: Field): String = field match
@@ -109,7 +124,7 @@ object ManufacturingsPage:
               result match
                 case Right(_) =>
                   resetForm()
-                  Notifications.success(if current.editingId.isDefined then "Lavorazione salvata" else "Lavorazione creata")
+                  Notifications.success(s"Lavorazione ${request.code} ${if current.editingId.isDefined then "salvata" else "creata"}")
                   AppBus.mutatedManufacturings()
                 case Left(err) => showError(formError, "Salvataggio lavorazione")(err)
             }
@@ -118,9 +133,12 @@ object ManufacturingsPage:
 
     val pendingDelete = Var(Option.empty[ManufacturingCatalogResponse])
 
-    def delete(id: UUID): Unit =
-      ApiClient.deleteManufacturingCatalog(id).foreach {
-        case Right(_) => AppBus.mutatedManufacturings()
+    def delete(manufacturing: ManufacturingCatalogResponse): Unit =
+      ApiClient.deleteManufacturingCatalog(manufacturing.id).foreach {
+        case Right(_) =>
+          if form.now().editingId == Some(manufacturing.id) then resetForm()
+          Notifications.success(s"Lavorazione ${manufacturing.code} eliminata")
+          AppBus.mutatedManufacturings()
         case Left(err) => showError(formError, "Eliminazione lavorazione")(err)
       }
 
@@ -128,14 +146,12 @@ object ManufacturingsPage:
     val confirmDeleteModal =
       confirmDialog(
         isOpen = pendingDelete.signal.map(_.isDefined),
-        titleText = Signal.fromValue("Elimina lavorazione"),
-        message = pendingDelete.signal.map(
-          _.fold("")(m => s"Eliminare definitivamente la lavorazione ${m.code} — ${m.name} dal catalogo? L'operazione non è reversibile."),
-        ),
+        titleText = pendingDelete.signal.map(_.fold("")(m => s"Eliminare la lavorazione «${m.code} · ${m.name}»?")),
+        message = Signal.fromValue("La lavorazione viene rimossa dal catalogo. L'operazione non è reversibile."),
         confirmLabel = "Elimina",
         tone = DialogTone.Danger,
         onCancel = () => pendingDelete.set(None),
-        onConfirm = () => pendingDelete.now().foreach { m => delete(m.id); pendingDelete.set(None) },
+        onConfirm = () => pendingDelete.now().foreach { m => delete(m); pendingDelete.set(None) },
       )
 
     // Reactive "task (dipendente)" summary, shared by the desktop row and the mobile card.
@@ -158,7 +174,7 @@ object ManufacturingsPage:
     def renderRow(manufacturing: ManufacturingCatalogResponse): HtmlElement =
       tr(
         cls := "border-b border-slate-100 align-top last:border-0",
-        td(cls := "px-4 py-2 font-medium text-slate-800", manufacturing.code),
+        td(cls := "whitespace-nowrap px-4 py-2 font-medium text-slate-800", manufacturing.code),
         td(
           cls := "px-4 py-2",
           div(cls := "font-medium text-slate-700", manufacturing.name),
@@ -293,8 +309,10 @@ object ManufacturingsPage:
     val tasksError: Signal[Option[String]] = touch.visible(ManufacturingCatalogForm.tasksId, errorOf(Field.Tasks))
 
     val formCard = card(
-      cls := "self-start p-4",
+      // Mobile: the list comes first (finding a record must not mean scrolling past the form); "+ Nuova lavorazione" reaches the form.
+      cls := "order-last self-start p-4 lg:order-none",
       formAnchor.bind,
+      draft.bind,
       child <-- form.signal
         .map(_.editingId.isDefined)
         .distinct
@@ -308,7 +326,7 @@ object ManufacturingsPage:
               .amend(bind, onInput.mapToValue --> (_ => form.update(_.copy(codeManuallyEdited = true)))),
           ),
           Components.field(touch.spec("Nome", ManufacturingCatalogForm.fieldId(Field.Name), true, errorOf(Field.Name)))(bind =>
-            textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "Serramento standard").amend(bind),
+            textInput(form.signal.map(_.name), Observer[String](v => form.update(_.copy(name = v))), "Tendalino prua").amend(bind),
           ),
           Components.field(FieldSpec("Descrizione", "mfg-description"))(bind =>
             textInput(form.signal.map(_.description), Observer[String](v => form.update(_.copy(description = v))), "").amend(bind),
@@ -357,7 +375,7 @@ object ManufacturingsPage:
             if editing then "Salva" else "Crea",
             "Salvataggio…",
             submitting.signal,
-            Option.when(editing)(() => resetForm()),
+            Option.when(editing)(() => draft.discardThen(() => resetForm())),
             () => submit(),
           )
         },
@@ -371,7 +389,12 @@ object ManufacturingsPage:
         case Some(Right(list)) =>
           manufacturingsSnapshot.set(list)
           val current = form.now()
-          if current.editingId.isEmpty && !current.codeManuallyEdited then form.update(_.copy(code = GeneratedCodes.next("MFG", list.map(_.code))))
+          // The regenerated code is not a user edit: the clean content follows it.
+          if current.editingId.isEmpty && !current.codeManuallyEdited then
+            val regenerate: ManufacturingCatalogForm.State => ManufacturingCatalogForm.State =
+              _.copy(code = GeneratedCodes.next("MFG", list.map(_.code)))
+            form.update(regenerate)
+            draft.rebase(regenerate)
         case _ => ()
       },
       tasksData --> {
@@ -383,7 +406,13 @@ object ManufacturingsPage:
         cls := "overflow-hidden",
         div(
           cls := "space-y-2 border-b border-slate-100 p-3",
-          searchBox(query, "Cerca per codice, nome, task…", pager),
+          div(
+            cls := "flex items-center gap-2",
+            div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per codice, nome, task…", pager)),
+            roleGated(Role.Admin)(
+              button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuova lavorazione", onClick --> (_ => startNew())),
+            ),
+          ),
           div(cls := "md:hidden", sort.picker(List("code" -> "Codice", "name" -> "Nome", "tasks" -> "Task", "duration" -> "Durata"))),
         ),
         renderResult(manufacturingsData) { all =>
@@ -416,6 +445,7 @@ object ManufacturingsPage:
         },
       ),
       confirmDeleteModal,
+      draft.dialog,
     )
   end apply
 end ManufacturingsPage

@@ -39,7 +39,10 @@ object TasksPage:
     def resetForm(): Unit =
       editingId.set(None); name.set(""); description.set(""); hours.set("8:00"); defaultEmployee.set(""); formError.set(None)
 
+    val formAnchor = FormAnchor()
+
     def edit(task: TaskResponse): Unit =
+      formAnchor.reveal()
       editingId.set(Some(task.id))
       name.set(task.name)
       description.set(task.description.getOrElse(""))
@@ -163,6 +166,7 @@ object TasksPage:
         roleGated(Role.Admin)(
           card(
             cls := "self-start p-4",
+            formAnchor.bind,
             sectionTitle("Nuovo task"),
             div(
               cls := "mt-3 space-y-3",

@@ -8,6 +8,7 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.ApiError
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
+import org.scalajs.dom
 
 /** Minimal, reusable Tailwind-styled building blocks shared by all pages. */
 object Components:
@@ -44,6 +45,24 @@ object Components:
 
   def field(labelText: String, control: HtmlElement): HtmlElement =
     label(cls := "block", span(cls := labelCls, labelText), control)
+
+  /**
+   * Marks the form card that "Modifica" fills in place. On mobile the form is stacked above a long list, so `reveal()` scrolls it into view when its
+   * top is off-screen; `scroll-mt-20` keeps it clear of the sticky header.
+   */
+  final class FormAnchor:
+    private val element = Var(Option.empty[dom.Element])
+
+    val bind: Modifier[HtmlElement] = List(
+      cls := "scroll-mt-20",
+      onMountUnmountCallback(ctx => element.set(Some(ctx.thisNode.ref)), _ => element.set(None)),
+    )
+
+    def reveal(): Unit = element.now().foreach { el =>
+      val top = el.getBoundingClientRect().top
+      if top < 0 || top > dom.window.innerHeight then el.scrollIntoView(true)
+    }
+  end FormAnchor
 
   // ---- Form controls -----------------------------------------------------------------------------
 

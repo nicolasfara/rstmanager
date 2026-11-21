@@ -27,6 +27,16 @@ object Components:
     "w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
   private val labelCls = "mb-1 block text-xs font-medium text-slate-500"
 
+  /** Small uppercase heading of a form block (e.g. "Lavorazioni", "Materiali"). */
+  val subheadingCls = "text-xs font-semibold uppercase tracking-wide text-slate-500"
+
+  /** Extra classes of a control whose value is invalid; `!` so they win over the neutral border/ring of the input. */
+  val inputInvalidCls = "border-rose-400! focus:border-rose-500! focus:ring-rose-500!"
+
+  /** A text-only button (secondary inline actions such as "↺ Usa proposta" or "← Torna agli ordini"). */
+  val btnLink =
+    "inline-flex items-center gap-1 rounded-sm text-sm font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+
   // ---- Layout primitives -------------------------------------------------------------------------
 
   def card(mods: Modifier[HtmlElement]*): HtmlElement =
@@ -116,6 +126,11 @@ object Components:
       children <-- opts.map(_.map { case (optValue, optLabel) => option(value := optValue, optLabel) }),
     )
 
+  /** Case-insensitive substring match of the typed text on an option label (blank text matches everything). */
+  private val labelMatch: (String, String) => Boolean = (typed, labelText) =>
+    val needle = typed.trim.nn.toLowerCase.nn
+    needle.isEmpty || labelText.toLowerCase.nn.contains(needle)
+
   /**
    * Searchable single-select ("combobox"): a text input that filters `opts` in real time (case-insensitive substring match on the label); clicking a
    * result selects it. While not editing, the input shows the label of the selected value; blurring without picking anything discards the search text
@@ -129,10 +144,21 @@ object Components:
       placeholderText: String,
       maxResults: Int,
   ): HtmlElement =
-    val labelMatch: (String, String) => Boolean = (typed, labelText) =>
-      val needle = typed.trim.nn.toLowerCase.nn
-      needle.isEmpty || labelText.toLowerCase.nn.contains(needle)
-    combobox(valueSignal, writer, opts.map(_.map((id, labelText) => (id, labelText, labelText))), labelMatch, placeholderText, maxResults)
+    combobox(valueSignal, writer, opts.map(_.map((id, labelText) => (id, labelText, labelText))), labelMatch, placeholderText, maxResults, emptyMod)
+
+  /**
+   * Variant of [[searchableSelect]] whose `inputMods` are applied to the inner text `<input>` (the root is a wrapper `div`), so a [[FieldSpec]]
+   * `bind` (id, ARIA, invalid style) reaches the focusable control.
+   */
+  def searchableSelect(
+      valueSignal: Signal[String],
+      writer: Observer[String],
+      opts: Signal[List[(String, String)]],
+      placeholderText: String,
+      maxResults: Int,
+      inputMods: Modifier[HtmlElement],
+  ): HtmlElement =
+    combobox(valueSignal, writer, opts.map(_.map((id, labelText) => (id, labelText, labelText))), labelMatch, placeholderText, maxResults, inputMods)
 
   /**
    * Variant of [[searchableSelect]] whose options are `(value, label, searchText)`: the label is what is shown, the search text what the typed query
@@ -147,7 +173,19 @@ object Components:
       placeholderText: String,
       maxResults: Int,
   ): HtmlElement =
-    combobox(valueSignal, writer, opts, SearchTerms.matches, placeholderText, maxResults)
+    combobox(valueSignal, writer, opts, SearchTerms.matches, placeholderText, maxResults, emptyMod)
+
+  /** Variant of the search-text [[searchableSelect]] whose `inputMods` are applied to the inner text `<input>`. */
+  @targetName("searchableSelectWithSearchTextAndInputMods")
+  def searchableSelect(
+      valueSignal: Signal[String],
+      writer: Observer[String],
+      opts: Signal[List[(String, String, String)]],
+      placeholderText: String,
+      maxResults: Int,
+      inputMods: Modifier[HtmlElement],
+  ): HtmlElement =
+    combobox(valueSignal, writer, opts, SearchTerms.matches, placeholderText, maxResults, inputMods)
 
   /** The combobox behind both [[searchableSelect]] variants: `matches(typed, searchText)` decides which options are listed while typing. */
   private def combobox(
@@ -157,6 +195,7 @@ object Components:
       matches: (String, String) => Boolean,
       placeholderText: String,
       maxResults: Int,
+      inputMods: Modifier[HtmlElement],
   ): HtmlElement =
     // `None` = not editing (show the selected label); `Some(text)` = the search text being typed.
     val query = Var(Option.empty[String])
@@ -186,6 +225,7 @@ object Components:
         // Selection happens on the options' mousedown, which fires before this blur.
         onBlur --> { _ => open.set(false); query.set(None) },
         onKeyDown.filter(_.key == "Escape") --> { _ => open.set(false); query.set(None) },
+        inputMods,
       ),
       child <-- open.signal.combineWith(filtered).map { case (isOpen, options, hiddenCount) =>
         if !isOpen then emptyNode
@@ -229,6 +269,332 @@ object Components:
     checks.foldLeft(Signal.fromValue(List.empty[String]): Signal[List[String]]) { (acc, s) =>
       acc.combineWith(s).map { case (errs, opt) => errs ++ opt.toList }
     }
+
+  // ---- Form building blocks ----------------------------------------------------------------------
+
+  /** Small uppercase heading of a block inside a form (see [[subheadingCls]]). */
+  def subheading(text: String): HtmlElement = div(cls := subheadingCls, text)
+
+  /** Muted helper text shown under a control. */
+  def hint(text: String): HtmlElement = div(cls := "mt-1 text-xs text-slate-400", text)
+
+  private def errorListElement(errors: List[String]): HtmlElement =
+    ul(cls := "mt-3 list-disc pl-5 text-xs text-rose-600", errors.map(error => li(error)))
+
+  /** The validation messages as a red bullet list; nothing while there are none. */
+  def errorList(errors: Signal[List[String]]): Modifier[HtmlElement] =
+    child.maybe <-- errors.map(list => Option.when(list.nonEmpty)(errorListElement(list)))
+
+  /** Variant of [[errorList]] for messages already resolved (e.g. inside a `child <--` mapping). */
+  def errorList(errors: List[String]): Modifier[HtmlElement] =
+    if errors.isEmpty then emptyNode else errorListElement(errors)
+
+  /**
+   * What [[field]] needs to render an accessible, validated form field: the visible label, the DOM `id` of the control (also the anchor that
+   * [[FormFocus.focus]] targets), the required marker, an optional hint, the inline error to show (usually from [[FormTouch.visible]]), and extra
+   * modifiers for the wrapper (e.g. the `focusout` touch tracking added by [[FormTouch.spec]], or a dynamic warning under the control).
+   */
+  final case class FieldSpec(
+      labelText: String,
+      id: String,
+      required: Boolean = false,
+      hintText: Option[String] = None,
+      error: Signal[Option[String]] = Signal.fromValue(None),
+      wrapperMods: Modifier[HtmlElement] = emptyMod,
+  ):
+    def hintId: String = s"$id-hint"
+    def errorId: String = s"$id-error"
+
+  private def requiredMarker(required: Boolean): Modifier[HtmlElement] =
+    if required then List(span(aria.hidden := true, cls := "ml-0.5 text-rose-600", "*"), span(cls := "sr-only", " (obbligatorio)"))
+    else emptyMod
+
+  /**
+   * A labelled field driven by `spec`: `<label for=id>` with the required `*` (hidden from screen readers, which read "(obbligatorio)" instead), the
+   * hint and the inline error (a polite live region). `control` receives the `bind` modifier to apply to the actual focusable control: it sets `id`,
+   * `aria-required`, `aria-invalid`, `aria-describedby` (hint and error) and the invalid style. For a [[searchableSelect]] pass `bind` as its
+   * `inputMods`.
+   */
+  def field(spec: FieldSpec)(control: Modifier[HtmlElement] => HtmlElement): HtmlElement =
+    val invalid = spec.error.map(_.isDefined)
+    val bind: Modifier[HtmlElement] = List(
+      idAttr := spec.id,
+      aria.required := spec.required,
+      aria.invalid <-- invalid.map(isInvalid => if isInvalid then "true" else "false"),
+      aria.describedBy <-- invalid.map(isInvalid =>
+        (spec.hintText.map(_ => spec.hintId).toList ++ Option.when(isInvalid)(spec.errorId)).mkString(" "),
+      ),
+      cls <-- invalid.map(isInvalid => if isInvalid then inputInvalidCls else ""),
+    )
+    div(
+      cls := "block",
+      spec.wrapperMods,
+      label(forId := spec.id, cls := labelCls, spec.labelText, requiredMarker(spec.required)),
+      control(bind),
+      spec.hintText.fold[Modifier[HtmlElement]](emptyNode)(text => div(idAttr := spec.hintId, cls := "mt-1 text-xs text-slate-400", text)),
+      div(
+        idAttr := spec.errorId,
+        aria.live := "polite",
+        cls <-- invalid.map(isInvalid => if isInvalid then "mt-1 text-xs font-medium text-rose-600" else ""),
+        child.text <-- spec.error.map(_.getOrElse("")),
+      ),
+    )
+  end field
+
+  /** Segmented single choice (a few mutually exclusive options, e.g. priority): `opts` are `(value, label)` pairs. */
+  def segmented(valueSignal: Signal[String], writer: Observer[String], opts: List[(String, String)]): HtmlElement =
+    segmented(valueSignal, writer, opts, emptyMod)
+
+  /**
+   * Variant of [[segmented]] with `groupMods` on the `radiogroup` element (e.g. a [[FieldSpec]] `bind`, or `aria.label`). Each option is a plain
+   * `button` (reachable with Tab, activated with Enter/Space) with `role=radio` and `aria-checked`.
+   */
+  def segmented(valueSignal: Signal[String], writer: Observer[String], opts: List[(String, String)], groupMods: Modifier[HtmlElement]): HtmlElement =
+    div(
+      role := "radiogroup",
+      cls := "inline-flex flex-wrap gap-1 rounded-md border border-slate-300 bg-slate-50 p-0.5",
+      groupMods,
+      opts.map { (optValue, optLabel) =>
+        val active = valueSignal.map(_ == optValue)
+        button(
+          tpe := "button",
+          role := "radio",
+          aria.checked <-- active.map(isActive => if isActive then "true" else "false"),
+          cls := "rounded px-3 py-1 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+          cls <-- active.map(isActive => if isActive then "bg-slate-900 text-white shadow-sm" else "text-slate-600 hover:bg-slate-200"),
+          optLabel,
+          onClick --> (_ => writer.onNext(optValue)),
+        )
+      },
+    )
+
+  /** Completion state of a [[formSection]]: no indicator, all good, or `count` things still to fix. */
+  enum SectionStatus derives CanEqual:
+    case Neutral
+    case Complete
+    case Pending(count: Int)
+
+  /** "✓" when `errorCount` is 0, else "⚠ n" (amber), with screen-reader text. */
+  def statusIcon(errorCount: Int): HtmlElement =
+    if errorCount <= 0 then
+      span(
+        cls := "inline-flex items-center gap-1 text-xs font-medium text-emerald-700",
+        span(aria.hidden := true, "✓"),
+        span(cls := "sr-only", "Completo"),
+      )
+    else
+      span(
+        cls := "inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700",
+        span(aria.hidden := true, s"⚠ $errorCount"),
+        span(cls := "sr-only", if errorCount == 1 then "1 elemento da completare" else s"$errorCount elementi da completare"),
+      )
+
+  private def sectionHeading(title: String, description: String): HtmlElement =
+    div(
+      cls := "min-w-0 flex-1",
+      h2(cls := "text-base font-semibold text-slate-800", title),
+      if description.isEmpty then emptyNode else p(cls := "mt-0.5 text-xs text-slate-500", description),
+    )
+
+  /**
+   * A numbered form section card: number badge, title, description (empty = none) and the `status` indicator; `content` goes in the body (so an
+   * `idAttr` among it anchors the body).
+   */
+  def formSection(number: Int, title: String, description: String, status: Signal[SectionStatus])(content: Modifier[HtmlElement]*): HtmlElement =
+    sectionTag(
+      cls := "rounded-xl border border-slate-200 bg-white shadow-sm",
+      div(
+        cls := "flex items-start gap-3 border-b border-slate-100 px-4 py-3",
+        span(
+          aria.hidden := true,
+          cls := "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+          cls <-- status.map {
+            case SectionStatus.Complete => "bg-emerald-100 text-emerald-700"
+            case _ => "bg-slate-100 text-slate-700"
+          },
+          number.toString,
+        ),
+        sectionHeading(title, description),
+        child <-- status.map {
+          case SectionStatus.Neutral => emptyNode
+          case SectionStatus.Complete => statusIcon(0)
+          case SectionStatus.Pending(count) => statusIcon(count)
+        },
+      ),
+      div(cls := "scroll-mt-20 space-y-4 p-4", content),
+    )
+
+  /** Variant of [[formSection]] without number and status. */
+  def formSection(title: String, description: String)(content: Modifier[HtmlElement]*): HtmlElement =
+    sectionTag(
+      cls := "rounded-xl border border-slate-200 bg-white shadow-sm",
+      div(cls := "flex items-start gap-3 border-b border-slate-100 px-4 py-3", sectionHeading(title, description)),
+      div(cls := "scroll-mt-20 space-y-4 p-4", content),
+    )
+
+  /** A group of related fields inside a form, as a `<fieldset>` with its `<legend>` styled as a [[subheading]]. */
+  def fieldGroup(legendText: String)(content: Modifier[HtmlElement]*): HtmlElement =
+    fieldSet(
+      cls := "min-w-0 space-y-3",
+      legend(cls := s"$subheadingCls mb-2", legendText),
+      content,
+    )
+
+  /**
+   * Checkbox chips for a multiple choice (e.g. "Dipende da"): `choices` are `(id, label)` pairs, `selected` drives the checked state and
+   * `toggle(id, checked)` runs on every change. Hidden while `choices` is empty.
+   */
+  def checkboxChips(
+      labelText: String,
+      choices: Signal[List[(String, String)]],
+      selected: Signal[Set[String]],
+      toggle: (String, Boolean) => Unit,
+  ): HtmlElement =
+    div(
+      child <-- choices.map { list =>
+        if list.isEmpty then emptyNode
+        else
+          div(
+            role := "group",
+            aria.label := labelText,
+            cls := "mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600",
+            span(aria.hidden := true, cls := "font-medium text-slate-500", labelText),
+            list.map { case (id, choiceLabel) =>
+              label(
+                cls := "inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1",
+                input(
+                  typ := "checkbox",
+                  checked <-- selected.map(_.contains(id)),
+                  onChange.mapToChecked --> { isChecked => toggle(id, isChecked) },
+                ),
+                choiceLabel,
+              )
+            },
+          )
+      },
+    )
+
+  /**
+   * A collapsible card. The header is a toggle `button` (`aria-expanded`, `aria-controls=panelId`) showing `summary`; `actions` sit next to it,
+   * outside the button (no nested buttons). The `body` is always mounted and only hidden while collapsed, so its state (comboboxes, loaded materials)
+   * survives collapsing. `hasIssues` gives the card an amber border.
+   */
+  def accordionCard(
+      panelId: String,
+      expanded: Signal[Boolean],
+      onToggle: () => Unit,
+      summary: Modifier[HtmlElement],
+      actions: Modifier[HtmlElement],
+      hasIssues: Signal[Boolean],
+  )(body: Modifier[HtmlElement]*): HtmlElement =
+    div(
+      cls := "rounded-lg border bg-white",
+      cls <-- hasIssues.map(issues => if issues then "border-amber-300" else "border-slate-200"),
+      div(
+        cls := "flex items-center gap-2 px-3 py-2",
+        button(
+          tpe := "button",
+          cls := "flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+          aria.expanded <-- expanded,
+          aria.controls := panelId,
+          span(
+            aria.hidden := true,
+            cls := "shrink-0 text-xs text-slate-400 transition-transform",
+            cls <-- expanded.map(open => if open then "rotate-90" else ""),
+            "▶",
+          ),
+          div(cls := "min-w-0 flex-1", summary),
+          onClick --> (_ => onToggle()),
+        ),
+        div(cls := "flex shrink-0 items-center gap-2", actions),
+      ),
+      div(
+        idAttr := panelId,
+        cls := "border-t border-slate-100 p-3",
+        cls <-- expanded.map(open => if open then "" else "hidden"),
+        body,
+      ),
+    )
+
+  /**
+   * A form page with a sticky summary: `main` on the left, `sidebar` sticky on the right from `lg` up (below the sticky header), and on smaller
+   * screens `mobileBar` fixed at the bottom instead (the main column gets bottom padding so the bar never covers its end).
+   */
+  def summaryLayout(main: HtmlElement, sidebar: HtmlElement, mobileBar: HtmlElement): HtmlElement =
+    div(
+      div(
+        cls := "grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]",
+        div(cls := "min-w-0 pb-28 lg:pb-0", main),
+        asideTag(cls := "hidden self-start lg:sticky lg:top-20 lg:block", sidebar),
+      ),
+      div(
+        cls := "fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden",
+        mobileBar,
+      ),
+    )
+
+  /** One `label · value` line of a summary. */
+  def summaryRow(labelText: String, value: Signal[String]): HtmlElement =
+    div(
+      cls := "flex items-baseline justify-between gap-3 text-sm",
+      span(cls := "shrink-0 text-slate-500", labelText),
+      span(cls := "min-w-0 truncate text-right font-medium text-slate-800", child.text <-- value),
+    )
+
+  /**
+   * The checklist of what is still missing: each issue is a button that calls `onSelect` (e.g. reveal and focus the field). Neutral (slate/amber)
+   * until `emphasize` (typically [[FormTouch.submittedSignal]]), then red; "✓ Pronto" when empty. A polite live region. Re-renders on every emission
+   * of `issues`, so pass a `distinct` signal.
+   */
+  def issueList[A](issues: Signal[List[A]], text: A => String, emphasize: Signal[Boolean], onSelect: A => Unit): HtmlElement =
+    div(
+      aria.live := "polite",
+      child <-- issues.combineWith(emphasize).map { (list, strong) =>
+        if list.isEmpty then div(cls := "text-sm font-medium text-emerald-700", "✓ Pronto")
+        else
+          ul(
+            cls := "space-y-1",
+            list.map { issue =>
+              li(
+                button(
+                  tpe := "button",
+                  cls := "flex w-full items-start gap-1.5 rounded-sm text-left text-xs hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400",
+                  cls := (if strong then "text-rose-700" else "text-slate-600"),
+                  span(aria.hidden := true, cls := (if strong then "text-rose-500" else "text-amber-500"), "•"),
+                  span(text(issue)),
+                  onClick --> (_ => onSelect(issue)),
+                ),
+              )
+            },
+          )
+      },
+    )
+
+  /**
+   * The cancel / submit pair at the end of a form. The submit button stays enabled (an invalid submit shows the errors) except while `submitting`,
+   * when it shows `busyLabel`; `onSubmit` should still ignore calls while a request is in flight. No cancel button when `onCancel` is `None`.
+   */
+  def formActions(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): HtmlElement =
+    div(
+      cls := "flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end",
+      onCancel.fold[Modifier[HtmlElement]](emptyNode)(cancel =>
+        button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => cancel())),
+      ),
+      button(
+        tpe := "button",
+        cls := s"$btnPrimary justify-center",
+        disabled <-- submitting,
+        aria.busy <-- submitting,
+        child.text <-- submitting.map(busy => if busy then busyLabel else submitLabel),
+        onClick --> (_ => onSubmit()),
+      ),
+    )
 
   // ---- Feedback ----------------------------------------------------------------------------------
 

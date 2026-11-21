@@ -43,6 +43,14 @@ object OrderDrafts:
   /** Trims free text and collapses blank strings to `None` (an empty value clears the field). */
   private def normalizeStr(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
 
+  /**
+   * The template tasks with their effective duration (minutes): the per-task override configured on the catalog template, else the task-catalog
+   * duration. Shared by [[fromCatalog]] and the totals, so the preview always matches what is sent.
+   */
+  private def catalogMinutes(template: ManufacturingCatalogResponse): List[(TaskResponse, Int)] =
+    val durationOverride = template.taskDurations.map(entry => entry.taskId -> entry.minutes).toMap
+    template.tasks.map(task => task -> durationOverride.getOrElse(task.id, task.requiredMinutes))
+
   /** Builds a manufacturing from a catalog template, prefilling tasks/dependencies and the per-task employees. */
   def fromCatalog(
       template: ManufacturingCatalogResponse,
@@ -51,18 +59,16 @@ object OrderDrafts:
       taskEmployees: Map[String, String],
       newId: () => UUID,
   ): ManufacturingDto =
-    // Per-task duration override (minutes) configured on the catalog template; a task without an entry keeps its task-catalog duration.
-    val durationOverride = template.taskDurations.map(entry => entry.taskId -> entry.minutes).toMap
     ManufacturingDto(
       template.code,
       Formats.toIso(completionDate),
       "not_started",
-      template.tasks.map { task =>
+      catalogMinutes(template).map { (task, minutes) =>
         ScheduledTaskDto(
           newId(),
           task.id,
           "pending",
-          durationOverride.getOrElse(task.id, task.requiredMinutes),
+          minutes,
           Some(0),
           None,
           taskEmployees.get(task.id.toString).flatMap(parseUuid),
@@ -186,4 +192,219 @@ object OrderDrafts:
       if dependsOnIndexes.isEmpty then None else Some(ManufacturingDependencyByIndexDto(index, dependsOnIndexes))
     }
     if entries.isEmpty then None else Some(entries)
+
+  // ---- Header ------------------------------------------------------------------------------------
+
+  /** Days between the proposed work deadline and the customer delivery date. */
+  val deadlineLeadDays: Int = 5
+
+  /**
+   * Immutable state of the create-order header. `numberManuallyEdited` stops the generated number from being refreshed; `workDeadlineManuallyEdited`
+   * stops the work deadline from following the delivery date (see [[withDelivery]]). Dates are `yyyy-MM-dd` date-input text.
+   */
+  final case class HeaderState(
+      number: String,
+      numberManuallyEdited: Boolean,
+      customerId: String,
+      creationDate: String,
+      deliveryDate: String,
+      workDeadline: String,
+      workDeadlineManuallyEdited: Boolean,
+      priority: String,
+      description: String,
+  ) derives CanEqual:
+
+    /** The number typed by the user: from now on it is no longer regenerated. */
+    def withNumber(text: String): HeaderState = copy(number = text, numberManuallyEdited = true)
+
+    /** A freshly generated number, applied only while the user has not typed one. */
+    def withGeneratedNumber(text: String): HeaderState = if numberManuallyEdited then this else copy(number = text)
+
+    /** A new delivery date: the work deadline follows it ([[proposedDeadline]]) until the user edits the deadline by hand. */
+    def withDelivery(day: String): HeaderState =
+      if workDeadlineManuallyEdited then copy(deliveryDate = day) else copy(deliveryDate = day, workDeadline = proposedDeadline(day))
+
+    /** A work deadline typed by the user: it stops following the delivery date. */
+    def withDeadline(day: String): HeaderState = copy(workDeadline = day, workDeadlineManuallyEdited = true)
+
+    /** Back to the proposed work deadline ("↺ Usa proposta"), which follows the delivery date again. */
+    def withProposedDeadline: HeaderState = copy(workDeadline = proposedDeadline(deliveryDate), workDeadlineManuallyEdited = false)
+  end HeaderState
+
+  object HeaderState:
+    /** A blank header with the generated `number`, created `today` (`yyyy-MM-dd`), normal priority. */
+    def initial(number: String, today: String): HeaderState = HeaderState(number, false, "", today, "", "", false, "normal", "")
+
+  private def pad2(value: Int): String = if value < 10 then s"0$value" else value.toString
+
+  // Proleptic Gregorian day number <-> civil date (H. Hinnant's algorithms): pure, time-zone free day arithmetic.
+  private def daysFromCivil(year: Int, month: Int, day: Int): Int =
+    val y = if month <= 2 then year - 1 else year
+    val era = (if y >= 0 then y else y - 399) / 400
+    val yoe = y - era * 400
+    val doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1
+    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    era * 146097 + doe - 719468
+
+  private def civilFromDays(days: Int): String =
+    val z = days + 719468
+    val era = (if z >= 0 then z else z - 146096) / 146097
+    val doe = z - era * 146097
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val day = doy - (153 * mp + 2) / 5 + 1
+    val month = if mp < 10 then mp + 3 else mp - 9
+    val year = yoe + era * 400 + (if month <= 2 then 1 else 0)
+    s"$year-${pad2(month)}-${pad2(day)}"
+
+  /** Shifts a `yyyy-MM-dd` day by `delta` days; `None` when the text is not such a day. */
+  private def shiftDay(day: String, delta: Int): Option[String] =
+    day.trim.nn.split("-").nn.toList.map(_.nn.toIntOption) match
+      case Some(year) :: Some(month) :: Some(dayOfMonth) :: Nil if month >= 1 && month <= 12 && dayOfMonth >= 1 && dayOfMonth <= 31 =>
+        Some(civilFromDays(daysFromCivil(year, month, dayOfMonth) + delta))
+      case _ => None
+
+  /** The work deadline proposed for a delivery date: [[deadlineLeadDays]] days earlier; empty when the delivery date is empty or unreadable. */
+  def proposedDeadline(deliveryDate: String): String = shiftDay(deliveryDate, -deadlineLeadDays).getOrElse("")
+
+  /** Soft warning only: the work deadline falls after the customer delivery date. */
+  def deadlineAfterDelivery(header: HeaderState): Boolean =
+    val deadline = header.workDeadline.trim.nn
+    val delivery = header.deliveryDate.trim.nn
+    deadline.nonEmpty && delivery.nonEmpty && deadline > delivery
+
+  /** True while nothing was entered: the header is still the initial one (number not typed, created `today`) and no manufacturing was added. */
+  def isPristine(header: HeaderState, today: String, snapshots: List[MfgSnapshot]): Boolean =
+    snapshots.isEmpty && header == HeaderState.initial(header.number, today)
+
+  // ---- Validation --------------------------------------------------------------------------------
+
+  /** Header fields that can carry an issue. */
+  enum HeaderField derives CanEqual:
+    case Number, Customer, CreationDate, DeliveryDate, WorkDeadline
+
+  /** Manufacturing-level fields that can carry an issue. */
+  enum MfgField derives CanEqual:
+    case Catalog, Code, Tasks, Materials
+
+  /** Fields of a custom manufacturing's task row that can carry an issue. */
+  enum TaskField derives CanEqual:
+    case Task, Duration
+
+  /** Where an issue points to: `key` is the [[MfgSnapshot.key]], `index` the 0-based position of the task row in the snapshot. */
+  enum IssueTarget derives CanEqual:
+    case Header(field: HeaderField)
+    case NoManufacturings
+    case Manufacturing(key: Int, field: MfgField)
+    case Task(key: Int, index: Int, field: TaskField)
+
+  /** One blocking problem of the create-order draft, with its Italian message. */
+  final case class Issue(target: IssueTarget, message: String) derives CanEqual
+
+  private def isBlankText(value: String): Boolean = value.trim.nn.isEmpty
+
+  /** The header issues, in form order: number, customer, creation, delivery, work deadline. */
+  def headerIssues(header: HeaderState): List[Issue] =
+    def at(field: HeaderField, message: String): Issue = Issue(IssueTarget.Header(field), message)
+    List(
+      Option.when(isBlankText(header.number))(at(HeaderField.Number, "Numero ordine obbligatorio")),
+      if isBlankText(header.customerId) then Some(at(HeaderField.Customer, "Cliente obbligatorio"))
+      else Option.when(parseUuid(header.customerId.trim.nn).isEmpty)(at(HeaderField.Customer, "Seleziona un cliente valido dall'elenco")),
+      Option.when(isBlankText(header.creationDate))(at(HeaderField.CreationDate, "Data di creazione obbligatoria")),
+      Option.when(isBlankText(header.deliveryDate))(at(HeaderField.DeliveryDate, "Data di consegna cliente obbligatoria")),
+      Option.when(isBlankText(header.workDeadline))(at(HeaderField.WorkDeadline, "Deadline fine lavorazione obbligatoria")),
+    ).flatten
+
+  /**
+   * The issues of the manufacturing at 0-based `index`: a catalog one needs a resolvable template; a custom one a code, at least one task, and per
+   * task row a selected task (not repeated in the same manufacturing), a readable duration (0 allowed). Then the material line messages, suppressed
+   * while `materials` is still empty (not loaded yet) although lines were entered.
+   */
+  def manufacturingIssues(
+      snapshot: MfgSnapshot,
+      index: Int,
+      catalog: String => Option[ManufacturingCatalogResponse],
+      materials: MaterialDrafts.Context,
+  ): List[Issue] =
+    val key = snapshot.key
+    val prefix = s"Lavorazione ${index + 1}"
+    def at(field: MfgField, message: String): Issue = Issue(IssueTarget.Manufacturing(key, field), s"$prefix: $message")
+    val core = snapshot.core
+    val structural =
+      if core.mode == "catalog" then
+        if isBlankText(core.catalogId) then List(at(MfgField.Catalog, "seleziona la lavorazione a catalogo"))
+        else if catalog(core.catalogId).isEmpty then List(at(MfgField.Catalog, "la lavorazione a catalogo selezionata non è disponibile"))
+        else Nil
+      else
+        val code = Option.when(isBlankText(core.code))(at(MfgField.Code, "codice obbligatorio")).toList
+        val noTasks = Option.when(snapshot.tasks.isEmpty)(at(MfgField.Tasks, "aggiungi almeno un task")).toList
+        val rows = snapshot.tasks.zipWithIndex.flatMap { (task, row) =>
+          def atRow(field: TaskField, message: String): Issue = Issue(IssueTarget.Task(key, row, field), s"$prefix, task ${row + 1}: $message")
+          val taskId = parseUuid(task.taskId.trim.nn)
+          val taskIssue =
+            if taskId.isEmpty then Some(atRow(TaskField.Task, "seleziona un task"))
+            else
+              val repeated = snapshot.tasks.take(row).exists(earlier => parseUuid(earlier.taskId.trim.nn).map(_.toString) == taskId.map(_.toString))
+              Option.when(repeated)(atRow(TaskField.Task, "task già presente in questa lavorazione"))
+          val durationIssue =
+            if isBlankText(task.hours) then Some(atRow(TaskField.Duration, "durata obbligatoria"))
+            else
+              Option.when(Formats.parseDuration(task.hours).isEmpty)(
+                atRow(TaskField.Duration, "durata non valida (usa h:mm, es. 1:30, o ore intere)"),
+              )
+          taskIssue.toList ++ durationIssue
+        }
+        code ++ noTasks ++ rows
+    val loading = materials.materials.isEmpty && snapshot.materials.exists(row => !MaterialDrafts.isBlank(row))
+    val materialIssues =
+      if loading then Nil
+      else
+        MaterialDrafts
+          .errors(snapshot.materials, materials)
+          .map(message => Issue(IssueTarget.Manufacturing(key, MfgField.Materials), s"$prefix, materiali — $message"))
+    structural ++ materialIssues
+  end manufacturingIssues
+
+  /** Every issue of the draft, in display order: header, then the missing-manufacturings one, then each manufacturing in sequence. */
+  def validate(
+      header: HeaderState,
+      snapshots: List[MfgSnapshot],
+      catalog: String => Option[ManufacturingCatalogResponse],
+      materials: MaterialDrafts.Context,
+  ): List[Issue] =
+    val noManufacturings = Option.when(snapshots.isEmpty)(Issue(IssueTarget.NoManufacturings, "Aggiungi almeno una lavorazione")).toList
+    headerIssues(header) ++ noManufacturings ++ snapshots.zipWithIndex.flatMap((snapshot, index) =>
+      manufacturingIssues(snapshot, index, catalog, materials),
+    )
+
+  // ---- Totals ------------------------------------------------------------------------------------
+
+  /** Live totals: task count, work minutes and the materials cost (2 decimals, as the server computes it). */
+  final case class MfgTotals(tasks: Int, minutes: Int, materialsCost: String) derives CanEqual
+
+  /**
+   * Totals of one manufacturing draft: a catalog one counts the template tasks with their effective (overridden) durations, nothing while the
+   * template is unresolved; a custom one counts the rows with a selected task and their readable durations.
+   */
+  def mfgTotals(snapshot: MfgSnapshot, catalog: String => Option[ManufacturingCatalogResponse], materials: MaterialDrafts.Context): MfgTotals =
+    val (tasks, minutes) =
+      if snapshot.core.mode == "catalog" then
+        catalog(snapshot.core.catalogId).fold((0, 0)) { template =>
+          val durations = catalogMinutes(template).map(_._2)
+          (durations.size, durations.sum)
+        }
+      else
+        val selected = snapshot.tasks.filter(task => parseUuid(task.taskId.trim.nn).isDefined)
+        (selected.size, selected.flatMap(task => Formats.parseDuration(task.hours)).sum)
+    MfgTotals(tasks, minutes, MaterialDrafts.totalCost(snapshot.materials, materials))
+
+  /** Totals of the whole order: the sums of [[mfgTotals]], the cost summed over every rounded line like the server. */
+  def orderTotals(
+      snapshots: List[MfgSnapshot],
+      catalog: String => Option[ManufacturingCatalogResponse],
+      materials: MaterialDrafts.Context,
+  ): MfgTotals =
+    val each = snapshots.map(mfgTotals(_, catalog, materials))
+    MfgTotals(each.map(_.tasks).sum, each.map(_.minutes).sum, MaterialDrafts.totalCost(snapshots.flatMap(_.materials), materials))
 end OrderDrafts

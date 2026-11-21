@@ -32,13 +32,17 @@ object App:
     case Page.Tasks => TasksPage()
     case Page.Manufacturings => ManufacturingsPage()
 
+  /** Every page change goes through the [[NavigationGuard]], so a page with an unsaved draft can ask before being unmounted. */
+  private def navigate(current: Var[Page], page: Page): Unit =
+    NavigationGuard.request(() => current.set(page))
+
   private def navButton(page: Page, current: Var[Page]): HtmlElement =
     button(
       tpe := "button",
       cls := "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
       cls <-- current.signal.map(active => if active == page then "bg-slate-900 text-white" else "text-slate-600 hover:bg-slate-200"),
       label(page),
-      onClick --> (_ => current.set(page)),
+      onClick --> (_ => navigate(current, page)),
     )
 
   private def catalogDropdown(current: Var[Page]): HtmlElement =
@@ -66,7 +70,7 @@ object App:
                 cls <-- current.signal.map(active => if active == page then "bg-slate-100 text-slate-900" else "text-slate-600 hover:bg-slate-100"),
                 label(page),
                 onClick --> (_ =>
-                  current.set(page); open.set(false)
+                  open.set(false); navigate(current, page)
                 ),
               )
             },
@@ -107,6 +111,33 @@ object App:
       ),
     )
 
+  /** The latest success notice, as a toast at the top center (emerald, polite live region). */
+  private def successToast: HtmlElement =
+    div(
+      role := "status",
+      aria.live := "polite",
+      cls := "pointer-events-none fixed inset-x-0 top-16 z-50 flex justify-center px-4",
+      child.maybe <-- Notifications.latestSignal.map(
+        _.map(notice =>
+          div(
+            cls := "pointer-events-auto flex w-full max-w-md items-start justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm shadow-lg",
+            div(
+              cls := "flex min-w-0 items-start gap-2 font-medium text-emerald-800",
+              span(aria.hidden := true, "✓"),
+              span(cls := "break-words", notice.message),
+            ),
+            button(
+              tpe := "button",
+              cls := "shrink-0 rounded-md px-1.5 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-900",
+              aria.label := "Chiudi notifica",
+              "✕",
+              onClick --> (_ => Notifications.dismiss(notice.id)),
+            ),
+          ),
+        ),
+      ),
+    )
+
   def apply(): HtmlElement =
     ErrorCenter.installRuntimeHandlers()
     div(
@@ -117,6 +148,7 @@ object App:
         case AuthState.Authenticated(user) => shell(user)
       },
       globalErrorBanner,
+      successToast,
     )
   end apply
 
@@ -178,7 +210,7 @@ object App:
                     cls <-- current.signal.map(active => if active == page then "bg-slate-900 text-white" else "text-slate-600 hover:bg-slate-100"),
                     label(page),
                     onClick --> (_ =>
-                      current.set(page); menuOpen.set(false)
+                      menuOpen.set(false); navigate(current, page)
                     ),
                   )
                 },
@@ -190,7 +222,7 @@ object App:
                     cls <-- current.signal.map(active => if active == page then "bg-slate-900 text-white" else "text-slate-600 hover:bg-slate-100"),
                     label(page),
                     onClick --> (_ =>
-                      current.set(page); menuOpen.set(false)
+                      menuOpen.set(false); navigate(current, page)
                     ),
                   )
                 },
@@ -213,6 +245,7 @@ object App:
         cls := "mx-auto max-w-7xl px-4 sm:px-6 py-6",
         child <-- current.signal.map(render),
       ),
+      NavigationGuard.dialog,
     )
   end shell
 end App

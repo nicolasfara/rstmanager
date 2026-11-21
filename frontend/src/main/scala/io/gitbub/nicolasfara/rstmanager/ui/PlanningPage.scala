@@ -389,23 +389,21 @@ object PlanningPage:
         aria.label <-- manufacturingCode.combineWith(taskName).map((code, task) => s"Lavorazione $code, task $task: aggiorna avanzamento"),
         onClick.compose(_.sample(editAndPref)) --> openSlice,
         onKeyDown.filter(e => e.key == "Enter" || e.key == " ").preventDefault.compose(_.sample(editAndPref)) --> openSlice,
-        // Order number + customer (context) + urgency badge vs the manufacturing deadline
+        // Order number (context) + urgency badge vs the manufacturing deadline
         div(
           cls := "flex items-center justify-between gap-2",
           span(
-            cls := "flex min-w-0 items-baseline gap-1 text-[11px] text-slate-500",
-            span(
-              cls := "shrink-0 font-medium uppercase tracking-wide",
-              child.text <-- orderNames.map(names => s"Ordine ${names.getOrElse(slice.orderId, Formats.shortId(slice.orderId))}"),
-            ),
-            child.maybe <-- customerName.map(
-              _.map(name => span(cls := "truncate text-slate-600", title := s"Cliente: $name", s"· $name")),
-            ),
+            cls := "truncate text-[11px] font-medium uppercase tracking-wide text-slate-500",
+            child.text <-- orderNames.map(names => s"Ordine ${names.getOrElse(slice.orderId, Formats.shortId(slice.orderId))}"),
           ),
           child <-- urgency.map { u =>
             if u.label.isEmpty then emptyNode
             else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", title <-- deadlineHint, u.label)
           },
+        ),
+        // Customer of the order, on its own line so it is never cut off
+        child.maybe <-- customerName.map(
+          _.map(name => div(cls := "break-words text-xs leading-tight text-slate-600", title := s"Cliente: $name", name)),
         ),
         // Manufacturing (prominent): code + optional description
         div(

@@ -53,6 +53,8 @@ object DeliveryNotesTab:
     val cancelReason = Var("")
     val actionError = Var(Option.empty[ApiError])
     val closeEditor: () => Unit = () => editor.set(None)
+    // What the modal's ✕ and Escape run: the open editor swaps in its draft-guarded cancel (asks before discarding a dirty DDT).
+    val cancelEditor = Var(closeEditor)
 
     val supplierFilterOptions: Signal[List[(String, String)]] = suppliers.map { loaded =>
       val listed = loaded match
@@ -275,8 +277,8 @@ object DeliveryNotesTab:
       child.maybe <-- actionError.signal.map(_.map(errorBanner)),
       renderResult(notes)(notesTable),
       cancelDialog,
-      modal(editor.signal.map(_.isDefined), editor.signal.map(_.fold("")(DeliveryNoteEditor.title)), "max-w-6xl", closeEditor)(
-        div(child.maybe <-- editor.signal.distinct.map(_.map(DeliveryNoteEditor(_, closeEditor)))),
+      modal(editor.signal.map(_.isDefined), editor.signal.map(_.fold("")(DeliveryNoteEditor.title)), "max-w-6xl", () => cancelEditor.now()())(
+        div(child.maybe <-- editor.signal.distinct.map(_.map(DeliveryNoteEditor(_, closeEditor, cancelEditor.set)))),
       ),
     )
   end apply

@@ -97,7 +97,7 @@ object EmployeesTab:
     // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(emp: EmployeeResponse): Unit =
       draft.discardThen { () =>
-        formAnchor.reveal()
+        formAnchor.revealAndFocus()
         form.set(EmployeeForm.fromResponse(emp))
         pageError.set(None)
         touch.reset()
@@ -108,9 +108,9 @@ object EmployeesTab:
     def startNew(): Unit =
       if form.now().editingId.isDefined then
         draft.discardThen(() =>
-          resetForm(); formAnchor.reveal(),
+          resetForm(); formAnchor.revealAndFocus(),
         )
-      else formAnchor.reveal()
+      else formAnchor.revealAndFocus()
 
     // Both editors write the whole record: after a save, the other one (if open on the same employee) adopts the stored version, so its next
     // save does not revert what this one changed.
@@ -297,6 +297,8 @@ object EmployeesTab:
                   button(
                     tpe := "button",
                     cls := "text-slate-400 hover:text-rose-600",
+                    aria.label := "Rimuovi override",
+                    title := "Rimuovi override",
                     "✕",
                     onClick --> (_ => overrideEditor.update(state => state.copy(workingOverrides = state.workingOverrides.patch(index, Nil, 1)))),
                   ),
@@ -402,7 +404,9 @@ object EmployeesTab:
         div(
           cls := "flex items-center gap-2 border-b border-slate-100 p-3",
           div(cls := "min-w-0 flex-1", searchBox(query, "Cerca dipendente per nome o cognome…", pager)),
-          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuovo dipendente", onClick --> (_ => startNew()))),
+          roleGated(Role.Admin)(
+            button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo dipendente", onClick --> (_ => startNew())),
+          ),
         ),
         renderResult(data) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun dipendente."))

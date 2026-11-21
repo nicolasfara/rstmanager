@@ -57,6 +57,7 @@ object NavigationGuard:
       pending.signal.map(_.fold("")(_._1.title)),
       pending.signal.map(_.fold("")(_._1.message)),
       "Abbandona",
+      "Continua a modificare",
       DialogTone.Danger,
       () => pending.set(None),
       () =>

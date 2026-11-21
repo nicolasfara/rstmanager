@@ -54,7 +54,7 @@ object TasksPage:
     // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(task: TaskResponse): Unit =
       draft.discardThen { () =>
-        formAnchor.reveal()
+        formAnchor.revealAndFocus()
         editingId.set(Some(task.id))
         name.set(task.name)
         description.set(task.description.getOrElse(""))
@@ -68,9 +68,9 @@ object TasksPage:
     def startNew(): Unit =
       if editingId.now().isDefined then
         draft.discardThen(() =>
-          resetForm(); formAnchor.reveal(),
+          resetForm(); formAnchor.revealAndFocus(),
         )
-      else formAnchor.reveal()
+      else formAnchor.revealAndFocus()
 
     def submit(): Unit =
       Formats.parseDuration(hours.now()) match
@@ -228,7 +228,9 @@ object TasksPage:
             div(
               cls := "flex items-center gap-2",
               div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, descrizione, dipendente…", pager)),
-              roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuovo task", onClick --> (_ => startNew()))),
+              roleGated(Role.Admin)(
+                button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo task", onClick --> (_ => startNew())),
+              ),
             ),
             div(
               cls := "md:hidden",
@@ -264,35 +266,17 @@ object TasksPage:
           },
         ),
       ),
-      div(
-        cls := "fixed inset-0 z-50 items-center justify-center overflow-y-auto bg-slate-900/50 p-4",
-        cls <-- blockedDelete.signal.map(err => if err.isDefined then "flex" else "hidden"),
-        onClick --> (_ => blockedDelete.set(None)),
+      // An accessible dialog (Escape, focus trap and restore) explaining why the task cannot be deleted.
+      modal(blockedDelete.signal.map(_.isDefined), Signal.fromValue("Task usato in lavorazioni"), "max-w-md", () => blockedDelete.set(None))(
         div(
-          cls := "w-full max-w-sm",
-          card(
-            cls := "p-6",
-            onClick.stopPropagation --> (_ => ()),
-            div(
-              cls := "flex flex-col items-center gap-4 text-center",
-              div(
-                cls := "flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600",
-                span(cls := "text-2xl leading-none", "⚠"),
-              ),
-              div(
-                cls := "space-y-1",
-                h2(cls := "text-base font-semibold text-slate-900", "Task usato in lavorazioni"),
-                p(cls := "text-sm text-slate-500", child.text <-- blockedDelete.signal.map(_.map(_.message).getOrElse(""))),
-              ),
-            ),
-            ul(
-              cls := "mt-4 list-disc space-y-1 rounded-md bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-700",
-              children <-- blockedDelete.signal.map(_.fold(List.empty[String])(_.details).map(item => li(item))),
-            ),
-            div(
-              cls := "mt-6",
-              button(tpe := "button", cls := s"$btnPrimary w-full justify-center", "Ok", onClick --> (_ => blockedDelete.set(None))),
-            ),
+          p(cls := "text-sm text-slate-500", child.text <-- blockedDelete.signal.map(_.map(_.message).getOrElse(""))),
+          ul(
+            cls := "mt-4 list-disc space-y-1 rounded-md bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-700",
+            children <-- blockedDelete.signal.map(_.fold(List.empty[String])(_.details).map(item => li(item))),
+          ),
+          div(
+            cls := "mt-6",
+            button(tpe := "button", cls := s"$btnPrimary w-full justify-center", "Ok", onClick --> (_ => blockedDelete.set(None))),
           ),
         ),
       ),

@@ -96,7 +96,7 @@ object MaterialsTab:
     // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(material: MaterialResponse): Unit =
       draft.discardThen { () =>
-        formAnchor.reveal()
+        formAnchor.revealAndFocus()
         form.set(MaterialForm.fromResponse(material))
         editedSuppliers.set(material.suppliers)
         formError.set(None)
@@ -108,9 +108,9 @@ object MaterialsTab:
     def startNew(): Unit =
       if form.now().editingId.isDefined then
         draft.discardThen(() =>
-          resetForm(); formAnchor.reveal(),
+          resetForm(); formAnchor.revealAndFocus(),
         )
-      else formAnchor.reveal()
+      else formAnchor.revealAndFocus()
 
     def submit(): Unit =
       if !submitting.now() then
@@ -416,7 +416,7 @@ object MaterialsTab:
         div(
           cls := "flex flex-wrap items-center justify-end gap-3 border-b border-slate-100 px-4 py-2",
           div(cls := "mr-auto w-full sm:w-80", searchBox(query, "Cerca per codice, descrizione, MPN, fornitore…", pager)),
-          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall lg:hidden", "+ Nuovo materiale", onClick --> (_ => startNew()))),
+          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall min-h-10 lg:hidden", "+ Nuovo materiale", onClick --> (_ => startNew()))),
           roleGated(Role.Admin)(
             button(
               tpe := "button",

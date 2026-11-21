@@ -114,6 +114,9 @@ object OrdersPage:
   /** A lifecycle transition awaiting an explicit user acknowledgement. */
   private final case class ConfirmData(orderId: UUID, action: String, title: String, message: String)
 
+  /** A removal from a saved order awaiting confirmation: a whole manufacturing, or one task of it (`task` = scheduled task id, template task id). */
+  private final case class PendingRemoval(orderId: UUID, mfgId: UUID, mfgCode: String, task: Option[(UUID, UUID)])
+
   def apply(): HtmlElement =
     val pageError = Var(Option.empty[ApiError])
     val view = Var(View.List)
@@ -394,6 +397,8 @@ object OrdersPage:
 
     // ---- Row actions -----------------------------------------------------------------------------
     val confirm = Var(Option.empty[ConfirmData])
+    // Removals from the edit modal hit the saved order at once, so they are confirmed first.
+    val pendingRemoval = Var(Option.empty[PendingRemoval])
 
     def transition(id: UUID, action: String): Unit =
       ApiClient.orderTransition(id, TransitionRequest(action, None)).foreach {
@@ -518,8 +523,10 @@ object OrdersPage:
                   tpe := "button",
                   cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
                   disabled := m.tasks.size <= 1,
+                  aria.label := "Rimuovi task",
+                  title := "Rimuovi task",
                   "✕",
-                  onClick --> (_ => if m.tasks.size > 1 then applyStructural(ApiClient.removeManufacturingTask(order.id, m.id, t.id))),
+                  onClick --> (_ => if m.tasks.size > 1 then pendingRemoval.set(Some(PendingRemoval(order.id, m.id, m.code, Some((t.id, t.taskId)))))),
                 ),
               ),
               checkboxChips(
@@ -682,7 +689,7 @@ object OrdersPage:
                 tpe := "button",
                 cls := s"$btnDanger w-full justify-center sm:w-auto",
                 "Rimuovi lavorazione",
-                onClick --> (_ => applyStructural(ApiClient.removeManufacturing(order.id, m.id))),
+                onClick --> (_ => pendingRemoval.set(Some(PendingRemoval(order.id, m.id, m.code, None)))),
               ),
             )
           else emptyNode,
@@ -848,25 +855,35 @@ object OrdersPage:
     end editContent
 
     val editModal =
-      div(
-        cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-2 sm:p-4",
-        cls <-- editing.signal.map(o => if o.isDefined then "flex" else "hidden"),
-        div(
-          cls := "mt-2 w-full max-w-2xl sm:mt-8",
-          card(
-            div(
-              cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
-              h2(
-                cls := "text-sm font-semibold text-slate-800",
-                child.text <-- editing.signal.map(
-                  _.map(o => s"${if OrderStatus.isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse(""),
-                ),
-              ),
-              button(cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => editing.set(None))),
-            ),
-            div(cls := "p-4", child <-- editing.signal.map { case Some(o) => editContent(o); case None => emptyNode }),
-          ),
+      modal(
+        editing.signal.map(_.isDefined),
+        editing.signal.map(
+          _.map(o => s"${if OrderStatus.isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse(""),
         ),
+        "max-w-2xl",
+        () => editing.set(None),
+      )(div(child <-- editing.signal.map { case Some(o) => editContent(o); case None => emptyNode }))
+
+    val removalDialog =
+      confirmDialog(
+        isOpen = pendingRemoval.signal.map(_.isDefined),
+        titleText = pendingRemoval.signal.combineWith(tasksMap).map {
+          case (Some(PendingRemoval(_, _, code, Some((_, templateId)))), names) =>
+            s"Rimuovere il task «${names.getOrElse(templateId, Formats.shortId(templateId))}» da «$code»?"
+          case (Some(removal), _) => s"Rimuovere la lavorazione «${removal.mfgCode}»?"
+          case (None, _) => ""
+        },
+        message = Signal.fromValue("La rimozione viene applicata subito all'ordine salvato e non è reversibile."),
+        confirmLabel = "Rimuovi",
+        tone = DialogTone.Danger,
+        onCancel = () => pendingRemoval.set(None),
+        onConfirm = () =>
+          pendingRemoval.now().foreach { removal =>
+            pendingRemoval.set(None)
+            removal.task match
+              case Some((scheduledId, _)) => applyStructural(ApiClient.removeManufacturingTask(removal.orderId, removal.mfgId, scheduledId))
+              case None => applyStructural(ApiClient.removeManufacturing(removal.orderId, removal.mfgId))
+          },
       )
 
     // ---- Confirmation (ACK) modal ----------------------------------------------------------------
@@ -1068,6 +1085,8 @@ object OrdersPage:
         Option.when(current == View.Create)(OrderCreateView(createDeps, () => view.set(View.List))),
       ),
       editModal,
+      // After the edit modal, so they stack above it; as its siblings, their Escape never reaches it.
+      removalDialog,
       confirmModal,
     )
   end apply

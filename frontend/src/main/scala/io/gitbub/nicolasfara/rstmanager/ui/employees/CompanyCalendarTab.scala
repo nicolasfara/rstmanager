@@ -31,7 +31,7 @@ object CompanyCalendarTab:
     val formAnchor = FormAnchor()
 
     def edit(c: ClosureResponse): Unit =
-      formAnchor.reveal()
+      formAnchor.revealAndFocus()
       form.set(ClosureForm.fromResponse(c))
       formError.set(None)
 

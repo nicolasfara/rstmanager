@@ -55,7 +55,7 @@ object CustomersPage:
     // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(c: CustomerResponse): Unit =
       draft.discardThen { () =>
-        formAnchor.reveal()
+        formAnchor.revealAndFocus()
         form.set(CustomerForm.fromResponse(c))
         formError.set(None)
         touch.reset()
@@ -66,9 +66,9 @@ object CustomersPage:
     def startNew(): Unit =
       if form.now().editingId.isDefined then
         draft.discardThen(() =>
-          resetForm(); formAnchor.reveal(),
+          resetForm(); formAnchor.revealAndFocus(),
         )
-      else formAnchor.reveal()
+      else formAnchor.revealAndFocus()
 
     // Always clickable: an invalid form reveals every error and focuses the first one instead of sending; re-entrant clicks are ignored.
     def submit(): Unit =
@@ -309,7 +309,9 @@ object CustomersPage:
           div(
             cls := "flex items-center gap-2",
             div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, ragione sociale, contatti, barca…", pager)),
-            roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuovo cliente", onClick --> (_ => startNew()))),
+            roleGated(Role.Admin)(
+              button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo cliente", onClick --> (_ => startNew())),
+            ),
           ),
           div(cls := "md:hidden", sort.picker(List("customer" -> "Cliente", "contacts" -> "Contatti", "boat" -> "Barca", "type" -> "Tipo"))),
         ),

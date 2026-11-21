@@ -7,7 +7,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, DirtyTracker, FormFocus, FormTouch, MaterialDrafts, Notifications, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, DirtyTracker, DraftGuard, FormFocus, FormTouch, MaterialDrafts, Notifications, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messages, FieldIssue }
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.DeliveryNoteForm.{ Context, Field, Row, RowField }
@@ -33,8 +33,12 @@ object DeliveryNoteEditor:
     case Target.New => "Registra DDT"
     case Target.Edit(note) => s"Modifica DDT n. ${note.number} — ${note.supplierName}"
 
-  /** The editor of `target`, rebuilt on every opening; `close` runs on "Annulla" and after a successful save. */
-  def apply(target: Target, close: () => Unit): HtmlElement =
+  /**
+   * The editor of `target`, rebuilt on every opening; `close` runs after a successful save, or on "Annulla" once a dirty draft was confirmed
+   * discarded. While the form is shown, `registerCancel` receives that guarded cancel (and `close` again on unmount), so the enclosing modal's ✕ and
+   * Escape ask before dropping a draft too.
+   */
+  def apply(target: Target, close: () => Unit, registerCancel: (() => Unit) => Unit): HtmlElement =
     val kept: Set[UUID] = target match
       case Target.New => Set.empty
       case Target.Edit(note) => note.lines.map(_.materialId).toSet
@@ -54,7 +58,7 @@ object DeliveryNoteEditor:
       child <-- firstLoad.signal.distinct.map {
         case None => spinner
         case Some(Left(err)) => errorBanner(err)
-        case Some(Right(_)) => form(target, context, suppliers, close)
+        case Some(Right(_)) => form(target, context, suppliers, close, registerCancel)
       },
     )
   end apply
@@ -68,6 +72,7 @@ object DeliveryNoteEditor:
       context: Var[Context],
       suppliers: Signal[Option[ApiClient.Result[List[SupplierResponse]]]],
       close: () => Unit,
+      registerCancel: (() => Unit) => Unit,
   ): HtmlElement =
     val today = WarehousePage.today()
     val initial = target match
@@ -75,6 +80,14 @@ object DeliveryNoteEditor:
       case Target.Edit(note) => DeliveryNoteForm.fromResponse(note, context.now(), today)
     val state = Var(initial)
     val tracker = DirtyTracker(initial, state)
+    val draft = DraftGuard[DeliveryNoteForm.State](
+      () => state.now(),
+      _ =>
+        target match
+          case Target.New => "Scartare il DDT in compilazione?"
+          case Target.Edit(note) => s"Scartare le modifiche al DDT n. ${note.number}?",
+    )
+    val cancel: () => Unit = () => draft.discardThen(close)
     val touch = FormTouch()
     val error = Var(Option.empty[ApiError])
     val submitting = Var(false)
@@ -124,7 +137,8 @@ object DeliveryNoteEditor:
               result match
                 case Right(_) =>
                   touch.reset()
-                  Notifications.success(if current.editingId.isDefined then s"DDT n. ${request.number} aggiornato" else "DDT registrato")
+                  Notifications.success(if current.editingId.isDefined then s"DDT n. ${request.number} aggiornato"
+                  else s"DDT n. ${request.number} registrato")
                   AppBus.mutatedWarehouse()
                   close()
                 case Left(err) => showError(error, "Registrazione DDT")(err)
@@ -210,6 +224,9 @@ object DeliveryNoteEditor:
 
     div(
       cls := "space-y-4",
+      onMountUnmountCallback(_ => registerCancel(cancel), _ => registerCancel(close)),
+      draft.bind,
+      draft.dialog,
       requiredLegend,
       formSection(1, "Documento", "Data, numero e fornitore del DDT.", sectionStatus(_.count(isHeaderIssue)))(
         div(
@@ -241,7 +258,12 @@ object DeliveryNoteEditor:
           ),
         ),
       ),
-      formSection(2, "Righe", "Materiali, quantità e costi: le righe lasciate vuote sono ignorate.", sectionStatus(_.count(!isHeaderIssue(_))))(
+      formSection(
+        2,
+        "Righe",
+        "Materiali, quantità e costi. Le righe vuote vengono ignorate se ce n'è almeno una compilata.",
+        sectionStatus(_.count(!isHeaderIssue(_))),
+      )(
         div(
           idAttr := linesId,
           cls := "space-y-2",
@@ -276,7 +298,7 @@ object DeliveryNoteEditor:
         if editing then "Salva modifiche" else "Registra DDT",
         if editing then "Salvataggio…" else "Registrazione…",
         submitting.signal,
-        Some(close),
+        Some(cancel),
         () => submit(),
       ),
     )

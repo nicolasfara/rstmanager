@@ -888,7 +888,7 @@ object OrderCreateView:
         },
         button(
           tpe := "button",
-          cls := s"$btnPrimary shrink-0",
+          cls := s"$btnPrimary min-h-10 shrink-0",
           disabled <-- submitting.signal,
           aria.busy <-- submitting.signal,
           child.text <-- submitting.signal.map(busy => if busy then "Creazione…" else "Crea ordine"),
@@ -904,6 +904,7 @@ object OrderCreateView:
         Signal.fromValue("Abbandonare il nuovo ordine?"),
         Signal.fromValue("L'ordine non è stato creato: i dati inseriti andranno persi."),
         "Abbandona",
+        "Continua a modificare",
         DialogTone.Danger,
         () => leaveOpen.set(false),
         () =>

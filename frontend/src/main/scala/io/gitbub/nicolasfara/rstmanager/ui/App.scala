@@ -191,6 +191,8 @@ object App:
             button(
               tpe := "button",
               cls := "sm:hidden rounded-md p-1.5 text-slate-600 hover:bg-slate-100 transition-colors",
+              aria.label <-- menuOpen.signal.map(open => if open then "Chiudi menu" else "Apri menu"),
+              aria.expanded <-- menuOpen.signal,
               onClick --> (_ => menuOpen.update(!_)),
               child.text <-- menuOpen.signal.map(open => if open then "✕" else "☰"),
             ),

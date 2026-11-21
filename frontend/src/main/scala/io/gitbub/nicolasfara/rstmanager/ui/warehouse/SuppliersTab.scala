@@ -38,7 +38,7 @@ object SuppliersTab:
     // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(s: SupplierResponse): Unit =
       draft.discardThen { () =>
-        formAnchor.reveal()
+        formAnchor.revealAndFocus()
         form.set(SupplierForm.fromResponse(s))
         formError.set(None)
         touch.reset()
@@ -49,9 +49,9 @@ object SuppliersTab:
     def startNew(): Unit =
       if form.now().editingId.isDefined then
         draft.discardThen(() =>
-          resetForm(); formAnchor.reveal(),
+          resetForm(); formAnchor.revealAndFocus(),
         )
-      else formAnchor.reveal()
+      else formAnchor.revealAndFocus()
 
     def submit(): Unit =
       if !submitting.now() then
@@ -197,7 +197,9 @@ object SuppliersTab:
         div(
           cls := "flex items-center gap-2 border-b border-slate-100 p-3",
           div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, P. IVA, contatti…", pager)),
-          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuovo fornitore", onClick --> (_ => startNew()))),
+          roleGated(Role.Admin)(
+            button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo fornitore", onClick --> (_ => startNew())),
+          ),
         ),
         renderResult(data) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun fornitore registrato."))

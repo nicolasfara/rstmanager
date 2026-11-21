@@ -58,8 +58,9 @@ object Components:
     label(cls := "block", span(cls := labelCls, labelText), control)
 
   /**
-   * Marks the form card that "Modifica" fills in place. On mobile the form is stacked above a long list, so `reveal()` scrolls it into view when its
-   * top is off-screen; `scroll-mt-20` keeps it clear of the sticky header.
+   * Marks the form card that "Modifica" fills in place. On mobile the form is stacked after a long list, so `revealAndFocus()` scrolls it into view
+   * when its top is off-screen or in the lower half of the viewport (barely visible near the bottom), then focuses its first field; `scroll-mt-20`
+   * keeps it clear of the sticky header.
    */
   final class FormAnchor:
     private val element = Var(Option.empty[dom.Element])
@@ -69,11 +70,22 @@ object Components:
       onMountUnmountCallback(ctx => element.set(Some(ctx.thisNode.ref)), _ => element.set(None)),
     )
 
-    def reveal(): Unit = element.now().foreach { el =>
+    def revealAndFocus(): Unit = element.now().foreach { el =>
       val top = el.getBoundingClientRect().top
-      if top < 0 || top > dom.window.innerHeight then el.scrollIntoView(true)
+      if top < 0 || top > dom.window.innerHeight / 2 then el.scrollIntoView(true)
+      // On the next frame, so a form whose content was just replaced is rendered first.
+      val _ = dom.window.requestAnimationFrame { _ =>
+        el.querySelector(formFirstFieldSelector) match
+          case field: dom.HTMLElement =>
+            field.focus(new dom.FocusOptions:
+              preventScroll = true)
+          case _ => ()
+      }
     }
   end FormAnchor
+
+  /** The first field of a form, which [[FormAnchor.revealAndFocus]] focuses. */
+  private val formFirstFieldSelector = "input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled])"
 
   // ---- Form controls -----------------------------------------------------------------------------
 
@@ -306,38 +318,39 @@ object Components:
         onKeyDown --> (event => onKey(event)),
         inputMods,
       ),
-      child <-- open.signal.combineWith(filtered).map { case (isOpen, options, hiddenCount) =>
-        if !isOpen then emptyNode
-        else
-          div(
-            idAttr := listId,
-            role := "listbox",
-            cls := "absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg",
-            if options.isEmpty then div(cls := "px-2.5 py-2 text-sm text-slate-400", "Nessun risultato")
-            else
-              options.zipWithIndex.map { case ((id, labelText, _), index) =>
-                div(
-                  idAttr := optionId(index),
-                  role := "option",
-                  aria.selected <-- valueSignal.map(_ == id),
-                  cls := "cursor-pointer px-2.5 py-1.5 text-sm text-slate-700",
-                  cls <-- active.signal.map(current => if current == index then "bg-slate-100" else ""),
-                  cls <-- valueSignal.map(selected => if selected == id then "font-medium" else ""),
-                  labelText,
-                  onMouseEnter --> (_ => active.set(index)),
-                  // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
-                  onMouseDown.preventDefault --> (_ => choose(id)),
-                )
-              }
-            ,
-            if hiddenCount > 0 then
+      // The listbox is always in the DOM (hidden while closed), so the input's `aria-controls` always points to an existing element.
+      div(
+        idAttr := listId,
+        role := "listbox",
+        cls := "absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg",
+        cls <-- open.signal.map(isOpen => if isOpen then "" else "hidden"),
+        children <-- open.signal.combineWith(filtered).map { case (isOpen, options, hiddenCount) =>
+          if !isOpen then Nil
+          else if options.isEmpty then List(div(cls := "px-2.5 py-2 text-sm text-slate-400", "Nessun risultato"))
+          else
+            options.zipWithIndex.map { case ((id, labelText, _), index) =>
               div(
-                cls := "border-t border-slate-100 px-2.5 py-1.5 text-xs text-slate-400",
-                s"… e altri $hiddenCount risultati — continua a digitare per affinare la ricerca",
+                idAttr := optionId(index),
+                role := "option",
+                aria.selected <-- valueSignal.map(_ == id),
+                cls := "cursor-pointer px-2.5 py-1.5 text-sm text-slate-700",
+                cls <-- active.signal.map(current => if current == index then "bg-slate-100" else ""),
+                cls <-- valueSignal.map(selected => if selected == id then "font-medium" else ""),
+                labelText,
+                onMouseEnter --> (_ => active.set(index)),
+                // `mousedown` (not `click`) so it wins over the input's blur; preventDefault keeps the input focused.
+                onMouseDown.preventDefault --> (_ => choose(id)),
               )
-            else emptyNode,
-          )
-      },
+            } ++ Option
+              .when(hiddenCount > 0)(
+                div(
+                  cls := "border-t border-slate-100 px-2.5 py-1.5 text-xs text-slate-400",
+                  s"… e altri $hiddenCount risultati — continua a digitare per affinare la ricerca",
+                ),
+              )
+              .toList
+        },
+      ),
     )
   end combobox
 

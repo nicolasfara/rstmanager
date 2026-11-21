@@ -85,7 +85,7 @@ object ManufacturingsPage:
     // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
       draft.discardThen { () =>
-        formAnchor.reveal()
+        formAnchor.revealAndFocus()
         form.set(ManufacturingCatalogForm.fromResponse(manufacturing, () => nextKey()))
         formError.set(None)
         touch.reset()
@@ -96,9 +96,9 @@ object ManufacturingsPage:
     def startNew(): Unit =
       if form.now().editingId.isDefined then
         draft.discardThen(() =>
-          resetForm(); formAnchor.reveal(),
+          resetForm(); formAnchor.revealAndFocus(),
         )
-      else formAnchor.reveal()
+      else formAnchor.revealAndFocus()
 
     /** Where to move the focus for `field`: the "no task" issue points at the first row's task select. */
     def focusTarget(field: Field): String = field match
@@ -410,7 +410,7 @@ object ManufacturingsPage:
             cls := "flex items-center gap-2",
             div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per codice, nome, task…", pager)),
             roleGated(Role.Admin)(
-              button(tpe := "button", cls := s"$btnSmall shrink-0 lg:hidden", "+ Nuova lavorazione", onClick --> (_ => startNew())),
+              button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuova lavorazione", onClick --> (_ => startNew())),
             ),
           ),
           div(cls := "md:hidden", sort.picker(List("code" -> "Codice", "name" -> "Nome", "tasks" -> "Task", "duration" -> "Durata"))),

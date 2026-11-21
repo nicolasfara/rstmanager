@@ -8,7 +8,8 @@ import io.gitbub.nicolasfara.rstmanager.ui.Components.{ confirmDialog, DialogTon
  * last marked clean ([[markClean]], after loading or resetting the form). While dirty, replacing it ("Modifica" on another row, "Annulla", "+ Nuovo")
  * asks first through [[dialog]], and leaving the page asks through [[NavigationGuard]] (mount [[bind]] on the form card).
  *
- * `title` names what would be discarded, e.g. «Scartare le modifiche a «Mario Rossi»?» (see [[DraftGuard.discardTitle]]).
+ * `title` names the record as last marked clean (not the edited text), e.g. «Scartare le modifiche a «Mario Rossi»?» (see
+ * [[DraftGuard.discardTitle]]).
  */
 final class DraftGuard[A](current: () => A, title: A => String)(using CanEqual[A, A]):
 
@@ -26,7 +27,7 @@ final class DraftGuard[A](current: () => A, title: A => String)(using CanEqual[A
 
   /** Runs `replace` at once on a clean draft, otherwise once the user confirms discarding it. */
   def discardThen(replace: () => Unit): Unit =
-    if isDirtyNow then pending.set(Some((title(current()), replace))) else replace()
+    if isDirtyNow then pending.set(Some((title(baseline), replace))) else replace()
 
   /** Asks before leaving the page (top navigation, tab switch, closing the tab) while the draft is dirty. */
   val bind: Modifier[HtmlElement] =

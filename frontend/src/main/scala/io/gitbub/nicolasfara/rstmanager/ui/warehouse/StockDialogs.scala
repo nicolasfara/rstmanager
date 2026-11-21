@@ -86,14 +86,11 @@ object StockDialogs:
   private def decimalInput(valueSignal: Signal[String], writer: Observer[String], placeholderText: String): HtmlElement =
     textInput(valueSignal, writer, placeholderText).amend(inputMode := "decimal")
 
-  private def hint(text: String): HtmlElement = div(cls := "mt-1 text-xs text-slate-400", text)
-
-  /** The validation messages, hidden while the form is still untouched. */
-  private def errorList(errors: Signal[List[String]]): Modifier[HtmlElement] =
-    child.maybe <-- errors.map(list => Option.when(list.nonEmpty)(ul(cls := "mt-3 list-disc pl-5 text-xs text-rose-600", list.map(e => li(e)))))
-
-  /** The "Annulla" / submit pair of a dialog form; the submit button is disabled while `canSubmit` is false or a request is in flight. */
-  private[warehouse] def formActions(
+  /**
+   * The "Annulla" / submit pair of a stock dialog form; the submit button is disabled while `canSubmit` is false or a request is in flight. (The
+   * redesigned forms use [[Components.formActions]], whose submit stays enabled.)
+   */
+  private def stockFormActions(
       submitLabel: String,
       canSubmit: Signal[Boolean],
       submitting: Signal[Boolean],
@@ -179,7 +176,7 @@ object StockDialogs:
       ),
       errorList(state.signal.map(s => if s.pristine then Nil else s.errors)),
       child.maybe <-- error.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
-      formActions("Registra carico", state.signal.map(_.request.isDefined), submitting.signal, close, () => submit()),
+      stockFormActions("Registra carico", state.signal.map(_.request.isDefined), submitting.signal, close, () => submit()),
     )
   end purchaseForm
 
@@ -212,7 +209,7 @@ object StockDialogs:
       hint("Lo scarico è rifiutato se la giacenza scenderebbe sotto zero in quella data o in seguito."),
       errorList(state.signal.map(s => if s.pristine then Nil else s.errors)),
       child.maybe <-- error.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
-      formActions("Registra scarico", state.signal.map(_.request.isDefined), submitting.signal, close, () => submit()),
+      stockFormActions("Registra scarico", state.signal.map(_.request.isDefined), submitting.signal, close, () => submit()),
     )
   end unloadForm
 
@@ -250,7 +247,7 @@ object StockDialogs:
       ),
       errorList(state.signal.map(s => if s.pristine then Nil else s.errors)),
       child.maybe <-- error.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
-      formActions("Registra rettifica", state.signal.map(_.request.isDefined), submitting.signal, close, () => submit()),
+      stockFormActions("Registra rettifica", state.signal.map(_.request.isDefined), submitting.signal, close, () => submit()),
     )
   end adjustmentForm
 

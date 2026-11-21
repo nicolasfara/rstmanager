@@ -9,11 +9,22 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging, TableSort, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{
+  AppBus,
+  FormFocus,
+  FormTouch,
+  ListSearch,
+  Notifications,
+  Pagination,
+  Paging,
+  TableSort,
+  WarehouseFormats,
+}
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.messages
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
-import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MaterialForm.MpnRow
+import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MaterialForm.{ Field, MpnField, MpnRow }
 
 /**
  * Material registry of the warehouse: internal code, unit of measure, customer price, and the MPNs it is bought as (each tied to a supplier). The
@@ -67,10 +78,14 @@ object MaterialsTab:
       case _ => Nil
     }
 
+    val touch = FormTouch()
+    val submitting = Var(false)
+
     def resetForm(): Unit =
       form.set(MaterialForm.empty)
       editedSuppliers.set(Nil)
       formError.set(None)
+      touch.reset()
 
     val formAnchor = FormAnchor()
 
@@ -79,18 +94,30 @@ object MaterialsTab:
       form.set(MaterialForm.fromResponse(material))
       editedSuppliers.set(material.suppliers)
       formError.set(None)
+      touch.reset()
 
     def submit(): Unit =
-      val current = form.now()
-      current.request.foreach { request =>
-        val effect = current.editingId match
-          case Some(id) => ApiClient.updateMaterial(id, request)
-          case None => ApiClient.createMaterial(request)
-        effect.foreach {
-          case Right(_) => resetForm(); AppBus.mutatedWarehouse()
-          case Left(err) => showError(formError, "Salvataggio materiale")(err)
-        }
-      }
+      if !submitting.now() then
+        val current = form.now()
+        current.request match
+          case None =>
+            touch.attemptSubmit()
+            current.issues.headOption.foreach(issue => FormFocus.focus(MaterialForm.fieldId(issue.field)))
+          case Some(request) =>
+            submitting.set(true)
+            formError.set(None)
+            val effect = current.editingId match
+              case Some(id) => ApiClient.updateMaterial(id, request)
+              case None => ApiClient.createMaterial(request)
+            effect.foreach { result =>
+              submitting.set(false)
+              result match
+                case Right(_) =>
+                  resetForm()
+                  Notifications.success(s"Materiale ${request.internalCode} salvato")
+                  AppBus.mutatedWarehouse()
+                case Left(err) => showError(formError, "Salvataggio materiale")(err)
+            }
 
     def archive(id: UUID): Unit =
       ApiClient.archiveMaterial(id).foreach {
@@ -115,7 +142,14 @@ object MaterialsTab:
         onConfirm = () => pendingArchive.now().foreach { p => archive(p.id); pendingArchive.set(None) },
       )
 
-    val formErrors: Signal[List[String]] = form.signal.map(_.errors)
+    val issues = form.signal.map(_.issues).distinct
+
+    /** The raw (ungated) inline error of `field`. */
+    def rawError(field: Field): Signal[Option[String]] = form.signal.map(_.inlineError(field)).distinct
+
+    /** The [[FieldSpec]] of `field`, its error shown once the field was left or a submit was attempted. */
+    def spec(labelText: String, field: Field, required: Boolean): FieldSpec =
+      touch.spec(labelText, MaterialForm.fieldId(field), required, rawError(field))
 
     // ---- MPN rows editor -------------------------------------------------------------------------
 
@@ -124,45 +158,51 @@ object MaterialsTab:
     def updateRow(key: Int)(patch: MpnRow => MpnRow): Unit = form.update(_.updateRow(key)(patch))
 
     def renderMpnRow(row: MpnRow): HtmlElement =
+      def rowSpec(labelText: String, mpnField: MpnField, required: Boolean): FieldSpec = spec(labelText, Field.Mpn(row.key, mpnField), required)
       div(
         cls := "rounded-md border border-slate-200 p-2",
         div(
-          cls := "flex items-end gap-2",
+          cls := "flex items-start gap-2",
           div(
-            cls := "flex-1",
-            field(
-              "Fornitore",
+            cls := "min-w-0 flex-1",
+            field(rowSpec("Fornitore", MpnField.Supplier, true))(bind =>
               searchableSelect(
                 rowSignal(row).map(_.supplierId),
                 Observer[String](next => updateRow(row.key)(_.copy(supplierId = next))),
                 supplierOptions,
                 "Cerca un fornitore…",
-                maxResults = 8,
+                8,
+                bind,
               ),
             ),
           ),
-          button(tpe := "button", cls := s"$btnDanger mb-0.5", "Rimuovi", onClick --> (_ => form.update(_.removeRow(row.key)))),
+          button(
+            tpe := "button",
+            cls := s"$btnDanger mt-5",
+            aria.label := "Rimuovi MPN",
+            "Rimuovi",
+            onClick --> (_ => form.update(_.removeRow(row.key))),
+          ),
         ),
         div(
           cls := "mt-2 grid gap-2 sm:grid-cols-2",
-          field(
-            "Codice MPN",
-            textInput(rowSignal(row).map(_.code), Observer[String](v => updateRow(row.key)(_.copy(code = v))), "AC-152-NAVY"),
+          field(rowSpec("Codice MPN", MpnField.Code, true))(bind =>
+            textInput(rowSignal(row).map(_.code), Observer[String](v => updateRow(row.key)(_.copy(code = v))), "AC-152-NAVY").amend(bind),
+          ),
+          field(FieldSpec("Descrizione fornitore", s"material-mpn-${row.key}-description"))(bind =>
+            textInput(rowSignal(row).map(_.description), Observer[String](v => updateRow(row.key)(_.copy(description = v))), "Opzionale")
+              .amend(bind),
           ),
           field(
-            "Descrizione fornitore",
-            textInput(rowSignal(row).map(_.description), Observer[String](v => updateRow(row.key)(_.copy(description = v))), "Opzionale"),
-          ),
-          field(
-            "Prezzo acquisto previsto (€)",
-            div(
-              textInput(rowSignal(row).map(_.expectedUnitCost), Observer[String](v => updateRow(row.key)(_.copy(expectedUnitCost = v))), "Opzionale")
-                .amend(inputMode := "decimal"),
-              div(cls := "mt-1 text-xs text-slate-400", "Proposto come costo unitario nelle righe DDT"),
-            ),
+            rowSpec("Prezzo acquisto previsto (€)", MpnField.ExpectedCost, false)
+              .copy(hintText = Some("Proposto come costo unitario nelle righe DDT")),
+          )(bind =>
+            textInput(rowSignal(row).map(_.expectedUnitCost), Observer[String](v => updateRow(row.key)(_.copy(expectedUnitCost = v))), "Opzionale")
+              .amend(inputMode := "decimal", bind),
           ),
         ),
       )
+    end renderMpnRow
 
     // ---- Form ------------------------------------------------------------------------------------
 
@@ -178,65 +218,76 @@ object MaterialsTab:
           .map(_.editingId.isDefined)
           .distinct
           .map(editing => sectionTitle(if editing then "Modifica materiale" else "Nuovo materiale")),
+        p(cls := "mt-1 text-xs text-slate-500", "I campi con * sono obbligatori."),
         div(
-          cls := "mt-3 grid grid-cols-2 gap-3",
-          field("Codice", textInput(form.signal.map(_.internalCode), Observer[String](v => form.update(_.copy(internalCode = v))), "TES-001")),
-          field("Unità di misura", staticSelect(form.signal.map(_.unit), Observer[String](v => form.update(_.copy(unit = v))), MeasureUnit.options)),
-          div(
-            cls := "col-span-2",
-            field(
-              "Descrizione",
-              textInput(form.signal.map(_.description), Observer[String](v => form.update(_.copy(description = v))), "Tessuto acrilico blu navy"),
-            ),
-          ),
-          field(
-            "Tipologia",
+          cls := "mt-4 space-y-5",
+          fieldGroup("Identificazione")(
             div(
-              textInput(form.signal.map(_.materialType), Observer[String](v => form.update(_.copy(materialType = v))), "Opzionale")
-                .amend(listId := materialTypesListId),
-              dataList(idAttr := materialTypesListId, children <-- materialTypes.map(_.map(t => option(value := t)))),
+              cls := "grid grid-cols-2 gap-3",
+              field(spec("Codice", Field.InternalCode, true))(bind =>
+                textInput(form.signal.map(_.internalCode), Observer[String](v => form.update(_.copy(internalCode = v))), "TES-001").amend(bind),
+              ),
+              field(spec("Unità di misura", Field.Unit, true))(bind =>
+                staticSelect(form.signal.map(_.unit), Observer[String](v => form.update(_.copy(unit = v))), MeasureUnit.options).amend(bind),
+              ),
+              div(
+                cls := "col-span-2",
+                field(spec("Descrizione", Field.Description, true))(bind =>
+                  textInput(form.signal.map(_.description), Observer[String](v => form.update(_.copy(description = v))), "Tessuto acrilico blu navy")
+                    .amend(bind),
+                ),
+              ),
+              div(
+                cls := "col-span-2",
+                field(FieldSpec("Tipologia", "material-type", hintText = Some("Scegli tra le tipologie già usate o scrivine una nuova")))(bind =>
+                  div(
+                    textInput(form.signal.map(_.materialType), Observer[String](v => form.update(_.copy(materialType = v))), "Opzionale")
+                      .amend(listId := materialTypesListId, bind),
+                    dataList(idAttr := materialTypesListId, children <-- materialTypes.map(_.map(t => option(value := t)))),
+                  ),
+                ),
+              ),
             ),
           ),
-          field(
-            "Prezzo cliente (€)",
-            div(
-              textInput(form.signal.map(_.customerPrice), Observer[String](v => form.update(_.copy(customerPrice = v))), "18,50")
-                .amend(inputMode := "decimal"),
-              child.maybe <-- pricePreview.map(_.map(text => div(cls := "mt-1 text-xs text-slate-400", text))),
+          fieldGroup("Prezzo")(
+            field(spec("Prezzo cliente (€)", Field.CustomerPrice, true))(bind =>
+              div(
+                textInput(form.signal.map(_.customerPrice), Observer[String](v => form.update(_.copy(customerPrice = v))), "18,50")
+                  .amend(inputMode := "decimal", bind),
+                child.maybe <-- pricePreview.map(_.map(hint)),
+              ),
             ),
           ),
-          div(
-            cls := "col-span-2",
-            field(
-              "Note",
-              textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)"),
+          fieldGroup("MPN (codici fornitore)")(
+            child.maybe <-- form.signal
+              .map(_.mpns.isEmpty)
+              .distinct
+              .map(empty => Option.when(empty)(div(cls := "text-xs text-slate-400", "Nessun MPN: i fornitori del materiale derivano dagli MPN."))),
+            div(cls := "space-y-2", children <-- form.signal.map(_.mpns).split(_.key)((_, initial, _) => renderMpnRow(initial))),
+            button(tpe := "button", idAttr := MaterialForm.addMpnId, cls := btnSmall, "+ Aggiungi MPN", onClick --> (_ => form.update(_.addRow))),
+          ),
+          fieldGroup("Note")(
+            field(FieldSpec("Note", "material-notes"))(bind =>
+              textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)").amend(bind),
             ),
           ),
         ),
-        div(
-          cls := "mt-4 space-y-2",
-          div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "MPN (codici fornitore)"),
-          child.maybe <-- form.signal
-            .map(_.mpns.isEmpty)
-            .distinct
-            .map(empty => Option.when(empty)(div(cls := "text-xs text-slate-400", "Nessun MPN: i fornitori del materiale derivano dagli MPN."))),
-          children <-- form.signal.map(_.mpns).split(_.key)((_, initial, _) => renderMpnRow(initial)),
-          button(tpe := "button", cls := btnSmall, "+ Aggiungi MPN", onClick --> (_ => form.update(_.addRow))),
-        ),
-        child.maybe <-- form.signal.combineWith(formErrors).map { (state, errors) =>
-          Option.when(!state.pristine && errors.nonEmpty)(ul(cls := "mt-3 list-disc pl-5 text-xs text-rose-600", errors.map(e => li(e))))
-        },
+        errorList(touch.submittedSignal.combineWith(issues).map((attempted, list) => if attempted then list.messages else Nil)),
         child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
         div(
-          cls := "mt-3 flex gap-2",
-          button(
-            tpe := "button",
-            cls := btnPrimary,
-            child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
-            disabled <-- formErrors.map(_.nonEmpty),
-            onClick --> (_ => submit()),
-          ),
-          child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+          cls := "mt-3",
+          child <-- form.signal
+            .map(_.editingId.isDefined)
+            .distinct
+            .map(editing =>
+              formActions(
+                if editing then "Salva" else "Crea",
+                "Salvataggio…",
+                submitting.signal,
+                Option.when(editing)(() => resetForm()),
+                () => submit(),
+              ),
+            ),
         ),
       )
 

@@ -265,6 +265,32 @@ final class DeliveryNoteFormSpec extends AnyFunSuite with Matchers:
     )
     state.copy(note = " consegna parziale ").request(ctx).flatMap(_.note) shouldBe Some("consegna parziale")
 
+  // ---- field targeting ---------------------------------------------------------------------------
+
+  test("header issues target their field, the missing lines target the rows block"):
+    DeliveryNoteForm.empty(today).copy(date = "").issues(ctx).map(_.field) shouldBe List(Field.Date, Field.Number, Field.Supplier, Field.Lines)
+
+  test("line issues target the input of the row by key, prefixed in the message but bare inline"):
+    val state = withRows(Row(5, "", "", "2", "", false), Row.empty(6), Row(7, corNew, "", "x", "1", true))
+    state.issues(ctx).map(i => i.field -> i.message) shouldBe List(
+      Field.Row(5, RowField.Material) -> "Riga 1: Seleziona il materiale",
+      Field.Row(5, RowField.UnitCost) -> "Riga 1: Costo unitario obbligatorio",
+      Field.Row(7, RowField.NewMpnCode) -> "Riga 3: Indica il codice del nuovo MPN",
+      Field.Row(7, RowField.Quantity) -> "Riga 3: Quantità non valida (es. 2,5, al massimo 3 decimali)",
+    )
+    state.errors(ctx) shouldBe state.issues(ctx).map(_.message)
+    state.inlineError(Field.Row(5, RowField.Material), ctx) shouldBe Some("Seleziona il materiale")
+    state.inlineError(Field.Row(7, RowField.UnitCost), ctx) shouldBe None
+    state.inlineError(Field.Number, ctx) shouldBe None
+
+  test("field ids are stable per row key, and missing lines focus the first row or the add button"):
+    DeliveryNoteForm.fieldId(Field.Supplier) shouldBe "ddt-supplier"
+    DeliveryNoteForm.fieldId(Field.Row(3, RowField.UnitCost)) shouldBe "ddt-row-3-cost"
+    val fresh = DeliveryNoteForm.empty(today)
+    fresh.focusId(Field.Lines) shouldBe "ddt-row-0-material"
+    fresh.removeRow(0).focusId(Field.Lines) shouldBe DeliveryNoteForm.addRowId
+    fresh.focusId(Field.Number) shouldBe "ddt-number"
+
   test("addRow mints increasing keys; removeRow targets a key"):
     val three = DeliveryNoteForm.empty(today).addRow.addRow
     three.rows.map(_.key) shouldBe List(0, 1, 2)

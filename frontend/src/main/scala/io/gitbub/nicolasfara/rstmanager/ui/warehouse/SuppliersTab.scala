@@ -9,8 +9,9 @@ import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, ListSearch, Pagination, Paging, TableSort }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, FormFocus, FormTouch, ListSearch, Notifications, Pagination, Paging, TableSort }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.messageFor
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** Supplier registry of the warehouse: the suppliers the material MPNs are bought from. Same layout as the customer registry. */
@@ -21,9 +22,13 @@ object SuppliersTab:
     val form = Var(SupplierForm.empty)
     val pendingDelete = Var(Option.empty[SupplierResponse])
 
+    val touch = FormTouch()
+    val submitting = Var(false)
+
     def resetForm(): Unit =
       form.set(SupplierForm.empty)
       formError.set(None)
+      touch.reset()
 
     val formAnchor = FormAnchor()
 
@@ -31,16 +36,32 @@ object SuppliersTab:
       formAnchor.reveal()
       form.set(SupplierForm.fromResponse(s))
       formError.set(None)
+      touch.reset()
 
     def submit(): Unit =
-      val current = form.now()
-      val effect = current.editingId match
-        case Some(id) => ApiClient.updateSupplier(id, current.request)
-        case None => ApiClient.createSupplier(current.request)
-      effect.foreach {
-        case Right(_) => resetForm(); AppBus.mutatedWarehouse()
-        case Left(err) => showError(formError, "Salvataggio fornitore")(err)
-      }
+      if !submitting.now() then
+        val current = form.now()
+        current.issues.headOption match
+          case Some(first) =>
+            touch.attemptSubmit()
+            FormFocus.focus(SupplierForm.fieldId(first.field))
+          case None =>
+            val request = current.request
+            submitting.set(true)
+            formError.set(None)
+            val effect = current.editingId match
+              case Some(id) => ApiClient.updateSupplier(id, request)
+              case None => ApiClient.createSupplier(request)
+            effect.foreach { result =>
+              submitting.set(false)
+              result match
+                case Right(_) =>
+                  resetForm()
+                  Notifications.success(s"Fornitore ${request.name} salvato")
+                  AppBus.mutatedWarehouse()
+                case Left(err) => showError(formError, "Salvataggio fornitore")(err)
+            }
+        end match
 
     // A supplier referenced by a material is refused with 409 `supplier-in-use`; the error details name the materials.
     def delete(id: UUID): Unit =
@@ -64,8 +85,6 @@ object SuppliersTab:
         onConfirm = () => pendingDelete.now().foreach { s => delete(s.id); pendingDelete.set(None) },
       )
 
-    val formErrors: Signal[List[String]] = form.signal.map(_.errors)
-
     val data = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
     val query = Var("")
     val pager = Pagination(Paging.defaultPageSize)
@@ -75,13 +94,22 @@ object SuppliersTab:
       "address" -> Column.optionalText(_.address),
     )
 
+    /** A text field of the form with DOM id `id`; its error (if it has a validated `target`) shows once left or after a submit attempt. */
     def textField(
         labelText: String,
+        id: String,
+        target: Option[SupplierForm.Field],
         get: SupplierForm.State => String,
         set: (SupplierForm.State, String) => SupplierForm.State,
-        hint: String,
+        placeholderText: String,
+        inputType: String,
     ): HtmlElement =
-      field(labelText, textInput(form.signal.map(get), Observer[String](v => form.update(set(_, v))), hint))
+      val spec = target.fold(FieldSpec(labelText, id))(validated =>
+        touch.spec(labelText, id, validated == SupplierForm.Field.Name, form.signal.map(_.issues.messageFor(validated)).distinct),
+      )
+      field(spec)(bind => textInput(form.signal.map(get), Observer[String](v => form.update(set(_, v))), placeholderText, inputType).amend(bind))
+
+    val editing = form.signal.map(_.editingId.isDefined).distinct
 
     div(
       cls := "grid gap-6",
@@ -90,39 +118,58 @@ object SuppliersTab:
         card(
           cls := "self-start p-4",
           formAnchor.bind,
-          sectionTitle("Nuovo fornitore"),
+          child <-- editing.map(isEditing => sectionTitle(if isEditing then "Modifica fornitore" else "Nuovo fornitore")),
+          p(cls := "mt-1 text-xs text-slate-500", "I campi con * sono obbligatori."),
           div(
             cls := "mt-3 grid grid-cols-2 gap-3",
-            div(cls := "col-span-2", textField("Ragione sociale", _.name, (s, v) => s.copy(name = v), "")),
-            textField("Partita IVA", _.vatNumber, (s, v) => s.copy(vatNumber = v), "Opzionale"),
-            textField("Telefono", _.phone, (s, v) => s.copy(phone = v), "Opzionale"),
             div(
               cls := "col-span-2",
-              field("Email", textInput(form.signal.map(_.email), Observer[String](v => form.update(_.copy(email = v))), "Opzionale", "email")),
+              textField(
+                "Ragione sociale",
+                SupplierForm.fieldId(SupplierForm.Field.Name),
+                Some(SupplierForm.Field.Name),
+                _.name,
+                (s, v) => s.copy(name = v),
+                "",
+                "text",
+              ),
             ),
-            div(cls := "col-span-2", textField("Indirizzo", _.address, (s, v) => s.copy(address = v), "Opzionale")),
+            textField("Partita IVA", "supplier-vat", None, _.vatNumber, (s, v) => s.copy(vatNumber = v), "Opzionale", "text"),
+            textField("Telefono", "supplier-phone", None, _.phone, (s, v) => s.copy(phone = v), "Opzionale", "tel"),
             div(
               cls := "col-span-2",
-              field(
-                "Note",
-                textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)"),
+              textField(
+                "Email",
+                SupplierForm.fieldId(SupplierForm.Field.Email),
+                Some(SupplierForm.Field.Email),
+                _.email,
+                (s, v) => s.copy(email = v),
+                "Opzionale",
+                "email",
+              ),
+            ),
+            div(cls := "col-span-2", textField("Indirizzo", "supplier-address", None, _.address, (s, v) => s.copy(address = v), "Opzionale", "text")),
+            div(
+              cls := "col-span-2",
+              field(FieldSpec("Note", "supplier-notes"))(bind =>
+                textAreaInput(form.signal.map(_.notes), Observer[String](v => form.update(_.copy(notes = v))), "Note generiche (opzionale)")
+                  .amend(bind),
               ),
             ),
           ),
-          child.maybe <-- form.signal.combineWith(formErrors).map { (state, errors) =>
-            Option.when(state.name.nonEmpty && errors.nonEmpty)(ul(cls := "mt-3 list-disc pl-5 text-xs text-rose-600", errors.map(e => li(e))))
-          },
+          errorList(touch.submittedSignal.combineWith(form.signal).map((attempted, state) => if attempted then state.errors else Nil)),
           child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
           div(
-            cls := "mt-3 flex gap-2",
-            button(
-              tpe := "button",
-              cls := btnPrimary,
-              child.text <-- form.signal.map(_.editingId.fold("Crea")(_ => "Salva")),
-              disabled <-- formErrors.map(_.nonEmpty),
-              onClick --> (_ => submit()),
+            cls := "mt-3",
+            child <-- editing.map(isEditing =>
+              formActions(
+                if isEditing then "Salva" else "Crea",
+                "Salvataggio…",
+                submitting.signal,
+                Option.when(isEditing)(() => resetForm()),
+                () => submit(),
+              ),
             ),
-            child.maybe <-- form.signal.map(_.editingId.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
           ),
         ),
       ),

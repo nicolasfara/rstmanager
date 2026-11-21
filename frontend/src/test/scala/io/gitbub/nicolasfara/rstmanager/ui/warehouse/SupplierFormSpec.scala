@@ -23,6 +23,10 @@ final class SupplierFormSpec extends AnyFunSuite with Matchers:
     SupplierForm.empty.copy(name = "A", email = "not-an-email").errors shouldBe List("Email non valida")
     SupplierForm.empty.copy(name = "A", email = " ordini@tessuti.it ").errors shouldBe Nil
 
+  test("issues target the name and the email fields"):
+    SupplierForm.empty.copy(email = "x").issues.map(_.field) shouldBe List(SupplierForm.Field.Name, SupplierForm.Field.Email)
+    SupplierForm.fieldId(SupplierForm.Field.Email) shouldBe "supplier-email"
+
   test("fromResponse -> request round-trips the stored supplier"):
     val response = SupplierResponse(supplierId, "Tessuti Srl", Some("IT0123"), Some("a@b.it"), None, Some("Via Porto 3"), None)
     val state = SupplierForm.fromResponse(response)

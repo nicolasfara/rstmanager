@@ -206,7 +206,7 @@ object ManufacturingsPage:
           cls := "px-4 py-2 text-slate-500",
           div(child.text <-- tasksSummary(manufacturing)),
           Option.when(manufacturing.materials.nonEmpty)(
-            div(cls := "mt-0.5 text-xs text-slate-400", s"Materiali per unità: ${materialsSummary(manufacturing)}"),
+            div(cls := "mt-0.5 text-xs text-slate-500", s"Materiali per unità: ${materialsSummary(manufacturing)}"),
           ),
         ),
         td(cls := "px-4 py-2 tabular-nums", s"${Formats.duration(manufacturing.totalRequiredMinutes)}h"),

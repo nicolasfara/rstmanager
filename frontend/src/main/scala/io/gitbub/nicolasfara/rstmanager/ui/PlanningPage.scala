@@ -415,7 +415,11 @@ object PlanningPage:
         cls <-- urgency.map(_.cardCls),
         role := "button",
         tabIndex := 0,
-        aria.label <-- manufacturingCode.combineWith(taskName).map((code, task) => s"Lavorazione $code, task $task: aggiorna avanzamento"),
+        // The cart icon inside is not read out (the label replaces the content), so the shortage is part of the label.
+        aria.label <-- manufacturingCode.combineWith(taskName, shortagesBySlice.map(_.get((slice.orderId, slice.manufacturingId)))).map {
+          (code, task, shortages) =>
+            s"Lavorazione $code, task $task: aggiorna avanzamento" + shortages.fold("")(list => s". ${MaterialShortages.sliceTitle(list)}")
+        },
         onClick.compose(_.sample(editAndPref)) --> openSlice,
         onKeyDown.filter(e => e.key == "Enter" || e.key == " ").preventDefault.compose(_.sample(editAndPref)) --> openSlice,
         // Order number (context) + urgency badge vs the manufacturing deadline

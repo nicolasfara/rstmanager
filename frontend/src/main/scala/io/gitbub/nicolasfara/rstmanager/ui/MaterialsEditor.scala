@@ -106,12 +106,13 @@ object MaterialsEditor:
         rowSignal.map(_.materialId.trim.nn).combineWith(warnings).map((id, byMaterial) => byMaterial.find(_._1.toString == id).map(_._2))
       div(
         cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-2 sm:items-start",
-        cls := (if priced then "sm:grid-cols-[minmax(0,1fr)_7.5rem_8.5rem_6.5rem_auto]" else "sm:grid-cols-[minmax(0,1fr)_7.5rem_auto]"),
+        // Without price the editor sits in the narrow catalog form: the material gets a line of its own, quantity and "Rimuovi" go under it.
+        cls := (if priced then "sm:grid-cols-[minmax(0,1fr)_7.5rem_8.5rem_6.5rem_auto]" else "sm:grid-cols-[minmax(0,1fr)_auto]"),
         onMountCallback(ctx => focusMaterial(key, ctx.thisNode.ref)),
         field(
           "Materiale",
           searchableSelect(rowSignal.map(_.materialId), Observer[String](v => update(key)(_.withMaterial(v))), options, "Cerca materiale…", 20),
-        ),
+        ).amend(Option.when(!priced)(cls := "sm:col-span-full")),
         field(
           "Quantità",
           div(

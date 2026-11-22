@@ -454,8 +454,6 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
   test("mfgTotals of a catalog manufacturing multiplies the durations by N"):
     val snapshot = MfgSnapshot(1, baseCore.copy(mode = "catalog", catalogId = "known", quantity = "3"), Nil)
     OrderDrafts.mfgTotals(snapshot, _ => Some(templateWithMaterials), MaterialDrafts.Context.empty) shouldBe MfgTotals(2, 270, "0.00")
-    OrderDrafts.quantitySuffix(3) shouldBe " ×3"
-    OrderDrafts.quantitySuffix(1) shouldBe ""
 
   // ---- stock warnings ----------------------------------------------------------------------------
 

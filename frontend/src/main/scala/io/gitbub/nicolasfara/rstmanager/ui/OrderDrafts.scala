@@ -56,9 +56,6 @@ object OrderDrafts:
   /** The multiplier of a draft, 1 while the typed one is not valid (the draft is then blocked by [[manufacturingIssues]]). */
   def quantityOf(core: MfgCoreState): Int = parseQuantity(core.quantity).getOrElse(1)
 
-  /** " ×N" after the label of a manufacturing done N > 1 times; empty for one. */
-  def quantitySuffix(times: Int): String = if times > 1 then s" ×$times" else ""
-
   /**
    * The material rows of a draft once the catalog template `template` is picked with multiplier `times`: the lines the user added or edited stay, the
    * ones prefilled from a previous template go, and each per-unit material of the template not already in a kept row is added as `quantity × times`

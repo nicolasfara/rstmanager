@@ -609,14 +609,7 @@ object OrdersPage:
             div(
               cls := "flex items-center gap-2",
               span(cls := "font-medium text-slate-800", m.code),
-              Option.when(m.quantity > 1)(
-                span(
-                  cls := "rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-slate-600",
-                  title := s"Quantità: la lavorazione si esegue ${m.quantity} volte (durate e materiali sono già i totali)",
-                  aria.label := s"Quantità ${m.quantity}",
-                  s"×${m.quantity}",
-                ),
-              ),
+              OrderCreateView.quantityBadge(m.quantity),
             ),
             div(
               cls := "flex items-center gap-2",

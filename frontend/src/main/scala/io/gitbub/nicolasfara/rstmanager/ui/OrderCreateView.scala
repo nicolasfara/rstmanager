@@ -257,6 +257,20 @@ object OrderCreateView:
         div(cls := "text-amber-700", "Avviso non bloccante: l'ordine si può creare comunque."),
       )
 
+  /**
+   * The "×N" badge of a manufacturing done `times` > 1 times (none for one). It stays outside the truncated label so a phone still shows it, and
+   * reads "quantità N" to a screen reader.
+   */
+  private[ui] def quantityBadge(times: Int): Option[HtmlElement] =
+    Option.when(times > 1)(
+      span(
+        cls := "shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-slate-600",
+        title := s"Quantità: la lavorazione si esegue $times volte (durate e materiali sono già i totali)",
+        span(aria.hidden := true, s"×$times"),
+        span(cls := "sr-only", s"quantità $times"),
+      ),
+    )
+
   // ---- Page --------------------------------------------------------------------------------------
 
   /** The page; `onExit` goes back to the orders list (after a creation or a confirmed abandon). */
@@ -796,10 +810,9 @@ object OrderCreateView:
       val cardTotals = snapshot
         .combineWith(catalogs.signal, materialsContext.signal)
         .map((s, templates, context) => OrderDrafts.mfgTotals(s, catalogLookup(templates), context))
-      val titleText = m.state.signal.combineWith(catalogs.signal).map { (core, templates) =>
-        val label = mfgLabel(core, catalogLookup(templates))
-        if label.isEmpty then label else label + OrderDrafts.quantitySuffix(OrderDrafts.quantityOf(core))
-      }
+      val titleText = m.state.signal.combineWith(catalogs.signal).map((core, templates) => mfgLabel(core, catalogLookup(templates)))
+      // ×N next to a named manufacturing.
+      val titleQuantity = m.state.signal.combineWith(titleText).map((core, text) => Option.when(text.nonEmpty)(OrderDrafts.quantityOf(core)))
       val completion = m.state.signal.map(_.completionDate).combineWith(header.signal.map(_.workDeadline)).map { (own, deadline) =>
         if own.trim.nn.nonEmpty then own else deadline
       }
@@ -811,6 +824,7 @@ object OrderCreateView:
           cls <-- titleText.map(text => if text.isEmpty then "italic text-slate-400" else "text-slate-800"),
           child.text <-- titleText.map(text => if text.isEmpty then "Nuova lavorazione" else text),
         ),
+        child.maybe <-- titleQuantity.distinct.map(_.flatMap(quantityBadge)),
         span(cls := "text-xs tabular-nums text-slate-500", child.text <-- cardTotals.map(totalsText)),
         child.maybe <-- completion.map(day =>
           Option.when(DayText.short(day).nonEmpty)(span(cls := "text-xs text-slate-500", s"entro ${DayText.short(day)}")),
@@ -888,18 +902,21 @@ object OrderCreateView:
                 cls := "divide-y divide-slate-100 rounded-md border border-slate-200",
                 list.zipWithIndex.map { (s, index) =>
                   val lookup = catalogLookup(templates)
-                  val label =
-                    Some(mfgLabel(s.core, lookup)).filter(_.nonEmpty).fold("")(_ + OrderDrafts.quantitySuffix(OrderDrafts.quantityOf(s.core)))
+                  val label = mfgLabel(s.core, lookup)
                   val day = DayText.short(if s.core.completionDate.trim.nn.nonEmpty then s.core.completionDate else deadline)
                   li(
                     cls := "flex flex-col gap-0.5 px-3 py-2 text-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-3",
                     span(
-                      cls := "min-w-0 truncate",
-                      span(cls := "mr-1.5 tabular-nums text-slate-400", s"#${index + 1}"),
+                      cls := "flex min-w-0 items-baseline gap-1.5",
                       span(
-                        cls := (if label.isEmpty then "italic text-slate-400" else "text-slate-800"),
-                        if label.isEmpty then "Nuova lavorazione" else label,
+                        cls := "min-w-0 truncate",
+                        span(cls := "mr-1.5 tabular-nums text-slate-400", s"#${index + 1}"),
+                        span(
+                          cls := (if label.isEmpty then "italic text-slate-400" else "text-slate-800"),
+                          if label.isEmpty then "Nuova lavorazione" else label,
+                        ),
                       ),
+                      Option.when(label.nonEmpty)(OrderDrafts.quantityOf(s.core)).flatMap(quantityBadge),
                     ),
                     span(
                       cls := "shrink-0 text-xs tabular-nums text-slate-500",

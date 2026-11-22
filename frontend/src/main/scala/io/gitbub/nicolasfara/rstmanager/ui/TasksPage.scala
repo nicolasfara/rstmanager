@@ -1,32 +1,31 @@
 package io.gitbub.nicolasfara.rstmanager.ui
 
-import java.util.UUID
-
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.util.Try
 
 import com.raquo.laminar.api.L.*
-import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
-/** Catalog of reusable tasks (name, description, required hours) referenced when building orders. */
+/**
+ * Catalog of reusable tasks (name, description, required hours) referenced when building orders: a full-width, searched and paged list; "+ Nuovo
+ * task" and "Modifica" open the [[TaskFormView]] page in its place.
+ */
 object TasksPage:
 
-  /** The content of the task form, compared with the loaded one to detect unsaved edits. */
-  private final case class Draft(editingId: Option[UUID], name: String, description: String, hours: String, defaultEmployee: String) derives CanEqual
+  private val listErrorId = "task-list-error"
 
   def apply(): HtmlElement =
-    val formError = Var(Option.empty[ApiError])
-    val editingId = Var(Option.empty[UUID])
-    val name = Var("")
-    val description = Var("")
-    val hours = Var("8:00")
-    val defaultEmployee = Var("")
-    val blockedDelete = Var(Option.empty[ApiError])
+    val view = SubView[TaskTarget]()
+    // A refused delete (e.g. the task is used by catalog manufacturings), shown as a dismissible banner over the list.
+    val listError = Var(Option.empty[ApiError])
+
+    /** Opens the form page of `target`; a list message (e.g. a refused delete) would be stale on return, so it goes. */
+    def openPage(target: TaskTarget): Unit =
+      listError.set(None)
+      view.open(target)
     // Task awaiting delete confirmation (double-check before the destructive action).
     val confirmDelete = Var(Option.empty[TaskResponse])
 
@@ -40,69 +39,18 @@ object TasksPage:
       case _ => Map.empty
     }
 
-    val draft = DraftGuard[Draft](
-      () => Draft(editingId.now(), name.now(), description.now(), hours.now(), defaultEmployee.now()),
-      d => DraftGuard.discardTitle(Option.when(d.editingId.isDefined)(d.name.trim.nn), "il nuovo task"),
-    )
-
-    def resetForm(): Unit =
-      editingId.set(None); name.set(""); description.set(""); hours.set("8:00"); defaultEmployee.set(""); formError.set(None)
-      draft.markClean()
-
-    val formAnchor = FormAnchor()
-
-    // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
-    def edit(task: TaskResponse): Unit =
-      draft.discardThen { () =>
-        formAnchor.revealAndFocus()
-        editingId.set(Some(task.id))
-        name.set(task.name)
-        description.set(task.description.getOrElse(""))
-        hours.set(Formats.duration(task.requiredMinutes))
-        defaultEmployee.set(task.defaultEmployeeId.map(_.toString).getOrElse(""))
-        formError.set(None)
-        draft.markClean()
-      }
-
-    /** "+ Nuovo task" (mobile, where the form follows the list): leaves a task being edited, then shows the form. */
-    def startNew(): Unit =
-      if editingId.now().isDefined then
-        draft.discardThen(() =>
-          resetForm(); formAnchor.revealAndFocus(),
-        )
-      else formAnchor.revealAndFocus()
-
-    def submit(): Unit =
-      Formats.parseDuration(hours.now()) match
-        case None =>
-          formError.set(Some(ApiError("invalid-duration", "Durata non valida. Usa il formato h:mm (es. 1:35).", Nil)))
-        case Some(minutes) =>
-          val request = TaskRequest(
-            name.now().trim.nn,
-            Some(description.now().trim.nn).filter(_.nonEmpty),
-            minutes,
-            Try(UUID.fromString(defaultEmployee.now()).nn).toOption,
-          )
-          val editing = editingId.now().isDefined
-          val effect = editingId.now() match
-            case Some(id) => ApiClient.updateTask(id, request)
-            case None => ApiClient.createTask(request)
-          effect.foreach {
-            case Right(_) =>
-              resetForm()
-              Notifications.success(s"Task ${request.name} ${if editing then "salvato" else "creato"}")
-              AppBus.mutatedTasks()
-            case Left(err) => showError(formError, "Salvataggio task")(err)
-          }
-
     def delete(task: TaskResponse): Unit =
       ApiClient.deleteTask(task.id).foreach {
         case Right(_) =>
-          if editingId.now() == Some(task.id) then resetForm()
+          listError.set(None)
           Notifications.success(s"Task ${task.name} eliminato")
           AppBus.mutatedTasks()
-        case Left(err) if err.code == "task-in-use" => showError(blockedDelete, "Eliminazione task")(err)
-        case Left(err) => showError(formError, "Eliminazione task")(err)
+        case Left(err) =>
+          val shown =
+            if err.code == "task-in-use" then err.copy(message = s"Impossibile eliminare il task «${task.name}»: è usato in queste lavorazioni")
+            else err
+          showError(listError, "Eliminazione task")(shown)
+          FormFocus.focus(listErrorId)
       }
 
     val data = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
@@ -135,7 +83,7 @@ object TasksPage:
 
     def actionButtons(task: TaskResponse): List[HtmlElement] =
       List(
-        button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(task))),
+        button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => openPage(TaskTarget.Edit(task)))),
         button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => confirmDelete.set(Some(task)))),
       )
 
@@ -190,48 +138,14 @@ object TasksPage:
 
     div(
       div(
-        cls := "grid gap-6",
-        roleGatedGridCols(Role.Admin, "lg:grid-cols-[20rem_1fr]"),
-        roleGated(Role.Admin)(
-          card(
-            // Mobile: the list comes first (finding a task must not mean scrolling past the form); "+ Nuovo task" reaches the form.
-            cls := "order-last self-start p-4 lg:order-none",
-            formAnchor.bind,
-            draft.bind,
-            child <-- editingId.signal.map(_.isDefined).distinct.map(editing => sectionTitle(if editing then "Modifica task" else "Nuovo task")),
-            div(
-              cls := "mt-3 space-y-3",
-              field("Nome", textInput(name, "Es. Taglio")),
-              field("Descrizione", textInput(description, "Opzionale")),
-              field("Durata richiesta (h:mm)", textInput(hours, "1:35")),
-              field("Dipendente predefinito", selectInput(defaultEmployee, employeeOptions)),
-              child.maybe <-- formError.signal.map(_.map(errorBanner)),
-              div(
-                cls := "flex gap-2",
-                button(
-                  tpe := "button",
-                  cls := btnPrimary,
-                  child.text <-- editingId.signal.map(_.fold("Crea")(_ => "Salva")),
-                  onClick --> (_ => submit()),
-                ),
-                child.maybe <-- editingId.signal.map(
-                  _.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => draft.discardThen(() => resetForm())))),
-                ),
-              ),
-            ),
-          ),
-        ),
+        view.listMods,
+        RegistryPage.listHeader("Catalogo task", "+ Nuovo task", () => openPage(TaskTarget.New)),
+        RegistryPage.listError(listError, listErrorId),
         card(
           cls := "overflow-hidden",
           div(
             cls := "space-y-2 border-b border-slate-100 p-3",
-            div(
-              cls := "flex items-center gap-2",
-              div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, descrizione, dipendente…", pager)),
-              roleGated(Role.Admin)(
-                button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo task", onClick --> (_ => startNew())),
-              ),
-            ),
+            searchBox(query, "Cerca per nome, descrizione, dipendente…", pager),
             div(
               cls := "md:hidden",
               sort.picker(List("name" -> "Nome", "description" -> "Descrizione", "duration" -> "Durata", "employee" -> "Dipendente")),
@@ -266,22 +180,8 @@ object TasksPage:
           },
         ),
       ),
-      // An accessible dialog (Escape, focus trap and restore) explaining why the task cannot be deleted.
-      modal(blockedDelete.signal.map(_.isDefined), Signal.fromValue("Task usato in lavorazioni"), "max-w-md", () => blockedDelete.set(None))(
-        div(
-          p(cls := "text-sm text-slate-500", child.text <-- blockedDelete.signal.map(_.map(_.message).getOrElse(""))),
-          ul(
-            cls := "mt-4 list-disc space-y-1 rounded-md bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-700",
-            children <-- blockedDelete.signal.map(_.fold(List.empty[String])(_.details).map(item => li(item))),
-          ),
-          div(
-            cls := "mt-6",
-            button(tpe := "button", cls := s"$btnPrimary w-full justify-center", "Ok", onClick --> (_ => blockedDelete.set(None))),
-          ),
-        ),
-      ),
+      view.page(target => TaskFormView(target, data, employeeOptions, () => view.close())),
       confirmDeleteModal,
-      draft.dialog,
     )
   end apply
 end TasksPage

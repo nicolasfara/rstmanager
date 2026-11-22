@@ -146,4 +146,22 @@ final class MovementFormSpec extends AnyFunSuite with Matchers:
   test("adjustment rejects zero, fractional pieces, and a missing reason"):
     adjustment(material, today).copy(delta = "0").errors shouldBe List("La variazione non può essere zero", "Motivo obbligatorio")
     adjustment(pieces, today).copy(delta = "-1,5", reason = "x").request shouldBe None
+
+  // ---- field-addressed issues --------------------------------------------------------------------
+
+  test("every problem is tied to the input it is about, in form order"):
+    purchase(pieces, today).copy(quantity = "1,5", unitCost = "abc").issues.map(_.field) shouldBe
+      List(Field.Mpn, Field.Quantity, Field.UnitCost)
+    unload(material, today).issues.map(_.field) shouldBe List(Field.Quantity, Field.Reason)
+    adjustment(material, today).copy(delta = "5", unitCost = "x", on = "").issues.map(_.field) shouldBe
+      List(Field.UnitCost, Field.Day, Field.Reason)
+
+  test("a draft shows the inline message of one input, the variation of an adjustment being its quantity"):
+    val draft = Draft.Adjustment(adjustment(material, today).copy(delta = "0"))
+    draft.inlineError(Field.Quantity) shouldBe Some("La variazione non può essere zero")
+    draft.inlineError(Field.Reason) shouldBe Some("Motivo obbligatorio")
+    draft.inlineError(Field.Day) shouldBe None
+
+  test("the field ids are distinct, so the focus finds the right input"):
+    Field.values.map(fieldId).distinct.length shouldBe Field.values.length
 end MovementFormSpec

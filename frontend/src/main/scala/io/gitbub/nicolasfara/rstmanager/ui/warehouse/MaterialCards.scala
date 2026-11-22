@@ -7,7 +7,8 @@ import io.gitbub.nicolasfara.rstmanager.ui.warehouse.WarehouseViews.MaterialSumm
 
 /**
  * The shared rendering of a material in the materials ("Materiali") and history ("Storico") tabs, from a [[MaterialSummary]]: the stacked card of the
- * narrow layouts and the cells of the compact table (from `xl`), so the two tabs show a material the same way.
+ * narrow layouts and the cells of the compact table (from `lg` in the materials tab, from `xl` in the history tab), so the two tabs show a material
+ * the same way.
  */
 object MaterialCards:
 

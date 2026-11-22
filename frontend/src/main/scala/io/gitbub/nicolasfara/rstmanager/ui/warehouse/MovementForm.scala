@@ -6,16 +6,39 @@ import scala.math.BigDecimal.RoundingMode
 
 import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ AdjustmentRequest, MaterialResponse, PurchaseRequest, UnloadRequest }
+import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messageFor, messages, FieldIssue }
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
 
+/** The kinds of movement the material sheet records by hand, in the order of its "Carico | Scarico | Rettifica" switch. */
+enum MovementKind(val key: String, val label: String) derives CanEqual:
+  case Purchase extends MovementKind("purchase", "Carico")
+  case Unload extends MovementKind("unload", "Scarico")
+  case Adjustment extends MovementKind("adjustment", "Rettifica")
+
+  /** The submit button: "Registra carico" / "Registra scarico" / "Registra rettifica". */
+  def submitLabel: String = s"Registra ${label.toLowerCase}"
+
+  /** The confirmation toast after recording on the material `code`: "Carico registrato su TES-001", "Rettifica registrata su TES-001". */
+  def recordedText(code: String): String = this match
+    case Adjustment => s"Rettifica registrata su $code"
+    case _ => s"$label registrato su $code"
+end MovementKind
+
+object MovementKind:
+  /** The options of the kind switch, as `(key, label)`. */
+  val options: List[(String, String)] = values.toList.map(kind => kind.key -> kind.label)
+
+  /** The kind with switch key `key`, if any. */
+  def fromKey(key: String): Option[MovementKind] = values.find(_.key == key)
+
 /**
  * Pure (DOM-free) state of the stock movement forms — purchase ("Carico"), unload ("Scarico"), and adjustment ("Rettifica") — with their validation
- * messages and request building.
+ * problems (each tied to a [[Field]], so the page shows it under its input and focuses the first one on an invalid submit) and request building.
  *
- * Each state carries what it is validated against (the material unit, its MPNs, and "today"), fixed when the form opens, so the page only keeps one
- * state in a `Var` and every rule is unit-testable without Laminar. The server re-checks everything (and the stock non-negativity, which needs the
- * full ledger).
+ * Each state carries what it is validated against (the material unit, its MPNs, and "today"), fixed when the form opens; the page keeps one [[Draft]]
+ * in a `Var`, so every rule (the kind switch and its carry-over included) is unit-testable without Laminar. The server re-checks everything (and the
+ * stock non-negativity, which needs the full ledger).
  */
 object MovementForm:
 
@@ -24,6 +47,22 @@ object MovementForm:
 
   /** Decimals of a unit cost on the API (ten-thousandths of a euro). */
   val costScale: Int = 4
+
+  /** What a validation problem is about: one input of the movement form (the adjustment's variation is its [[Field.Quantity]]). */
+  enum Field derives CanEqual:
+    case Mpn
+    case Quantity
+    case UnitCost
+    case Day
+    case Reason
+
+  /** The DOM id of the input of `field` (the anchor of its label and of [[FormFocus]]); the ids are shared by the three kinds. */
+  def fieldId(field: Field): String = field match
+    case Field.Mpn => "movement-mpn"
+    case Field.Quantity => "movement-quantity"
+    case Field.UnitCost => "movement-cost"
+    case Field.Day => "movement-day"
+    case Field.Reason => "movement-reason"
 
   /** An MPN the material can be bought as: `key` identifies it in the select, `label` shows code and supplier. */
   final case class MpnOption(key: String, code: String, supplierId: UUID, label: String) derives CanEqual
@@ -88,7 +127,8 @@ object MovementForm:
 
   private def opt(text: String): Option[String] = Some(text.trim.nn).filter(_.nonEmpty)
 
-  private def errorsOf(checks: Either[String, ?]*): List[String] = checks.toList.collect { case Left(error) => error }
+  private def issuesOf(checks: (Field, Either[String, ?])*): List[FieldIssue[Field]] =
+    checks.toList.collect { case (field, Left(message)) => FieldIssue(field, message) }
 
   // ---- Carry-over between kinds ------------------------------------------------------------------
 
@@ -131,7 +171,15 @@ object MovementForm:
       if mpns.isEmpty then Left("Il materiale non ha MPN: aggiungine uno in anagrafica prima di registrare un carico")
       else selectedMpn.toRight("Seleziona l'MPN acquistato")
 
-    def errors: List[String] = errorsOf(mpnCheck, parseQuantity(quantity, unit), parseCost(unitCost), parseDay(on, today))
+    def issues: List[FieldIssue[Field]] =
+      issuesOf(
+        Field.Mpn -> mpnCheck,
+        Field.Quantity -> parseQuantity(quantity, unit),
+        Field.UnitCost -> parseCost(unitCost),
+        Field.Day -> parseDay(on, today),
+      )
+
+    def errors: List[String] = issues.messages
 
     /** The purchase total shown while typing, once quantity and cost are both valid. */
     def totalPreview: Option[String] =
@@ -167,7 +215,10 @@ object MovementForm:
   final case class UnloadState(unit: String, today: String, quantity: String, on: String, reason: String) derives CanEqual:
     def pristine: Boolean = quantity.trim.nn.isEmpty && reason.trim.nn.isEmpty
 
-    def errors: List[String] = errorsOf(parseQuantity(quantity, unit), parseDay(on, today), parseReason(reason))
+    def issues: List[FieldIssue[Field]] =
+      issuesOf(Field.Quantity -> parseQuantity(quantity, unit), Field.Day -> parseDay(on, today), Field.Reason -> parseReason(reason))
+
+    def errors: List[String] = issues.messages
 
     def request: Option[UnloadRequest] =
       (for
@@ -196,7 +247,15 @@ object MovementForm:
     private def costCheck: Either[String, Option[String]] =
       if !costEnabled || unitCost.trim.nn.isEmpty then Right(None) else parseCost(unitCost).map(Some(_))
 
-    def errors: List[String] = errorsOf(parseDelta(delta, unit), costCheck, parseDay(on, today), parseReason(reason))
+    def issues: List[FieldIssue[Field]] =
+      issuesOf(
+        Field.Quantity -> parseDelta(delta, unit),
+        Field.UnitCost -> costCheck,
+        Field.Day -> parseDay(on, today),
+        Field.Reason -> parseReason(reason),
+      )
+
+    def errors: List[String] = issues.messages
 
     def request: Option[AdjustmentRequest] =
       (for
@@ -217,4 +276,64 @@ object MovementForm:
   end AdjustmentState
 
   def adjustment(material: MaterialResponse, today: String): AdjustmentState = AdjustmentState(material.unit, today, "", "", today, "")
+
+  // ---- The form of the sheet: one draft of the chosen kind ---------------------------------------
+
+  /** The movement being typed on the material sheet: the state of its current kind. */
+  enum Draft derives CanEqual:
+    case Purchase(state: PurchaseState)
+    case Unload(state: UnloadState)
+    case Adjustment(state: AdjustmentState)
+
+    def kind: MovementKind = this match
+      case Purchase(_) => MovementKind.Purchase
+      case Unload(_) => MovementKind.Unload
+      case Adjustment(_) => MovementKind.Adjustment
+
+    /** Every validation problem of the current kind, in field order. */
+    def issues: List[FieldIssue[Field]] = this match
+      case Purchase(state) => state.issues
+      case Unload(state) => state.issues
+      case Adjustment(state) => state.issues
+
+    /** The inline message of `field`, if it has a problem. */
+    def inlineError(field: Field): Option[String] = issues.messageFor(field)
+
+    /** The fields handed to the next kind by the switch. */
+    def carry: Carry = this match
+      case Purchase(state) => state.carry
+      case Unload(state) => state.carry
+      case Adjustment(state) => state.carry
+
+    /** This draft with the shared fields `from` another kind. */
+    def carried(from: Carry): Draft = this match
+      case Purchase(state) => Purchase(state.carried(from))
+      case Unload(state) => Unload(state.carried(from))
+      case Adjustment(state) => Adjustment(state.carried(from))
+
+    /** The first input of the form, focused after a movement is recorded: the MPN of a purchase (when it has a choice), the quantity otherwise. */
+    def firstField: Field = this match
+      case Purchase(state) if state.mpns.nonEmpty => Field.Mpn
+      case _ => Field.Quantity
+  end Draft
+
+  /** A blank draft of `kind` for `material`, dated `today` (a purchase of a single-MPN material has it preselected). */
+  def blank(kind: MovementKind, material: MaterialResponse, today: String): Draft = kind match
+    case MovementKind.Purchase => Draft.Purchase(purchase(material, today))
+    case MovementKind.Unload => Draft.Unload(unload(material, today))
+    case MovementKind.Adjustment => Draft.Adjustment(adjustment(material, today))
+
+  /**
+   * The draft after the switch picks `kind`: unchanged when it is already that kind, otherwise a blank form of `kind` with the shared fields typed so
+   * far ([[Carry]]).
+   */
+  def switchKind(draft: Draft, kind: MovementKind, material: MaterialResponse, today: String): Draft =
+    if draft.kind == kind then draft else blank(kind, material, today).carried(draft.carry)
+
+  /**
+   * What the sheet would lose by leaving: the draft, unless it is still the blank form of its kind (a kind switch alone loses nothing). The page
+   * guards on this value, so a blank form never asks before leaving.
+   */
+  def unsaved(draft: Draft, material: MaterialResponse, today: String): Option[Draft] =
+    Option.unless(draft == blank(draft.kind, material, today))(draft)
 end MovementForm

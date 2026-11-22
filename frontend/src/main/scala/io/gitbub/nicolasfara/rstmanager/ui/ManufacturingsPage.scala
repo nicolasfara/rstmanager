@@ -210,7 +210,7 @@ object ManufacturingsPage:
           div(cls := "text-xs font-medium text-slate-500", "Task"),
           div(cls := "break-words", child.text <-- tasksSummary(manufacturing)),
         ),
-        roleGated(Role.Admin)(div(cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3", actionButtons(manufacturing))),
+        roleGated(Role.Admin)(div(cls := cardActionsCls, actionButtons(manufacturing))),
       )
 
     def rowSignal(row: TaskRowState): Signal[TaskRowState] =

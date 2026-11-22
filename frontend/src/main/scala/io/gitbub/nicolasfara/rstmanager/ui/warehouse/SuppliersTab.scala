@@ -125,6 +125,52 @@ object SuppliersTab:
 
     val editing = form.signal.map(_.editingId.isDefined).distinct
 
+    // ---- List: cards below md, table from md ---------------------------------------------------
+
+    def actionButtons(s: SupplierResponse): List[HtmlElement] =
+      List(
+        button(tpe := "button", cls := btnSmall, aria.label := s"Modifica ${s.name}", "Modifica", onClick --> (_ => edit(s))),
+        button(tpe := "button", cls := btnDanger, aria.label := s"Elimina ${s.name}", "Elimina", onClick --> (_ => pendingDelete.set(Some(s)))),
+      )
+
+    def contactsCell(s: SupplierResponse): HtmlElement =
+      div(
+        cls := "min-w-0 wrap-anywhere",
+        s.email.map(e => div(e)),
+        s.phone.map(p => div(cls := "text-xs", p)),
+        Option.when(s.email.isEmpty && s.phone.isEmpty)(div(cls := "text-xs text-slate-400", "—")),
+      )
+
+    def renderRow(s: SupplierResponse): HtmlElement =
+      tr(
+        cls := "border-b border-slate-100 align-top last:border-0",
+        td(
+          cls := "px-4 py-2 wrap-anywhere",
+          div(cls := "font-medium text-slate-800", s.name),
+          s.vatNumber.map(vat => div(cls := "text-xs text-slate-500", s"P. IVA $vat")),
+          s.notes.map(n => div(cls := "text-xs text-slate-400", n)),
+        ),
+        td(cls := "px-4 py-2 text-slate-500", contactsCell(s)),
+        td(cls := "px-4 py-2 wrap-anywhere text-slate-500", s.address.getOrElse("—")),
+        td(cls := "px-4 py-2 text-right", roleGated(Role.Admin)(div(cls := "flex justify-end gap-2", actionButtons(s)))),
+      )
+
+    def renderCard(s: SupplierResponse): HtmlElement =
+      div(
+        cls := "space-y-3 p-4",
+        div(
+          div(cls := "break-words font-medium text-slate-800", s.name),
+          s.vatNumber.map(vat => div(cls := "text-xs text-slate-500", s"P. IVA $vat")),
+          s.notes.map(n => div(cls := "break-words text-xs text-slate-400", n)),
+        ),
+        div(
+          cls := "grid grid-cols-2 gap-3 text-sm text-slate-600",
+          readField("Contatti", contactsCell(s)),
+          readField("Indirizzo", s.address.getOrElse("—")),
+        ),
+        roleGated(Role.Admin)(div(cls := cardActionsCls, actionButtons(s))),
+      )
+
     div(
       cls := "grid gap-6",
       roleGatedGridCols(Role.Admin, "lg:grid-cols-[24rem_1fr]"),
@@ -195,58 +241,37 @@ object SuppliersTab:
       card(
         cls := "overflow-hidden",
         div(
-          cls := "flex items-center gap-2 border-b border-slate-100 p-3",
-          div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, P. IVA, contatti…", pager)),
-          roleGated(Role.Admin)(
-            button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo fornitore", onClick --> (_ => startNew())),
+          cls := "space-y-2 border-b border-slate-100 p-3",
+          div(
+            cls := "flex items-center gap-2",
+            div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, P. IVA, contatti…", pager)),
+            roleGated(Role.Admin)(
+              button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo fornitore", onClick --> (_ => startNew())),
+            ),
           ),
+          div(cls := "md:hidden", sort.picker(List("supplier" -> "Fornitore", "contacts" -> "Contatti", "address" -> "Indirizzo"))),
         ),
         renderResult(data) { all =>
           if all.isEmpty then div(cls := "p-4", emptyState("Nessun fornitore registrato."))
           else
             searchedPages(sort.sorted(all), query.signal, ListSearch.supplier, pager, "Nessun fornitore corrisponde alla ricerca.") { suppliers =>
               div(
-                cls := "overflow-x-auto",
-                table(
-                  cls := "w-full text-sm",
-                  thead(
-                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                    tr(
-                      sort.header("supplier", "Fornitore", "px-4 py-2"),
-                      sort.header("contacts", "Contatti", "px-4 py-2"),
-                      sort.header("address", "Indirizzo", "px-4 py-2"),
-                      th(cls := "px-4 py-2"),
-                    ),
-                  ),
-                  tbody(
-                    suppliers.map { s =>
+                // Mobile: stacked cards. Desktop (md+): the table.
+                div(cls := "divide-y divide-slate-100 md:hidden", suppliers.map(renderCard)),
+                div(
+                  cls := "hidden overflow-x-auto md:block",
+                  table(
+                    cls := "w-full text-sm",
+                    thead(
+                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
                       tr(
-                        cls := "border-b border-slate-100 align-top last:border-0",
-                        td(
-                          cls := "px-4 py-2",
-                          div(cls := "font-medium text-slate-800", s.name),
-                          s.vatNumber.map(vat => div(cls := "text-xs text-slate-500", s"P. IVA $vat")),
-                          s.notes.map(n => div(cls := "text-xs text-slate-400", n)),
-                        ),
-                        td(
-                          cls := "px-4 py-2 text-slate-500",
-                          s.email.map(e => div(e)),
-                          s.phone.map(p => div(cls := "text-xs", p)),
-                          Option.when(s.email.isEmpty && s.phone.isEmpty)(div(cls := "text-xs text-slate-400", "—")),
-                        ),
-                        td(cls := "px-4 py-2 text-slate-500", s.address.getOrElse("—")),
-                        td(
-                          cls := "px-4 py-2 text-right",
-                          roleGated(Role.Admin)(
-                            div(
-                              cls := "flex justify-end gap-2",
-                              button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(s))),
-                              button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(s)))),
-                            ),
-                          ),
-                        ),
-                      )
-                    },
+                        sort.header("supplier", "Fornitore", "px-4 py-2"),
+                        sort.header("contacts", "Contatti", "px-4 py-2"),
+                        sort.header("address", "Indirizzo", "px-4 py-2"),
+                        th(cls := "px-4 py-2", span(cls := "sr-only", "Azioni")),
+                      ),
+                    ),
+                    tbody(suppliers.map(renderRow)),
                   ),
                 ),
               )

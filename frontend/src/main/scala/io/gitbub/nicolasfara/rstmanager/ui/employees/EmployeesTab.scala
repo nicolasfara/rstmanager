@@ -428,7 +428,7 @@ object EmployeesTab:
                         ),
                         roleGated(Role.Admin)(
                           div(
-                            cls := "flex flex-wrap justify-end gap-2",
+                            cls := s"flex flex-wrap justify-end gap-2 $touchChildrenCls",
                             button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(emp))),
                             button(tpe := "button", cls := btnSmall, "Override", onClick --> (_ => openEditor(emp))),
                             button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(emp)))),

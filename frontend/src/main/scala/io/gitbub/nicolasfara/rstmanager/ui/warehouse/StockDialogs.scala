@@ -18,15 +18,48 @@ enum StockDialog derives CanEqual:
   case Adjust(material: MaterialResponse)
   case Movements(material: MaterialResponse)
 
+  /** The material the dialog is about. */
+  def material: MaterialResponse
+
+  /** The key of the movement form kind (see [[StockDialog.movementKinds]]); `None` for the movements list. */
+  def movementKind: Option[String] = this match
+    case Purchase(_) => Some(StockDialog.purchaseKind)
+    case Unload(_) => Some(StockDialog.unloadKind)
+    case Adjust(_) => Some(StockDialog.adjustKind)
+    case Movements(_) => None
+end StockDialog
+
+object StockDialog:
+  val purchaseKind = "purchase"
+  val unloadKind = "unload"
+  val adjustKind = "adjustment"
+
+  /** The kinds of the movement form, as `(key, label)` for its "Carico | Scarico | Rettifica" switch, in that order. */
+  val movementKinds: List[(String, String)] = List(purchaseKind -> "Carico", unloadKind -> "Scarico", adjustKind -> "Rettifica")
+
+  /** The movement form of `kind` for `material`; `None` for an unknown kind. */
+  def movement(material: MaterialResponse, kind: String): Option[StockDialog] = kind match
+    case `purchaseKind` => Some(Purchase(material))
+    case `unloadKind` => Some(Unload(material))
+    case `adjustKind` => Some(Adjust(material))
+    case _ => None
+
+  /** The form the switch moves `dialog` to when `kind` is picked: `None` when `kind` is already its kind (or unknown), so nothing is rebuilt. */
+  def switchKind(dialog: StockDialog, kind: String): Option[StockDialog] = movement(dialog.material, kind).filter(_ != dialog)
+end StockDialog
+
 /**
  * The stock dialogs of a material: the purchase ("Carico"), unload ("Scarico"), and adjustment ("Rettifica") forms (Operator), and the movements list
  * with the running balance and the void action (Admin). The list also shows the automatic consumptions by order manufacturings ("Scarico
  * lavorazione", and "Storno lavorazione" when a reopened manufacturing gives the material back) with their order, which cannot be voided, and the
  * purchases loaded by a delivery note ("DDT n. X"), corrected only through the delivery note.
  *
- * Driven by one `Var[Option[StockDialog]]` owned by the materials tab: `Some` opens the matching modal, `None` closes it. The forms are rebuilt on
- * every opening (the state goes through `None` in between), so a form never shows the values of a previous one. Every successful write calls
- * [[AppBus.mutatedWarehouse]], which refreshes the materials table, the open movements list, and the reports.
+ * Driven by one `Var[Option[StockDialog]]` owned by the materials tab: `Some` opens the matching modal, `None` closes it. The three forms share one
+ * modal ("Movimento") whose "Carico | Scarico | Rettifica" switch replaces the dialog with the same material's other kind; its title follows the
+ * kind. A form is rebuilt on every opening (the state goes through `None` in between) and on every kind switch; a switch hands the shared fields
+ * already typed (quantity, cost, day, reason: [[MovementForm.Carry]]) to the new kind's form, an opening never does, so a new opening never shows the
+ * values of a previous one. Every successful write calls [[AppBus.mutatedWarehouse]], which refreshes the materials table, the open movements list,
+ * and the reports.
  */
 object StockDialogs:
 
@@ -39,11 +72,36 @@ object StockDialogs:
       case _ => true
     })
     val movementsOf: Signal[Option[MaterialResponse]] = current.signal.map(_.collect { case StockDialog.Movements(material) => material })
+    // The shared fields of the open form, kept up to date by the form itself.
+    val liveCarry = Var(Option.empty[MovementForm.Carry])
+    // One-shot hand-over from the switch to the form it opens, keyed by that form and cleared right after the switch: it never reaches an opening.
+    val handOver = Var(Option.empty[(StockDialog, MovementForm.Carry)])
+    def switchKind(kind: String): Unit =
+      current.now().flatMap(StockDialog.switchKind(_, kind)).foreach { next =>
+        handOver.set(liveCarry.now().map(next -> _))
+        current.set(Some(next))
+        handOver.set(None)
+      }
+    def build(dialog: StockDialog): HtmlElement =
+      val carry = handOver.now().collect { case (target, carried) if target == dialog => carried }
+      renderForm(dialog, carry, liveCarry.writer.contramap[MovementForm.Carry](Some(_)), close)
     // `contents`: the wrapper must not take a cell of the tab grid; the modals are fixed overlays anyway.
     div(
       cls := "contents",
       modal(formDialog.map(_.isDefined), formDialog.map(_.fold("")(formTitle)), "max-w-lg", close)(
-        div(child.maybe <-- formDialog.distinct.map(_.map(renderForm(_, close)))),
+        div(
+          // Outside the rebuilt form, so the focus stays on the switch when the kind changes.
+          div(
+            cls := "mb-4",
+            segmented(
+              formDialog.map(_.flatMap(_.movementKind).getOrElse("")),
+              Observer[String](switchKind),
+              StockDialog.movementKinds,
+              aria.label := "Tipo di movimento",
+            ),
+          ),
+          child.maybe <-- formDialog.distinct.map(_.map(build)),
+        ),
       ),
       modal(movementsOf.map(_.isDefined), movementsOf.map(_.fold("")(p => s"Movimenti — ${p.internalCode}")), "max-w-6xl", close)(
         div(child.maybe <-- movementsOf.distinct.map(_.map(movementsView))),
@@ -57,11 +115,18 @@ object StockDialogs:
     case StockDialog.Adjust(p) => s"Rettifica — ${p.internalCode}"
     case StockDialog.Movements(p) => s"Movimenti — ${p.internalCode}"
 
-  private def renderForm(dialog: StockDialog, close: () => Unit): HtmlElement = dialog match
-    case StockDialog.Purchase(p) => purchaseForm(p, close)
-    case StockDialog.Unload(p) => unloadForm(p, close)
-    case StockDialog.Adjust(p) => adjustmentForm(p, close)
-    case StockDialog.Movements(p) => movementsView(p)
+  /** The form of `dialog`, prefilled from `carry` (a kind switch) or blank (an opening); it reports its shared fields to `carryOut`. */
+  private def renderForm(
+      dialog: StockDialog,
+      carry: Option[MovementForm.Carry],
+      carryOut: Observer[MovementForm.Carry],
+      close: () => Unit,
+  ): HtmlElement =
+    dialog match
+      case StockDialog.Purchase(p) => purchaseForm(p, carry, carryOut, close)
+      case StockDialog.Unload(p) => unloadForm(p, carry, carryOut, close)
+      case StockDialog.Adjust(p) => adjustmentForm(p, carry, carryOut, close)
+      case StockDialog.Movements(p) => movementsView(p)
 
   // ---- Shared pieces -----------------------------------------------------------------------------
 
@@ -134,9 +199,15 @@ object StockDialogs:
 
   // ---- Purchase ----------------------------------------------------------------------------------
 
-  private def purchaseForm(material: MaterialResponse, close: () => Unit): HtmlElement =
+  private def purchaseForm(
+      material: MaterialResponse,
+      carry: Option[MovementForm.Carry],
+      carryOut: Observer[MovementForm.Carry],
+      close: () => Unit,
+  ): HtmlElement =
     val today = WarehousePage.today()
-    val state = Var(MovementForm.purchase(material, today))
+    val fresh = MovementForm.purchase(material, today)
+    val state = Var(carry.fold(fresh)(fresh.carried))
     val error = Var(Option.empty[ApiError])
     val submitting = Var(false)
     val unitLabel = WarehouseFormats.unitShortLabel(material.unit)
@@ -144,6 +215,7 @@ object StockDialogs:
     def submit(): Unit =
       state.now().request.foreach(request => record(() => ApiClient.recordPurchase(material.id, request), submitting, error, "Carico", close))
     div(
+      state.signal.map(_.carry) --> carryOut,
       materialHeader(material),
       div(
         cls := "grid gap-3 sm:grid-cols-2",
@@ -182,14 +254,21 @@ object StockDialogs:
 
   // ---- Unload ------------------------------------------------------------------------------------
 
-  private def unloadForm(material: MaterialResponse, close: () => Unit): HtmlElement =
+  private def unloadForm(
+      material: MaterialResponse,
+      carry: Option[MovementForm.Carry],
+      carryOut: Observer[MovementForm.Carry],
+      close: () => Unit,
+  ): HtmlElement =
     val today = WarehousePage.today()
-    val state = Var(MovementForm.unload(material, today))
+    val fresh = MovementForm.unload(material, today)
+    val state = Var(carry.fold(fresh)(fresh.carried))
     val error = Var(Option.empty[ApiError])
     val submitting = Var(false)
     def submit(): Unit =
       state.now().request.foreach(request => record(() => ApiClient.recordUnload(material.id, request), submitting, error, "Scarico", close))
     div(
+      state.signal.map(_.carry) --> carryOut,
       materialHeader(material),
       div(
         cls := "grid gap-3 sm:grid-cols-2",
@@ -215,14 +294,21 @@ object StockDialogs:
 
   // ---- Adjustment --------------------------------------------------------------------------------
 
-  private def adjustmentForm(material: MaterialResponse, close: () => Unit): HtmlElement =
+  private def adjustmentForm(
+      material: MaterialResponse,
+      carry: Option[MovementForm.Carry],
+      carryOut: Observer[MovementForm.Carry],
+      close: () => Unit,
+  ): HtmlElement =
     val today = WarehousePage.today()
-    val state = Var(MovementForm.adjustment(material, today))
+    val fresh = MovementForm.adjustment(material, today)
+    val state = Var(carry.fold(fresh)(fresh.carried))
     val error = Var(Option.empty[ApiError])
     val submitting = Var(false)
     def submit(): Unit =
       state.now().request.foreach(request => record(() => ApiClient.recordAdjustment(material.id, request), submitting, error, "Rettifica", close))
     div(
+      state.signal.map(_.carry) --> carryOut,
       materialHeader(material),
       div(
         cls := "grid gap-3 sm:grid-cols-2",
@@ -320,13 +406,91 @@ object StockDialogs:
         ),
       )
 
+    def struckCls(m: MovementResponse): String = if m.voided then "line-through text-slate-400" else ""
+
+    def qtyCls(m: MovementResponse): String =
+      if m.voided then ""
+      else if WarehouseViews.signOf(m.delta) > 0 then "text-emerald-700"
+      else if WarehouseViews.signOf(m.delta) < 0 then "text-rose-700"
+      else ""
+
+    def balanceCls(m: MovementResponse): String = if WarehouseViews.signOf(m.balance) < 0 then "text-rose-700" else "text-slate-700"
+
+    def originNode(m: MovementResponse): Modifier[HtmlElement] =
+      WarehouseViews
+        .consumptionSource(m)
+        .fold[Modifier[HtmlElement]](
+          m.supplier
+            .fold[Modifier[HtmlElement]]("—")(s => div(s.name, Option.when(!s.active)(span(cls := "text-xs text-slate-400", " (eliminato)")))),
+        )(source => div(cls := "text-slate-700", source))
+
+    /** Reason, note, and the void badge with its reason. */
+    def notesNode(m: MovementResponse): Modifier[HtmlElement] =
+      val struck = struckCls(m)
+      List[Modifier[HtmlElement]](
+        m.reason.map(r => div(cls := (if m.voided then struck else "text-slate-600"), r)),
+        m.note.map(n => div(cls := (if m.voided then struck else "text-slate-400"), n)),
+        Option.when(m.voided)(
+          div(
+            cls := "mt-1 text-rose-700",
+            badge(m.voidedOn.fold("Annullato")(day => s"Annullato il ${IsoDay.display(day)}"), "bg-rose-50 text-rose-700 border-rose-200"),
+            m.voidReason.map(r => div(cls := "mt-0.5", r)),
+          ),
+        ),
+      )
+
+    // A consumption follows its order manufacturing (reopening it reverses the consumption), a delivery note purchase its delivery note (edited or
+    // cancelled in the "DDT" tab): neither is voided by hand.
+    def voidAction(m: MovementResponse, extraCls: String): Modifier[HtmlElement] =
+      Option.when(!material.archived && WarehouseViews.isVoidable(m))(
+        div(cls := extraCls, roleGated(Role.Admin)(button(tpe := "button", cls := btnDanger, "Annulla", onClick --> (_ => pendingVoid.set(Some(m)))))),
+      )
+
+    /**
+     * The card of a movement below `lg` (nine columns do not fit a tablet-wide dialog): date · kind and origin on the left, signed quantity and
+     * balance on the right, then costs and notes.
+     */
+    def renderMovementCard(m: MovementResponse): HtmlElement =
+      val struck = struckCls(m)
+      div(
+        cls := "space-y-2 p-3 text-sm",
+        cls := (if m.voided then "bg-slate-50" else ""),
+        div(
+          cls := "flex items-start justify-between gap-3",
+          div(
+            cls := s"min-w-0 $struck",
+            div(
+              cls := "font-medium",
+              cls := (if m.voided then "" else "text-slate-800"),
+              s"${IsoDay.display(m.on)} · ${WarehouseViews.movementKindLabel(m)}",
+            ),
+            WarehouseViews.deliveryNoteSource(m).map(source => div(cls := "text-xs text-slate-500", source)),
+            div(cls := "break-words text-slate-600", originNode(m)),
+            m.mpnCode.map(code => div(cls := "break-words text-xs text-slate-400", code)),
+          ),
+          div(
+            cls := "shrink-0 text-right",
+            div(cls := s"whitespace-nowrap font-medium tabular-nums ${qtyCls(m)} $struck", WarehouseViews.signedQty(m.delta, material.unit)),
+            div(
+              cls := s"whitespace-nowrap text-xs tabular-nums ${balanceCls(m)}",
+              s"Saldo ${WarehouseFormats.formatQty(m.balance, material.unit)}",
+            ),
+          ),
+        ),
+        Option.when(m.unitCost.isDefined || m.value.isDefined)(
+          div(
+            cls := s"text-xs text-slate-500 tabular-nums $struck",
+            s"Costo unit. ${m.unitCost.fold("—")(WarehouseFormats.formatUnitPrice)} · Valore ${m.value.fold("—")(WarehouseFormats.formatEuro)}",
+          ),
+        ),
+        div(cls := "break-words text-xs", notesNode(m)),
+        // The card only shows below `lg`: touch target.
+        voidAction(m, "*:min-h-10"),
+      )
+    end renderMovementCard
+
     def renderMovement(m: MovementResponse): HtmlElement =
-      val struck = if m.voided then "line-through text-slate-400" else ""
-      val qtyCls =
-        if m.voided then ""
-        else if WarehouseViews.signOf(m.delta) > 0 then "text-emerald-700"
-        else if WarehouseViews.signOf(m.delta) < 0 then "text-rose-700"
-        else ""
+      val struck = struckCls(m)
       tr(
         cls := "border-b border-slate-100 align-top last:border-0",
         cls := (if m.voided then "bg-slate-50" else ""),
@@ -336,47 +500,16 @@ object StockDialogs:
           WarehouseViews.movementKindLabel(m),
           WarehouseViews.deliveryNoteSource(m).map(source => div(cls := "text-xs text-slate-500", source)),
         ),
+        td(cls := s"px-3 py-2 wrap-anywhere $struck", originNode(m), m.mpnCode.map(code => div(cls := "text-xs text-slate-400", code))),
         td(
-          cls := s"px-3 py-2 $struck",
-          WarehouseViews
-            .consumptionSource(m)
-            .fold[Modifier[HtmlElement]](
-              m.supplier
-                .fold[Modifier[HtmlElement]]("—")(s => div(s.name, Option.when(!s.active)(span(cls := "text-xs text-slate-400", " (eliminato)")))),
-            )(source => div(cls := "text-slate-700", source)),
-          m.mpnCode.map(code => div(cls := "text-xs text-slate-400", code)),
-        ),
-        td(
-          cls := s"px-3 py-2 whitespace-nowrap text-right font-medium tabular-nums $qtyCls $struck",
+          cls := s"px-3 py-2 whitespace-nowrap text-right font-medium tabular-nums ${qtyCls(m)} $struck",
           WarehouseViews.signedQty(m.delta, material.unit),
         ),
         td(cls := s"px-3 py-2 whitespace-nowrap text-right tabular-nums $struck", m.unitCost.fold("—")(WarehouseFormats.formatUnitPrice)),
         td(cls := s"px-3 py-2 whitespace-nowrap text-right tabular-nums $struck", m.value.fold("—")(WarehouseFormats.formatEuro)),
-        td(
-          cls := "px-3 py-2 whitespace-nowrap text-right tabular-nums",
-          cls := (if WarehouseViews.signOf(m.balance) < 0 then "text-rose-700" else "text-slate-700"),
-          WarehouseFormats.formatQty(m.balance, material.unit),
-        ),
-        td(
-          cls := "px-3 py-2 text-xs",
-          m.reason.map(r => div(cls := (if m.voided then struck else "text-slate-600"), r)),
-          m.note.map(n => div(cls := (if m.voided then struck else "text-slate-400"), n)),
-          Option.when(m.voided)(
-            div(
-              cls := "mt-1 text-rose-700",
-              badge(m.voidedOn.fold("Annullato")(day => s"Annullato il ${IsoDay.display(day)}"), "bg-rose-50 text-rose-700 border-rose-200"),
-              m.voidReason.map(r => div(cls := "mt-0.5", r)),
-            ),
-          ),
-        ),
-        td(
-          cls := "px-3 py-2 text-right",
-          // A consumption follows its order manufacturing (reopening it reverses the consumption), a delivery note purchase its delivery note
-          // (edited or cancelled in the "DDT" tab): neither is voided by hand.
-          Option.when(!material.archived && WarehouseViews.isVoidable(m))(
-            div(roleGated(Role.Admin)(button(tpe := "button", cls := btnDanger, "Annulla", onClick --> (_ => pendingVoid.set(Some(m)))))),
-          ),
-        ),
+        td(cls := s"px-3 py-2 whitespace-nowrap text-right tabular-nums ${balanceCls(m)}", WarehouseFormats.formatQty(m.balance, material.unit)),
+        td(cls := "px-3 py-2 wrap-anywhere text-xs", notesNode(m)),
+        td(cls := "px-3 py-2 text-right", voidAction(m, "")),
       )
     end renderMovement
 
@@ -388,28 +521,48 @@ object StockDialogs:
           balanceBox(list.from.fold("Saldo iniziale")(day => s"Saldo prima del ${IsoDay.display(day)}"), list.openingBalance),
           balanceBox(list.to.fold("Saldo finale")(day => s"Saldo al ${IsoDay.display(day)}"), list.closingBalance),
         ),
+        Option.when(list.movements.nonEmpty)(
+          div(
+            cls := "lg:hidden",
+            sort.picker(
+              List(
+                "date" -> "Data",
+                "kind" -> "Tipo",
+                "origin" -> "Origine",
+                "quantity" -> "Quantità",
+                "unitCost" -> "Costo unit.",
+                "value" -> "Valore",
+                "balance" -> "Saldo",
+              ),
+            ),
+          ),
+        ),
         if list.movements.isEmpty then emptyState("Nessun movimento nel periodo selezionato.")
         else
           pager.view(sort.sorted(list.movements)) { page =>
             div(
-              cls := "overflow-x-auto rounded-md border border-slate-200",
-              table(
-                cls := "w-full text-sm",
-                thead(
-                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                  tr(
-                    sort.header("date", "Data", "px-3 py-2"),
-                    sort.header("kind", "Tipo", "px-3 py-2"),
-                    sort.header("origin", "Fornitore / Origine", "px-3 py-2"),
-                    sort.header("quantity", "Quantità", "px-3 py-2 text-right"),
-                    sort.header("unitCost", "Costo unit.", "px-3 py-2 text-right"),
-                    sort.header("value", "Valore", "px-3 py-2 text-right"),
-                    sort.header("balance", "Saldo", "px-3 py-2 text-right"),
-                    th(cls := "px-3 py-2", "Motivo / Note"),
-                    th(cls := "px-3 py-2"),
+              // Phone and tablet: stacked cards. From lg: the table.
+              div(cls := "divide-y divide-slate-100 rounded-md border border-slate-200 lg:hidden", page.map(renderMovementCard)),
+              div(
+                cls := "hidden overflow-x-auto rounded-md border border-slate-200 lg:block",
+                table(
+                  cls := "w-full text-sm",
+                  thead(
+                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                    tr(
+                      sort.header("date", "Data", "px-3 py-2"),
+                      sort.header("kind", "Tipo", "px-3 py-2"),
+                      sort.header("origin", "Fornitore / Origine", "px-3 py-2"),
+                      sort.header("quantity", "Quantità", "px-3 py-2 text-right"),
+                      sort.header("unitCost", "Costo unit.", "px-3 py-2 text-right"),
+                      sort.header("value", "Valore", "px-3 py-2 text-right"),
+                      sort.header("balance", "Saldo", "px-3 py-2 text-right"),
+                      th(cls := "px-3 py-2", "Motivo / Note"),
+                      th(cls := "px-3 py-2"),
+                    ),
                   ),
+                  tbody(page.map(renderMovement)),
                 ),
-                tbody(page.map(renderMovement)),
               ),
             )
           },
@@ -422,12 +575,13 @@ object StockDialogs:
         case Left(_) => ()
       },
       div(
-        cls := "flex flex-wrap items-end gap-3",
-        div(cls := "w-40", field("Dal", dateInput(from.signal, from.writer, today))),
-        div(cls := "w-40", field("Al", dateInput(to.signal, to.writer, today))),
+        // Phone: "Dal" and "Al" side by side, the reset below them; from sm the three on one line.
+        cls := "grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap",
+        div(cls := "min-w-0 sm:w-40", field("Dal", dateInput(from.signal, from.writer, today))),
+        div(cls := "min-w-0 sm:w-40", field("Al", dateInput(to.signal, to.writer, today))),
         button(
           tpe := "button",
-          cls := s"$btnGhost mb-0.5",
+          cls := s"$btnGhost col-span-2 mb-0.5 justify-self-start",
           "Tutti i movimenti",
           disabled <-- from.signal.combineWith(to.signal).map((f, t) => f.isEmpty && t.isEmpty),
           onClick --> { _ => from.set(""); to.set("") },

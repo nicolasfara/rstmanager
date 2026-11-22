@@ -269,7 +269,7 @@ object CustomersPage:
           div(cls := "min-w-0 break-words", div(cls := "text-xs font-medium text-slate-500", "Contatti"), contactsCell(c)),
           div(cls := "min-w-0 break-words", div(cls := "text-xs font-medium text-slate-500", "Barca"), boatCell(c)),
         ),
-        roleGated(Role.Admin)(div(cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3", actionButtons(c))),
+        roleGated(Role.Admin)(div(cls := cardActionsCls, actionButtons(c))),
       )
 
     div(

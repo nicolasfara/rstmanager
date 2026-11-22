@@ -58,13 +58,6 @@ object OrdersPage:
     case "urgent" => badge("Urgente", "bg-rose-50 text-rose-700 border-rose-200")
     case _ => badge("Normale", "bg-slate-50 text-slate-600 border-slate-200")
 
-  private def readField(labelText: String, valueNode: Modifier[HtmlElement]): HtmlElement =
-    div(
-      cls := "space-y-0.5",
-      div(cls := "text-xs font-medium text-slate-500", labelText),
-      div(cls := "text-sm text-slate-800", valueNode),
-    )
-
   /** State for the inline add-manufacturing form. `taskEmployees` mirrors the create-form per-task employee overrides for catalog mode. */
   private case class AddMfgState(
       mode: String,
@@ -938,7 +931,7 @@ object OrdersPage:
           readField("Task", s"$taskCount task"),
         ),
         div(
-          cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3",
+          cls := cardActionsCls,
           orderActionButtons(order),
         ),
       )

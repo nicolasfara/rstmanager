@@ -90,6 +90,22 @@ object MovementForm:
 
   private def errorsOf(checks: Either[String, ?]*): List[String] = checks.toList.collect { case Left(error) => error }
 
+  // ---- Carry-over between kinds ------------------------------------------------------------------
+
+  /**
+   * The fields the three forms share, handed to the next form when the "Carico | Scarico | Rettifica" switch changes kind: the quantity as a
+   * magnitude (`outgoing` for an unload or a negative correction, so a correction keeps its direction), the unit cost (purchase and correction), the
+   * day, and the reason (unload and correction; a purchase note is not a reason, so it is not carried).
+   */
+  final case class Carry(quantity: String, outgoing: Boolean, unitCost: String, on: String, reason: String) derives CanEqual
+
+  /** `"-2"` → `("2", true)`, `"+3"` → `("3", false)`: the magnitude of a signed text and whether it is negative. */
+  private def splitSign(text: String): (String, Boolean) =
+    val trimmed = text.trim.nn
+    if trimmed.startsWith("-") then (trimmed.drop(1).trim.nn, true)
+    else if trimmed.startsWith("+") then (trimmed.drop(1).trim.nn, false)
+    else (trimmed, false)
+
   /** `quantity × unitCost` (both canonical) in euro, rounded HALF_UP to the cent like the server's valuation: `"2.500"`, `"3.3333"` → `"8.33"`. */
   def total(quantity: String, unitCost: String): String =
     (BigDecimal(quantity) * BigDecimal(unitCost)).setScale(2, RoundingMode.HALF_UP).bigDecimal.toPlainString.nn
@@ -105,7 +121,7 @@ object MovementForm:
       unitCost: String,
       on: String,
       note: String,
-  ):
+  ) derives CanEqual:
     def selectedMpn: Option[MpnOption] = mpns.find(_.key == mpnKey)
 
     /** True until the user types a quantity or a cost: validation messages stay hidden on a fresh form. */
@@ -131,6 +147,11 @@ object MovementForm:
         c <- parseCost(unitCost)
         day <- parseDay(on, today)
       yield PurchaseRequest(mpn.code, mpn.supplierId, q, c, Some(day), opt(note))).toOption
+
+    def carry: Carry = Carry(quantity.trim.nn, false, unitCost, on, "")
+
+    /** This form with the shared fields of the previous kind (the MPN and the note are its own). */
+    def carried(from: Carry): PurchaseState = copy(quantity = from.quantity, unitCost = from.unitCost, on = from.on)
   end PurchaseState
 
   /** A fresh purchase of `material` dated `today`; a material with a single MPN has it preselected. */
@@ -143,7 +164,7 @@ object MovementForm:
 
   // ---- Unload ------------------------------------------------------------------------------------
 
-  final case class UnloadState(unit: String, today: String, quantity: String, on: String, reason: String):
+  final case class UnloadState(unit: String, today: String, quantity: String, on: String, reason: String) derives CanEqual:
     def pristine: Boolean = quantity.trim.nn.isEmpty && reason.trim.nn.isEmpty
 
     def errors: List[String] = errorsOf(parseQuantity(quantity, unit), parseDay(on, today), parseReason(reason))
@@ -155,11 +176,17 @@ object MovementForm:
         why <- parseReason(reason)
       yield UnloadRequest(q, Some(day), why)).toOption
 
+    def carry: Carry = Carry(quantity.trim.nn, true, "", on, reason)
+
+    /** This form with the shared fields of the previous kind (an unload has no cost). */
+    def carried(from: Carry): UnloadState = copy(quantity = from.quantity, on = from.on, reason = from.reason)
+  end UnloadState
+
   def unload(material: MaterialResponse, today: String): UnloadState = UnloadState(material.unit, today, "", today, "")
 
   // ---- Adjustment --------------------------------------------------------------------------------
 
-  final case class AdjustmentState(unit: String, today: String, delta: String, unitCost: String, on: String, reason: String):
+  final case class AdjustmentState(unit: String, today: String, delta: String, unitCost: String, on: String, reason: String) derives CanEqual:
     def pristine: Boolean = delta.trim.nn.isEmpty && unitCost.trim.nn.isEmpty && reason.trim.nn.isEmpty
 
     /** A unit cost may be given only for an incoming (positive) correction; otherwise the cost input is disabled and ignored. */
@@ -178,6 +205,15 @@ object MovementForm:
         day <- parseDay(on, today)
         why <- parseReason(reason)
       yield AdjustmentRequest(d, cost, Some(day), why)).toOption
+
+    def carry: Carry =
+      val (magnitude, negative) = splitSign(delta)
+      Carry(magnitude, negative, unitCost, on, reason)
+
+    /** This form with the shared fields of the previous kind: the quantity becomes a negative variation when it came from an unload. */
+    def carried(from: Carry): AdjustmentState =
+      val signed = if from.outgoing && from.quantity.nonEmpty then s"-${from.quantity}" else from.quantity
+      copy(delta = signed, unitCost = from.unitCost, on = from.on, reason = from.reason)
   end AdjustmentState
 
   def adjustment(material: MaterialResponse, today: String): AdjustmentState = AdjustmentState(material.unit, today, "", "", today, "")

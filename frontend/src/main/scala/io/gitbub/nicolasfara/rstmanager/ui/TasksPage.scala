@@ -173,7 +173,7 @@ object TasksPage:
           span(cls := "text-xs font-medium text-slate-500", "Dipendente predefinito: "),
           span(child.text <-- defaultEmployeeLabel(task)),
         ),
-        roleGated(Role.Admin)(div(cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3", actionButtons(task))),
+        roleGated(Role.Admin)(div(cls := cardActionsCls, actionButtons(task))),
       )
 
     // Double-check before the destructive delete.

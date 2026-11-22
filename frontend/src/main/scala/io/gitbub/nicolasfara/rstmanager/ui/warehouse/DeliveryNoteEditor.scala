@@ -155,8 +155,10 @@ object DeliveryNoteEditor:
       val selected = view.map(_._1)
       def rowSpec(labelText: String, rowField: RowField): FieldSpec = spec(labelText, Field.Row(key, rowField), true)
       div(
-        cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-2 sm:grid-cols-[minmax(0,1fr)_7.5rem_9rem_6.5rem_auto] sm:items-start",
+        // Below md: the material on its own row, then quantity | cost and total | remove in two columns; from md: one row.
+        cls := "grid grid-cols-2 gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-[minmax(0,1fr)_7.5rem_9rem_6.5rem_auto] md:items-start",
         div(
+          cls := "col-span-2 min-w-0 md:col-span-1",
           field(rowSpec("Materiale", RowField.Material))(bind =>
             searchableSelect(
               rowSignal.map(_.choice),
@@ -210,7 +212,7 @@ object DeliveryNoteEditor:
         ),
         button(
           tpe := "button",
-          cls := s"$btnDanger justify-center sm:mt-5",
+          cls := s"$btnDanger min-h-9 justify-center self-end md:mt-5 md:min-h-0 md:self-start",
           aria.label := "Rimuovi riga",
           "Rimuovi",
           onClick --> (_ => state.update(_.removeRow(key))),

@@ -122,6 +122,16 @@ object FlowsTab:
     def bar(colorCls: String, percent: Double, tooltip: String): HtmlElement =
       div(cls := s"w-4 rounded-t $colorCls", styleAttr := f"height: $percent%.2f%%", title := tooltip)
 
+    /** A horizontal bar of the narrow chart, with its amount on the right. */
+    def hbar(colorCls: String, percent: Double, tooltip: String, value: String): HtmlElement =
+      val amount = WarehouseFormats.formatEuro(value)
+      div(
+        cls := "flex items-center gap-2",
+        title := s"$tooltip: $amount",
+        div(cls := "h-2.5 min-w-0 flex-1 rounded-sm bg-slate-100", div(cls := s"h-full rounded-sm $colorCls", styleAttr := f"width: $percent%.2f%%")),
+        span(cls := "w-24 shrink-0 text-right text-[11px] tabular-nums text-slate-500", amount),
+      )
+
     def chart(report: FlowReportResponse): HtmlElement =
       val bars = WarehouseViews.scaleBars(report.buckets.map(b => (b.totals.inValue, b.totals.outValue)))
       card(
@@ -134,21 +144,43 @@ object FlowsTab:
         if report.buckets.isEmpty then emptyState("Nessun periodo da mostrare.")
         else
           div(
-            cls := "overflow-x-auto",
+            // Below lg: one row of horizontal bars per bucket, so any number of buckets fits the width. From lg: the column chart (it scrolls only
+            // for periods with many buckets).
             div(
-              cls := "flex min-w-full items-end gap-3",
+              cls := "space-y-3 lg:hidden",
               report.buckets.zip(bars).map { (bucket, pair) =>
                 val label = WarehouseViews.bucketLabel(bucket)
                 div(
-                  cls := "flex min-w-[4.5rem] flex-1 flex-col items-center gap-1",
                   div(
-                    cls := "flex h-40 w-full items-end justify-center gap-1 border-b border-slate-200",
-                    bar("bg-emerald-500", pair.inPercent, s"$label — Entrate: ${WarehouseFormats.formatEuro(bucket.totals.inValue)}"),
-                    bar("bg-rose-500", pair.outPercent, s"$label — Uscite: ${WarehouseFormats.formatEuro(bucket.totals.outValue)}"),
+                    cls := "flex items-baseline justify-between gap-2 text-xs",
+                    span(cls := "font-medium text-slate-700", label),
+                    span(cls := "text-slate-400", WarehouseViews.bucketRange(bucket.from, bucket.to)),
                   ),
-                  div(cls := "text-center text-[11px] leading-tight text-slate-500", label),
+                  div(
+                    cls := "mt-1 space-y-1",
+                    hbar("bg-emerald-500", pair.inPercent, s"$label — Entrate", bucket.totals.inValue),
+                    hbar("bg-rose-500", pair.outPercent, s"$label — Uscite", bucket.totals.outValue),
+                  ),
                 )
               },
+            ),
+            div(
+              cls := "hidden overflow-x-auto lg:block",
+              div(
+                cls := "flex min-w-full items-end gap-3",
+                report.buckets.zip(bars).map { (bucket, pair) =>
+                  val label = WarehouseViews.bucketLabel(bucket)
+                  div(
+                    cls := "flex min-w-[3.5rem] flex-1 flex-col items-center gap-1",
+                    div(
+                      cls := "flex h-40 w-full items-end justify-center gap-1 border-b border-slate-200",
+                      bar("bg-emerald-500", pair.inPercent, s"$label — Entrate: ${WarehouseFormats.formatEuro(bucket.totals.inValue)}"),
+                      bar("bg-rose-500", pair.outPercent, s"$label — Uscite: ${WarehouseFormats.formatEuro(bucket.totals.outValue)}"),
+                    ),
+                    div(cls := "text-center text-[11px] leading-tight text-slate-500", label),
+                  )
+                },
+              ),
             ),
           )
         ,
@@ -182,6 +214,27 @@ object FlowsTab:
         td(cls := "px-4 py-2 text-xs", quantitiesCell(totals.quantities)),
       )
 
+    def amountField(labelText: String, valueCls: String, value: String): HtmlElement =
+      readField(labelText, span(cls := s"whitespace-nowrap tabular-nums $valueCls", WarehouseFormats.formatEuro(value)))
+
+    /** The card of a bucket (or of the period total) below `md`: label and net on top, then in, purchases, out, and the quantities. */
+    def bucketCard(heading: HtmlElement, totals: FlowTotalsResponse, extraCls: String): HtmlElement =
+      div(
+        cls := s"space-y-2 p-4 $extraCls",
+        div(
+          cls := "flex items-start justify-between gap-3",
+          div(cls := "min-w-0", heading),
+          span(cls := s"shrink-0 whitespace-nowrap font-semibold tabular-nums ${signCls(totals.net)}", WarehouseFormats.formatEuro(totals.net)),
+        ),
+        div(
+          cls := "grid grid-cols-2 gap-3",
+          amountField("Entrate", "text-emerald-700", totals.inValue),
+          amountField("Uscite", "text-rose-700", totals.outValue),
+          amountField("di cui acquisti", "text-slate-500", totals.purchaseValue),
+          readField("Quantità (entr. / usc.)", div(cls := "text-xs", quantitiesCell(totals.quantities))),
+        ),
+      )
+
     def bucketsTable(report: FlowReportResponse): HtmlElement =
       card(
         cls := "overflow-hidden",
@@ -189,38 +242,69 @@ object FlowsTab:
         if report.buckets.isEmpty then div(cls := "p-4", emptyState("Nessun periodo da mostrare."))
         else
           div(
-            cls := "overflow-x-auto",
-            table(
-              cls := "w-full text-sm",
-              thead(
-                cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                tr(
-                  bucketSort.header("period", "Periodo", "px-4 py-2"),
-                  bucketSort.header("in", "Entrate", "px-4 py-2 text-right"),
-                  bucketSort.header("purchases", "di cui acquisti", "px-4 py-2 text-right"),
-                  bucketSort.header("out", "Uscite", "px-4 py-2 text-right"),
-                  bucketSort.header("net", "Netto", "px-4 py-2 text-right"),
-                  th(cls := "px-4 py-2", "Quantità (entrate / uscite)"),
+            // Mobile: one card per period and one for the total. Desktop (md+): the table.
+            div(
+              cls := "md:hidden",
+              div(
+                cls := "border-b border-slate-100 px-4 py-2",
+                bucketSort.picker(
+                  List("period" -> "Periodo", "in" -> "Entrate", "purchases" -> "di cui acquisti", "out" -> "Uscite", "net" -> "Netto"),
                 ),
               ),
-              tbody(
+              div(
+                cls := "divide-y divide-slate-100",
                 children <-- bucketSort
                   .sorted(report.buckets)
                   .map(_.map { bucket =>
-                    tr(
-                      cls := "border-b border-slate-100 align-top last:border-0",
-                      td(
-                        cls := "px-4 py-2",
+                    bucketCard(
+                      div(
                         div(cls := "font-medium text-slate-800", WarehouseViews.bucketLabel(bucket)),
                         div(cls := "text-xs text-slate-400", WarehouseViews.bucketRange(bucket.from, bucket.to)),
                       ),
-                      amountCells(bucket.totals),
+                      bucket.totals,
+                      "",
                     )
                   }),
               ),
-              tfoot(
-                cls := "border-t border-slate-200 bg-slate-50 font-medium",
-                tr(cls := "align-top", td(cls := "px-4 py-2 text-slate-800", "Totale"), amountCells(report.totals)),
+              div(
+                cls := "border-t border-slate-200",
+                bucketCard(div(cls := "font-medium text-slate-800", "Totale"), report.totals, "bg-slate-50"),
+              ),
+            ),
+            div(
+              cls := "hidden overflow-x-auto md:block",
+              table(
+                cls := "w-full text-sm",
+                thead(
+                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                  tr(
+                    bucketSort.header("period", "Periodo", "px-4 py-2"),
+                    bucketSort.header("in", "Entrate", "px-4 py-2 text-right"),
+                    bucketSort.header("purchases", "di cui acquisti", "px-4 py-2 text-right"),
+                    bucketSort.header("out", "Uscite", "px-4 py-2 text-right"),
+                    bucketSort.header("net", "Netto", "px-4 py-2 text-right"),
+                    th(cls := "px-4 py-2", "Quantità (entrate / uscite)"),
+                  ),
+                ),
+                tbody(
+                  children <-- bucketSort
+                    .sorted(report.buckets)
+                    .map(_.map { bucket =>
+                      tr(
+                        cls := "border-b border-slate-100 align-top last:border-0",
+                        td(
+                          cls := "px-4 py-2",
+                          div(cls := "font-medium text-slate-800", WarehouseViews.bucketLabel(bucket)),
+                          div(cls := "text-xs text-slate-400", WarehouseViews.bucketRange(bucket.from, bucket.to)),
+                        ),
+                        amountCells(bucket.totals),
+                      )
+                    }),
+                ),
+                tfoot(
+                  cls := "border-t border-slate-200 bg-slate-50 font-medium",
+                  tr(cls := "align-top", td(cls := "px-4 py-2 text-slate-800", "Totale"), amountCells(report.totals)),
+                ),
               ),
             ),
           ),
@@ -234,13 +318,13 @@ object FlowsTab:
           cls := "cursor-pointer hover:bg-slate-50",
           onClick --> (_ => expanded.update(set => if set.contains(s.supplierId) then set - s.supplierId else set + s.supplierId)),
           td(
-            cls := "px-4 py-2",
+            cls := "wrap-anywhere px-3 py-2 sm:px-4",
             span(cls := "mr-2 inline-block w-3 text-slate-400", child.text <-- isOpen.map(open => if open then "▾" else "▸")),
             span(cls := (if s.active then "font-medium text-slate-800" else "font-medium text-slate-400 line-through"), s.name),
             Option.when(!s.active)(span(cls := "ml-2", badge("Eliminato", "bg-slate-100 text-slate-500 border-slate-200"))),
           ),
-          td(cls := "px-4 py-2 text-right tabular-nums text-slate-600", s.purchases.toString),
-          td(cls := "px-4 py-2 whitespace-nowrap text-right font-medium tabular-nums text-slate-800", WarehouseFormats.formatEuro(s.amount)),
+          td(cls := "px-3 py-2 text-right tabular-nums text-slate-600 sm:px-4", s.purchases.toString),
+          td(cls := "px-3 py-2 whitespace-nowrap text-right font-medium tabular-nums text-slate-800 sm:px-4", WarehouseFormats.formatEuro(s.amount)),
         ),
         children <-- isOpen.map { open =>
           if !open then Nil
@@ -249,15 +333,15 @@ object FlowsTab:
               tr(
                 cls := "bg-slate-50/60 text-xs",
                 td(
-                  cls := "py-1.5 pl-11 pr-4",
+                  cls := "wrap-anywhere py-1.5 pl-8 pr-3 sm:pl-11 sm:pr-4",
                   div(cls := "text-slate-700", s"${mpn.internalCode} — ${mpn.description}"),
                   div(
                     cls := "text-slate-400",
                     s"MPN ${mpn.mpnCode} · ${WarehouseFormats.formatQty(mpn.quantity, mpn.unit)}",
                   ),
                 ),
-                td(cls := "px-4 py-1.5 text-right tabular-nums text-slate-500", mpn.purchases.toString),
-                td(cls := "px-4 py-1.5 whitespace-nowrap text-right tabular-nums text-slate-700", WarehouseFormats.formatEuro(mpn.amount)),
+                td(cls := "px-3 py-1.5 text-right tabular-nums text-slate-500 sm:px-4", mpn.purchases.toString),
+                td(cls := "px-3 py-1.5 whitespace-nowrap text-right tabular-nums text-slate-700 sm:px-4", WarehouseFormats.formatEuro(mpn.amount)),
               )
             }
         },
@@ -267,25 +351,25 @@ object FlowsTab:
     def spendTable(report: SupplierSpendReportResponse): HtmlElement =
       if report.suppliers.isEmpty then div(cls := "p-4", emptyState("Nessun acquisto nel periodo selezionato."))
       else
+        // Three columns fit 360px once the names wrap: no horizontal scroll, and narrower cell paddings below sm.
         div(
-          cls := "overflow-x-auto",
           table(
             cls := "w-full text-sm",
             thead(
               cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
               tr(
-                spendSort.header("supplier", "Fornitore", "px-4 py-2"),
-                spendSort.header("purchases", "Acquisti", "px-4 py-2 text-right"),
-                spendSort.header("amount", "Importo", "px-4 py-2 text-right"),
+                spendSort.header("supplier", "Fornitore", "px-3 py-2 sm:px-4"),
+                spendSort.header("purchases", "Acquisti", "px-3 py-2 text-right sm:px-4"),
+                spendSort.header("amount", "Importo", "px-3 py-2 text-right sm:px-4"),
               ),
             ),
             children <-- spendSort.sorted(report.suppliers).map(_.map(supplierRows)),
             tfoot(
               cls := "border-t border-slate-200 bg-slate-50 font-medium",
               tr(
-                td(cls := "px-4 py-2 text-slate-800", "Totale"),
-                td(cls := "px-4 py-2 text-right tabular-nums text-slate-600", report.suppliers.map(_.purchases).sum.toString),
-                td(cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums text-slate-800", WarehouseFormats.formatEuro(report.total)),
+                td(cls := "px-3 py-2 text-slate-800 sm:px-4", "Totale"),
+                td(cls := "px-3 py-2 text-right tabular-nums text-slate-600 sm:px-4", report.suppliers.map(_.purchases).sum.toString),
+                td(cls := "px-3 py-2 whitespace-nowrap text-right tabular-nums text-slate-800 sm:px-4", WarehouseFormats.formatEuro(report.total)),
               ),
             ),
           ),

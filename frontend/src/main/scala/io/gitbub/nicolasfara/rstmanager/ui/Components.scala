@@ -22,6 +22,16 @@ object Components:
     "inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
   val btnSmall = "inline-flex items-center rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
   val btnDanger = "inline-flex items-center rounded-md border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50"
+
+  /**
+   * Action bar at the bottom of a mobile list card: its buttons (direct children, [[roleGated]] ones included) get a 40px touch target. The cards
+   * only show below the breakpoint where their list switches to a table, so the desktop buttons keep their compact size.
+   */
+  val cardActionsCls = "flex flex-wrap gap-2 border-t border-slate-100 pt-3 *:min-h-10"
+
+  /** Grows the buttons directly inside a group always on screen (e.g. a card row's actions) to a 40px touch target below `md`. */
+  val touchChildrenCls = "*:min-h-10 md:*:min-h-0"
+
   val btnDangerSolid =
     "inline-flex items-center justify-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-50"
   private val inputCls =
@@ -56,6 +66,14 @@ object Components:
 
   def field(labelText: String, control: HtmlElement): HtmlElement =
     label(cls := "block", span(cls := labelCls, labelText), control)
+
+  /** A read-only labelled value (the fields of a mobile list card, of a details panel): small grey label over the value. */
+  def readField(labelText: String, valueNode: Modifier[HtmlElement]): HtmlElement =
+    div(
+      cls := "min-w-0 space-y-0.5",
+      div(cls := "text-xs font-medium text-slate-500", labelText),
+      div(cls := "break-words text-sm text-slate-800", valueNode),
+    )
 
   /**
    * Marks the form card that "Modifica" fills in place. On mobile the form is stacked after a long list, so `revealAndFocus()` scrolls it into view
@@ -466,27 +484,47 @@ object Components:
     segmented(valueSignal, writer, opts, emptyMod)
 
   /**
-   * Variant of [[segmented]] with `groupMods` on the `radiogroup` element (e.g. a [[FieldSpec]] `bind`, or `aria.label`). Each option is a plain
-   * `button` (reachable with Tab, activated with Enter/Space) with `role=radio` and `aria-checked`.
+   * Variant of [[segmented]] with `groupMods` on the `radiogroup` element (e.g. a [[FieldSpec]] `bind`, or `aria.label`). Each option is a `button`
+   * with `role=radio` and `aria-checked`, following the ARIA radio group pattern: the group is a single Tab stop (the checked option, or the first
+   * when none is), Left/Up and Right/Down select the previous/next option (wrapping), Home/End the first/last, and the focus follows the selection.
+   * The options stay mounted when the value changes, so a caller rebuilding other content on a switch keeps the focus here. Options are 40px tall
+   * below `md` (touch target).
    */
   def segmented(valueSignal: Signal[String], writer: Observer[String], opts: List[(String, String)], groupMods: Modifier[HtmlElement]): HtmlElement =
+    val values = opts.map(_._1)
+    val tabStop = valueSignal.map(RadioGroupNav.tabStop(values, _))
+    val options = opts.zipWithIndex.map { case ((optValue, optLabel), index) =>
+      val active = valueSignal.map(_ == optValue)
+      button(
+        tpe := "button",
+        role := "radio",
+        aria.checked <-- active.map(isActive => if isActive then "true" else "false"),
+        tabIndex <-- tabStop.map(stop => if stop == index then 0 else -1),
+        cls := "min-h-10 rounded px-3 py-1 text-sm font-medium transition-colors md:min-h-0",
+        cls := "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+        cls <-- active.map(isActive => if isActive then "bg-slate-900 text-white shadow-sm" else "text-slate-600 hover:bg-slate-200"),
+        optLabel,
+        onClick --> (_ => writer.onNext(optValue)),
+      )
+    }
+    options.zipWithIndex.foreach { (option, index) =>
+      option.amend(
+        onKeyDown --> { event =>
+          RadioGroupNav.target(event.key, index, options.size).foreach { next =>
+            event.preventDefault()
+            writer.onNext(values(next))
+            options(next).ref.focus()
+          }
+        },
+      )
+    }
     div(
       role := "radiogroup",
       cls := "inline-flex flex-wrap gap-1 rounded-md border border-slate-300 bg-slate-50 p-0.5",
       groupMods,
-      opts.map { (optValue, optLabel) =>
-        val active = valueSignal.map(_ == optValue)
-        button(
-          tpe := "button",
-          role := "radio",
-          aria.checked <-- active.map(isActive => if isActive then "true" else "false"),
-          cls := "rounded px-3 py-1 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
-          cls <-- active.map(isActive => if isActive then "bg-slate-900 text-white shadow-sm" else "text-slate-600 hover:bg-slate-200"),
-          optLabel,
-          onClick --> (_ => writer.onNext(optValue)),
-        )
-      },
+      options,
     )
+  end segmented
 
   /** Completion state of a [[formSection]]: no indicator, all good, or `count` things still to fix. */
   enum SectionStatus derives CanEqual:
@@ -1014,7 +1052,9 @@ object Components:
         h2(idAttr := titleId, cls := "text-sm font-semibold text-slate-800", child.text <-- titleText),
         button(
           tpe := "button",
-          cls := "text-slate-400 hover:text-slate-700",
+          // 40px touch target below `md`; the negative margins keep the header height unchanged.
+          cls := "-my-2.5 -mr-2 inline-flex size-10 shrink-0 items-center justify-center rounded-md text-slate-400 hover:text-slate-700 " +
+            "md:m-0 md:size-auto",
           aria.label := "Chiudi",
           title := "Chiudi",
           "✕",
@@ -1070,3 +1110,23 @@ private[ui] object ComboboxNav:
   def initial(ids: List[String], selected: String): Int =
     if ids.isEmpty then -1 else ids.indexOf(selected).max(0)
 end ComboboxNav
+
+/**
+ * Pure keyboard navigation of a radio group ([[Components.segmented]]), over `size` options by index: the single Tab stop and the option an arrow,
+ * Home, or End key moves to.
+ */
+private[ui] object RadioGroupNav:
+
+  /** The option index after `key` from `current`: Left/Up and Right/Down step (wrapping), Home/End jump; `None` for any other key. */
+  def target(key: String, current: Int, size: Int): Option[Int] =
+    val next = key match
+      case "ArrowRight" | "ArrowDown" => Some(ComboboxNav.move(current, 1, size))
+      case "ArrowLeft" | "ArrowUp" => Some(ComboboxNav.move(current, -1, size))
+      case "Home" => Some(if size > 0 then 0 else -1)
+      case "End" => Some(size - 1)
+      case _ => None
+    next.filter(_ >= 0)
+
+  /** The option reachable with Tab: the checked one, else the first; -1 when there are no options. */
+  def tabStop(values: List[String], selected: String): Int = ComboboxNav.initial(values, selected)
+end RadioGroupNav

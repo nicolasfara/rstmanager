@@ -29,9 +29,10 @@ import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MaterialForm.{ Field, MpnFi
  * Material registry of the warehouse: internal code, unit of measure, customer price, and the MPNs it is bought as (each tied to a supplier). The
  * material suppliers are derived from the MPNs. Removing a material archives it, so it stays available to the history.
  *
- * The table also shows today's stock and value of each material, with the stock actions of a row: purchase, unload, and adjustment (Operator) and the
- * movements list (Viewer), in the dialogs of [[StockDialogs]]. Admins can also load many materials at once from an Excel workbook, in the
- * [[MaterialImportDialog]]; the outcome of the last upload stays above the table until dismissed.
+ * The list shows today's stock and value of each material — stacked cards below `xl`, a compact table from `xl` (see [[MaterialCards]]) — with at
+ * most three actions per material: "Movimento" (Operator: purchase, unload, or adjustment in one dialog with a kind switch) and "Movimenti" (Viewer),
+ * in the dialogs of [[StockDialogs]], and "Modifica" (Admin). Archiving is done from the edit form. Admins can also load many materials at once from
+ * an Excel workbook, in the [[MaterialImportDialog]]; the outcome of the last upload stays above the list until dismissed.
  */
 object MaterialsTab:
 
@@ -43,8 +44,9 @@ object MaterialsTab:
     val showArchived = Var(false)
     val pendingArchive = Var(Option.empty[MaterialResponse])
     val stockDialog = Var(Option.empty[StockDialog])
-    // Suppliers of the material being edited, so an MPN of a supplier deleted meanwhile still shows a name in its row.
-    val editedSuppliers = Var(List.empty[MaterialSupplierDto])
+    // The material being edited: its suppliers keep a name in the row of an MPN whose supplier was deleted meanwhile, and it is what "Archivia" asks
+    // about.
+    val editedMaterial = Var(Option.empty[MaterialResponse])
     val importOpen = Var(false)
     val lastImport = Var(Option.empty[MaterialImportResponse])
 
@@ -64,7 +66,7 @@ object MaterialsTab:
     )
 
     val supplierOptions: Signal[List[(String, String)]] =
-      suppliers.combineWith(editedSuppliers.signal).map { (loaded, edited) =>
+      suppliers.combineWith(editedMaterial.signal.map(_.fold(Nil)(_.suppliers))).map { (loaded, edited) =>
         val active = loaded match
           case Some(Right(list)) => list.map(s => s.id.toString -> s.name)
           case _ => Nil
@@ -86,7 +88,7 @@ object MaterialsTab:
 
     def resetForm(): Unit =
       form.set(MaterialForm.empty)
-      editedSuppliers.set(Nil)
+      editedMaterial.set(None)
       formError.set(None)
       touch.reset()
       draft.markClean()
@@ -98,7 +100,7 @@ object MaterialsTab:
       draft.discardThen { () =>
         formAnchor.revealAndFocus()
         form.set(MaterialForm.fromResponse(material))
-        editedSuppliers.set(material.suppliers)
+        editedMaterial.set(Some(material))
         formError.set(None)
         touch.reset()
         draft.markClean()
@@ -306,131 +308,123 @@ object MaterialsTab:
               ),
             ),
         ),
+        child.maybe <-- editedMaterial.signal.map(_.map(dangerZone)),
       )
 
-    // ---- Table -----------------------------------------------------------------------------------
-
-    def suppliersCell(material: MaterialResponse): HtmlElement =
-      if material.suppliers.isEmpty then div(cls := "text-xs text-slate-400", "—")
-      else
-        div(
-          material.suppliers.map { s =>
-            if s.active then div(s.name)
-            else div(cls := "text-slate-400 line-through", title := "Fornitore eliminato", s.name)
-          },
-          Option.when(material.mpns.nonEmpty)(div(cls := "text-xs text-slate-400", material.mpns.map(_.code).mkString(", "))),
-        )
-
-    def stockCell(material: MaterialResponse): HtmlElement =
+    /** Archiving the material being edited, out of the list rows: asks for confirmation first. */
+    def dangerZone(material: MaterialResponse): HtmlElement =
       div(
-        div(
-          cls := "tabular-nums",
-          cls := (if material.stock.negative then "font-medium text-rose-700" else ""),
-          WarehouseFormats.formatQty(material.stock.quantity, material.unit),
+        cls := "mt-6 rounded-md border border-rose-200 bg-rose-50/40 p-3",
+        div(cls := "text-xs font-semibold uppercase tracking-wide text-rose-700", "Zona pericolosa"),
+        p(
+          cls := "mt-1 text-xs text-slate-600",
+          "Archiviando il materiale non sarà più modificabile né movimentabile, ma resterà nello storico del magazzino.",
         ),
-        Option.when(material.stock.negative)(
-          div(
-            cls := "mt-1",
-            title := "Giacenza negativa: verificare i movimenti",
-            badge("Anomalia", "bg-rose-50 text-rose-700 border-rose-200"),
-          ),
+        button(
+          tpe := "button",
+          cls := s"$btnDanger mt-2 min-h-9",
+          "Archivia materiale",
+          onClick --> (_ => pendingArchive.set(Some(material))),
         ),
       )
 
-    def actionsCell(material: MaterialResponse): HtmlElement =
+    // ---- List: cards below xl, compact table from xl -------------------------------------------
+
+    /** The actions of a material (at most three): "Movimento" (Operator), "Movimenti" (Viewer), "Modifica" (Admin); an archived one only lists. */
+    def actionButtons(material: MaterialResponse): List[Modifier[HtmlElement]] =
       def open(dialog: StockDialog): Unit = stockDialog.set(Some(dialog))
-      div(
-        cls := "flex flex-col items-end gap-1.5",
-        div(
-          cls := "flex flex-wrap justify-end gap-1.5",
-          Option.when(!material.archived)(
-            div(
-              roleGated(Role.Operator)(
-                div(
-                  cls := "flex flex-wrap justify-end gap-1.5",
-                  button(tpe := "button", cls := btnSmall, "Carico", onClick --> (_ => open(StockDialog.Purchase(material)))),
-                  button(tpe := "button", cls := btnSmall, "Scarico", onClick --> (_ => open(StockDialog.Unload(material)))),
-                  button(tpe := "button", cls := btnSmall, "Rettifica", onClick --> (_ => open(StockDialog.Adjust(material)))),
-                ),
-              ),
+      List(
+        Option.when(!material.archived)(
+          roleGated(Role.Operator)(
+            button(
+              tpe := "button",
+              cls := btnSmall,
+              aria.label := s"Registra un movimento di ${material.internalCode}",
+              "Movimento",
+              onClick --> (_ => open(StockDialog.Purchase(material))),
             ),
           ),
-          div(
-            roleGated(Role.Viewer)(button(tpe := "button", cls := btnSmall, "Movimenti", onClick --> (_ => open(StockDialog.Movements(material))))),
+        ),
+        roleGated(Role.Viewer)(
+          button(
+            tpe := "button",
+            cls := btnSmall,
+            aria.label := s"Movimenti di ${material.internalCode}",
+            "Movimenti",
+            onClick --> (_ => open(StockDialog.Movements(material))),
           ),
         ),
         Option.when(!material.archived)(
-          div(
-            roleGated(Role.Admin)(
-              div(
-                cls := "flex justify-end gap-1.5",
-                button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(material))),
-                button(tpe := "button", cls := btnDanger, "Archivia", onClick --> (_ => pendingArchive.set(Some(material)))),
-              ),
+          roleGated(Role.Admin)(
+            button(
+              tpe := "button",
+              cls := btnSmall,
+              aria.label := s"Modifica ${material.internalCode}",
+              "Modifica",
+              onClick --> (_ => edit(material)),
             ),
           ),
         ),
       )
-    end actionsCell
+    end actionButtons
+
+    def renderCard(material: MaterialResponse): HtmlElement =
+      MaterialCards.listCard(WarehouseViews.materialSummary(material), Nil)(actionButtons(material)*)
 
     def renderRow(material: MaterialResponse): HtmlElement =
+      val summary = WarehouseViews.materialSummary(material)
       tr(
         cls := "border-b border-slate-100 align-top last:border-0",
         cls := (if material.archived then "bg-slate-50 text-slate-400" else ""),
-        td(
-          cls := "px-4 py-2 font-medium",
-          div(cls := (if material.archived then "text-slate-500" else "text-slate-800"), material.internalCode),
-          Option.when(material.archived)(
-            div(
-              cls := "mt-1",
-              badge(
-                material.archivedOn.fold("Archiviato")(day => s"Archiviato il ${day.split("-").nn.reverse.mkString("/")}"),
-                "bg-slate-100 text-slate-500 border-slate-200",
-              ),
-            ),
-          ),
-        ),
-        td(
-          cls := "px-4 py-2",
-          div(cls := (if material.archived then "" else "text-slate-700"), material.description),
-          material.notes.map(n => div(cls := "text-xs text-slate-400", n)),
-        ),
-        td(cls := "px-4 py-2 text-slate-500", material.materialType.getOrElse("—")),
-        td(cls := "px-4 py-2 text-slate-500", title := WarehouseFormats.unitLabel(material.unit), WarehouseFormats.unitShortLabel(material.unit)),
-        td(cls := "px-4 py-2 whitespace-nowrap text-right", stockCell(material)),
-        td(
-          cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums",
-          material.stock.maxUnitCost.map(cost => title := s"Costo unitario max: ${WarehouseFormats.formatUnitPrice(cost)}"),
-          material.stock.value.fold[Modifier[HtmlElement]](span(cls := "text-slate-400", title := "Nessun costo d'acquisto registrato", "—"))(value =>
-            WarehouseFormats.formatEuro(value),
-          ),
-        ),
-        td(cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums", WarehouseFormats.formatUnitPrice(material.customerPrice)),
-        td(cls := "px-4 py-2 text-slate-600", suppliersCell(material)),
-        td(cls := "px-4 py-2 text-right", actionsCell(material)),
+        td(cls := "px-3 py-2", MaterialCards.materialCell(summary)),
+        td(cls := "px-3 py-2 text-right", MaterialCards.stockCell(summary)),
+        td(cls := "px-3 py-2 text-right", MaterialCards.valuePriceCell(summary)),
+        td(cls := "px-3 py-2 text-slate-600", MaterialCards.suppliersCell(summary)),
+        td(cls := "px-3 py-2", div(cls := "flex flex-col items-end gap-1.5", actionButtons(material))),
       )
 
     def tableCard: HtmlElement =
       card(
         cls := "overflow-hidden",
         div(
-          cls := "flex flex-wrap items-center justify-end gap-3 border-b border-slate-100 px-4 py-2",
-          div(cls := "mr-auto w-full sm:w-80", searchBox(query, "Cerca per codice, descrizione, MPN, fornitore…", pager)),
-          roleGated(Role.Admin)(button(tpe := "button", cls := s"$btnSmall min-h-10 lg:hidden", "+ Nuovo materiale", onClick --> (_ => startNew()))),
-          roleGated(Role.Admin)(
-            button(
-              tpe := "button",
-              cls := btnSmall,
-              "Carica materiali da Excel",
-              onClick --> (_ =>
-                lastImport.set(None); importOpen.set(true)
+          cls := "space-y-2 border-b border-slate-100 p-3",
+          div(
+            cls := "flex flex-wrap items-center gap-2",
+            div(cls := "w-full sm:mr-auto sm:w-80", searchBox(query, "Cerca per codice, descrizione, MPN, fornitore…", pager)),
+            roleGated(Role.Admin)(
+              button(tpe := "button", cls := s"$btnSmall min-h-10 lg:hidden", "+ Nuovo materiale", onClick --> (_ => startNew())),
+            ),
+            roleGated(Role.Admin)(
+              button(
+                tpe := "button",
+                cls := s"$btnSmall min-h-10 xl:min-h-0",
+                "Carica da Excel",
+                title := "Carica materiali da un file Excel",
+                onClick --> (_ =>
+                  lastImport.set(None); importOpen.set(true)
+                ),
               ),
             ),
+            label(
+              cls := "inline-flex min-h-10 items-center gap-2 text-xs font-medium text-slate-600 xl:min-h-0",
+              input(typ := "checkbox", checked <-- showArchived.signal, onChange.mapToChecked --> { show => showArchived.set(show); pager.reset() }),
+              "Mostra archiviati",
+            ),
           ),
-          label(
-            cls := "inline-flex items-center gap-2 text-xs font-medium text-slate-600",
-            input(typ := "checkbox", checked <-- showArchived.signal, onChange.mapToChecked --> { show => showArchived.set(show); pager.reset() }),
-            "Mostra archiviati",
+          div(
+            cls := "xl:hidden",
+            sort.picker(
+              List(
+                "code" -> "Codice",
+                "description" -> "Descrizione",
+                "type" -> "Tipologia",
+                "unit" -> "UdM",
+                "stock" -> "Giacenza",
+                "value" -> "Valore",
+                "price" -> "Prezzo cliente",
+                "suppliers" -> "Fornitori",
+              ),
+            ),
           ),
         ),
         child.maybe <-- lastImport.signal.map(_.map { summary =>
@@ -461,24 +455,24 @@ object MaterialsTab:
           else
             searchedPages(sort.sorted(all), query.signal, ListSearch.material, pager, "Nessun materiale corrisponde alla ricerca.") { list =>
               div(
-                cls := "overflow-x-auto",
-                table(
-                  cls := "w-full text-sm",
-                  thead(
-                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                    tr(
-                      sort.header("code", "Codice", "px-4 py-2"),
-                      sort.header("description", "Descrizione", "px-4 py-2"),
-                      sort.header("type", "Tipologia", "px-4 py-2"),
-                      sort.header("unit", "UdM", "px-4 py-2"),
-                      sort.header("stock", "Giacenza", "px-4 py-2 text-right"),
-                      sort.header("value", "Valore", "px-4 py-2 text-right"),
-                      sort.header("price", "Prezzo cliente", "px-4 py-2 text-right"),
-                      sort.header("suppliers", "Fornitori", "px-4 py-2"),
-                      th(cls := "px-4 py-2"),
+                // Below xl: stacked cards (from lg the side form leaves the list too narrow for a table). From xl: the compact table.
+                div(cls := "divide-y divide-slate-100 xl:hidden", list.map(renderCard)),
+                div(
+                  cls := "hidden overflow-x-auto xl:block",
+                  table(
+                    cls := "w-full text-sm",
+                    thead(
+                      cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                      tr(
+                        sort.header("px-3 py-2", "code" -> "Codice", "description" -> "Descrizione", "type" -> "Tipo", "unit" -> "UdM"),
+                        sort.header("stock", "Giacenza", "px-3 py-2 text-right"),
+                        sort.header("px-3 py-2 text-right", "value" -> "Valore", "price" -> "Prezzo"),
+                        sort.header("suppliers", "Fornitori", "px-3 py-2"),
+                        th(cls := "px-3 py-2", span(cls := "sr-only", "Azioni")),
+                      ),
                     ),
+                    tbody(list.map(renderRow)),
                   ),
-                  tbody(list.map(renderRow)),
                 ),
               )
             }

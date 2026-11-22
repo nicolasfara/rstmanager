@@ -242,4 +242,59 @@ final class WarehouseViewsSpec extends AnyFunSuite with Matchers:
     hasPendingLines(note("1", "registered", "1.00", true)) shouldBe false
     hasPendingLines(note("1", "cancelled", "1.00", false)) shouldBe false
     isCancelled(note("1", "cancelled", "1.00", true)) shouldBe true
+
+  // ---- material summaries ------------------------------------------------------------------------
+
+  private val supplierId = UUID.fromString("00000000-0000-0000-0000-0000000000a1").nn
+  private val stock = StockDto("-2.000", Some("3.5000"), Some("-7.00"), "35.00", true)
+
+  private val material: MaterialResponse =
+    MaterialResponse(
+      UUID.fromString("00000000-0000-0000-0000-0000000000f1").nn,
+      "TES-001",
+      "Tessuto blu",
+      Some("Tessuti"),
+      Some("Rotolo"),
+      "linear_meters",
+      "18.5000",
+      List(MpnDto("AC-152", supplierId, None), MpnDto("AC-153", supplierId, None)),
+      List(MaterialSupplierDto(supplierId, "Tessiture Rossi", true)),
+      "2026-10-01",
+      true,
+      Some("2026-10-20"),
+      stock,
+    )
+
+  test("a registry material and a history row project to the same summary"):
+    val fromMaterial = materialSummary(material)
+    fromMaterial shouldBe MaterialSummary(
+      "TES-001",
+      "Tessuto blu",
+      Some("Tessuti"),
+      Some("Rotolo"),
+      "linear_meters",
+      Some("Archiviato il 20/10/2026"),
+      stock,
+      Some("18.5000"),
+      material.suppliers,
+      List("AC-152", "AC-153"),
+    )
+    fromMaterial.archived shouldBe true
+    val stateRow = row("TES-001", "Tessuto blu", Some("Tessuti"))
+      .copy(notes = Some("Rotolo"), unit = "linear_meters", customerPrice = Some("18.5000"), stock = stock, archived = true)
+      .copy(suppliers = material.suppliers, mpns = material.mpns)
+    // A history row carries no archive day.
+    materialSummary(stateRow) shouldBe fromMaterial.copy(archivedLabel = Some("Archiviato"))
+    materialSummary(row("PRF-010", "Profilo", None)).archived shouldBe false
+    materialSummary(row("PRF-010", "Profilo", None)).customerPrice shouldBe None
+
+  test("archivedLabel tells the archive day when known"):
+    archivedLabel(false, Some("2026-10-20")) shouldBe None
+    archivedLabel(true, None) shouldBe Some("Archiviato")
+    archivedLabel(true, Some("2026-10-20")) shouldBe Some("Archiviato il 20/10/2026")
+
+  test("typeAndUnit joins the type (when not blank) and the short unit"):
+    typeAndUnit(Some("Tessuti"), "linear_meters") shouldBe "Tessuti · m"
+    typeAndUnit(Some("  "), "pieces") shouldBe "pz"
+    typeAndUnit(None, "pieces") shouldBe "pz"
 end WarehouseViewsSpec

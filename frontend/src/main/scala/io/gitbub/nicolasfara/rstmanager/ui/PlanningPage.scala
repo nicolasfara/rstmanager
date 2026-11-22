@@ -685,7 +685,7 @@ object PlanningPage:
         else if OrderStatus.isEditable(row.order.status) then
           button(
             tpe := "button",
-            cls := btnSmall,
+            cls := s"$btnSmall min-h-10", // the card only shows below `sm`: touch target
             "Riattiva",
             onClick.compose(_.sample(catalogNames)) --> { names =>
               openReactivate(row, names.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId)))

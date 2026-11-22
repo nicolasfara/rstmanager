@@ -67,6 +67,7 @@ object HistoryTab:
       card(
         cls := "flex flex-wrap items-end gap-3 p-4",
         div(
+          cls := "w-full sm:w-auto",
           span(cls := "mb-1 block text-xs font-medium text-slate-500", "Giorno"),
           div(
             cls := "flex items-center gap-1.5",
@@ -77,7 +78,8 @@ object HistoryTab:
               "◀",
               onClick --> (_ => selected.update(WarehouseViews.previousDay)),
             ),
-            div(cls := "w-40", textInput(selected.signal, selected.writer, "", "date").amend(maxAttr := today)),
+            // Mobile: the date takes what the arrows and "Oggi" leave, so the row fits 360px.
+            div(cls := "min-w-0 flex-1 sm:w-40 sm:flex-none", textInput(selected.signal, selected.writer, "", "date").amend(maxAttr := today)),
             button(
               tpe := "button",
               cls := navBtn,
@@ -132,70 +134,73 @@ object HistoryTab:
         ),
       )
 
-    def suppliersCell(row: StateRowResponse): HtmlElement =
-      if row.suppliers.isEmpty then div(cls := "text-xs text-slate-400", "—")
-      else
-        div(row.suppliers.map { s =>
-          if s.active then div(s.name) else div(cls := "text-slate-400 line-through", title := "Fornitore eliminato", s.name)
-        })
+    def renderCard(row: StateRowResponse): HtmlElement =
+      val summary = WarehouseViews.materialSummary(row)
+      MaterialCards.listCard(summary, List(readField("Costo unitario max", MaterialCards.maxCostText(summary))))()
 
     def renderRow(row: StateRowResponse): HtmlElement =
+      val summary = WarehouseViews.materialSummary(row)
       tr(
         cls := "border-b border-slate-100 align-top last:border-0",
-        td(
-          cls := "px-4 py-2 font-medium text-slate-800",
-          row.internalCode,
-          Option.when(row.archived)(div(cls := "mt-1", badge("Archiviato", "bg-slate-100 text-slate-500 border-slate-200"))),
-        ),
-        td(cls := "px-4 py-2 text-slate-700", row.description),
-        td(cls := "px-4 py-2 text-slate-500", row.materialType.getOrElse("—")),
-        td(cls := "px-4 py-2 text-slate-500", title := WarehouseFormats.unitLabel(row.unit), WarehouseFormats.unitShortLabel(row.unit)),
-        td(
-          cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums",
-          cls := (if row.stock.negative then "font-medium text-rose-700" else ""),
-          WarehouseFormats.formatDecimal(row.stock.quantity, 0, 3),
-          Option.when(row.stock.negative)(div(cls := "mt-1", badge("Anomalia", "bg-rose-50 text-rose-700 border-rose-200"))),
-        ),
-        td(cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums", row.stock.maxUnitCost.fold("—")(WarehouseFormats.formatUnitPrice)),
-        td(cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums", row.stock.value.fold("—")(WarehouseFormats.formatEuro)),
-        td(cls := "px-4 py-2 whitespace-nowrap text-right tabular-nums", row.customerPrice.fold("—")(WarehouseFormats.formatUnitPrice)),
-        td(cls := "px-4 py-2 text-slate-600", suppliersCell(row)),
+        td(cls := "px-3 py-2", MaterialCards.materialCell(summary)),
+        td(cls := "px-3 py-2 text-right", MaterialCards.stockCell(summary)),
+        td(cls := "px-3 py-2 text-right", MaterialCards.maxCostText(summary)),
+        td(cls := "px-3 py-2 text-right", MaterialCards.valuePriceCell(summary)),
+        td(cls := "px-3 py-2 text-slate-600", MaterialCards.suppliersCell(summary)),
       )
 
     def rowsTable(report: WarehouseStateResponse): HtmlElement =
       card(
         cls := "overflow-hidden",
         div(
-          cls := "flex items-center justify-between border-b border-slate-100 px-4 py-2 text-xs text-slate-500",
+          cls := "flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-2 text-xs text-slate-500",
           span(s"Situazione a fine giornata del ${IsoDay.display(report.at)}"),
           child.text <-- search.signal.map { query =>
             val shown = WarehouseViews.filterRows(report.rows, query).size
             if shown == report.rows.size then s"${report.rows.size} materiali" else s"$shown di ${report.rows.size} materiali"
           },
         ),
+        Option.when(report.rows.nonEmpty)(
+          div(
+            cls := "border-b border-slate-100 px-4 py-2 xl:hidden",
+            sort.picker(
+              List(
+                "code" -> "Codice",
+                "description" -> "Descrizione",
+                "type" -> "Tipologia",
+                "unit" -> "UdM",
+                "quantity" -> "Giacenza",
+                "maxCost" -> "Costo unitario max",
+                "value" -> "Valore",
+                "price" -> "Prezzo cliente",
+                "suppliers" -> "Fornitori",
+              ),
+            ),
+          ),
+        ),
         pager.view(sort.sorted(search.signal.map(WarehouseViews.filterRows(report.rows, _)))) { rows =>
           if report.rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale esistente in questa data."))
           else if rows.isEmpty then div(cls := "p-4", emptyState("Nessun materiale corrisponde alla ricerca."))
           else
             div(
-              cls := "overflow-x-auto",
-              table(
-                cls := "w-full text-sm",
-                thead(
-                  cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
-                  tr(
-                    sort.header("code", "Codice", "px-4 py-2"),
-                    sort.header("description", "Descrizione", "px-4 py-2"),
-                    sort.header("type", "Tipologia", "px-4 py-2"),
-                    sort.header("unit", "UdM", "px-4 py-2"),
-                    sort.header("quantity", "Quantità", "px-4 py-2 text-right"),
-                    sort.header("maxCost", "Costo unitario max", "px-4 py-2 text-right"),
-                    sort.header("value", "Valore", "px-4 py-2 text-right"),
-                    sort.header("price", "Prezzo cliente", "px-4 py-2 text-right"),
-                    sort.header("suppliers", "Fornitori", "px-4 py-2"),
+              // Below xl: stacked cards. From xl: the compact table, laid out like the materials tab.
+              div(cls := "divide-y divide-slate-100 xl:hidden", rows.map(renderCard)),
+              div(
+                cls := "hidden overflow-x-auto xl:block",
+                table(
+                  cls := "w-full text-sm",
+                  thead(
+                    cls := "border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500",
+                    tr(
+                      sort.header("px-3 py-2", "code" -> "Codice", "description" -> "Descrizione", "type" -> "Tipo", "unit" -> "UdM"),
+                      sort.header("quantity", "Giacenza", "px-3 py-2 text-right"),
+                      sort.header("maxCost", "Costo unit. max", "px-3 py-2 text-right"),
+                      sort.header("px-3 py-2 text-right", "value" -> "Valore", "price" -> "Prezzo"),
+                      sort.header("suppliers", "Fornitori", "px-3 py-2"),
+                    ),
                   ),
+                  tbody(rows.map(renderRow)),
                 ),
-                tbody(rows.map(renderRow)),
               ),
             )
         },

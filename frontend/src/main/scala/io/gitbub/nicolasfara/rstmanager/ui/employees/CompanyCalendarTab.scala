@@ -100,7 +100,7 @@ object CompanyCalendarTab:
         ),
         roleGated(Role.Admin)(
           div(
-            cls := "flex shrink-0 gap-2",
+            cls := s"flex shrink-0 gap-2 $touchChildrenCls",
             button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(c))),
             button(tpe := "button", cls := btnDanger, "Elimina", onClick --> (_ => pendingDelete.set(Some(c)))),
           ),

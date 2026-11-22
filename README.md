@@ -137,6 +137,12 @@ The realm export contains **no users**. Create them in the admin console at http
 `RSTMANAGER_KC_ADMIN_USER` / `RSTMANAGER_KC_ADMIN_PASSWORD`, default `admin`/`admin` — override them outside local dev) and assign one of the
 realm roles above.
 
+The login pages use the `rstmanager` theme in `keycloak/themes/rstmanager/login`. It extends Keycloak's default `keycloak.v2` theme and
+only overrides CSS (`resources/css/rstmanager.css`) and the brand message, so it looks like the SPA (Tailwind slate palette, white card,
+Italian copy). Compose mounts the theme and the Keycloak image copies it in. `KC_SPI_THEME__DEFAULT=rstmanager` also applies it to realms
+imported before the theme existed. To iterate on the CSS without restarting the server, run Keycloak with
+`KC_SPI_THEME__CACHE_THEMES=false` and `KC_SPI_THEME__CACHE_TEMPLATES=false`.
+
 Keycloak stores its data in a dedicated `keycloak` database inside the same Postgres instance. On a **fresh** volume the init script in
 `docker/postgres-init/` creates it automatically; on an **existing** volume create it manually once:
 

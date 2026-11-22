@@ -40,8 +40,13 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_BOOTSTRAP_ADMIN_USERNAME: ${RSTMANAGER_KC_ADMIN_USER:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${RSTMANAGER_KC_ADMIN_PASSWORD:-admin}
+      # Login pages styled like the SPA. The realm import sets it on fresh realms;
+      # this default also covers realms imported before the theme existed
+      # (--import-realm skips existing realms).
+      KC_SPI_THEME__DEFAULT: rstmanager
     volumes:
       - ./keycloak/rstmanager-realm.json:/opt/keycloak/data/import/rstmanager-realm.json:ro
+      - ./keycloak/themes/rstmanager:/opt/keycloak/themes/rstmanager:ro
     ports:
       # Published only for the vite dev-server proxy; in the container stack the
       # browser reaches Keycloak through the frontend nginx at /auth.

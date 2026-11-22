@@ -1,0 +1,405 @@
+/*
+ * RST Manager login theme — restyles keycloak.v2 (PatternFly 5) to match the SPA.
+ * Values mirror the SPA's Tailwind classes (see frontend/.../ui/Components.scala):
+ *   page bg-slate-50 · card rounded-xl border-slate-200 bg-white shadow-sm
+ *   primary bg-slate-900 hover:bg-slate-700 · ghost border-slate-300 text-slate-700
+ *   input rounded-md border-slate-300 focus:border-slate-500 ring-1 · label text-xs slate-500
+ */
+
+:root {
+  --rst-slate-50: #f8fafc;
+  --rst-slate-100: #f1f5f9;
+  --rst-slate-200: #e2e8f0;
+  --rst-slate-300: #cbd5e1;
+  --rst-slate-400: #94a3b8;
+  --rst-slate-500: #64748b;
+  --rst-slate-600: #475569;
+  --rst-slate-700: #334155;
+  --rst-slate-800: #1e293b;
+  --rst-slate-900: #0f172a;
+  --rst-rose-50: #fff1f2;
+  --rst-rose-200: #fecdd3;
+  --rst-rose-400: #fb7185;
+  --rst-rose-500: #f43f5e;
+  --rst-rose-600: #e11d48;
+  --rst-rose-700: #be123c;
+  --rst-amber-50: #fffbeb;
+  --rst-amber-200: #fde68a;
+  --rst-amber-800: #92400e;
+  --rst-emerald-50: #ecfdf5;
+  --rst-emerald-200: #a7f3d0;
+  --rst-emerald-800: #065f46;
+  --rst-sky-50: #f0f9ff;
+  --rst-sky-200: #bae6fd;
+  --rst-sky-800: #075985;
+  --rst-font: "Inter", Helvetica, "Helvetica Neue", Arial, sans-serif;
+
+  /* PatternFly globals: retint everything that derives from them. */
+  --pf-v5-global--FontFamily--text: var(--rst-font);
+  --pf-v5-global--FontFamily--text--vf: var(--rst-font);
+  --pf-v5-global--FontFamily--heading: var(--rst-font);
+  --pf-v5-global--FontFamily--heading--vf: var(--rst-font);
+  --pf-v5-global--primary-color--100: var(--rst-slate-900);
+  --pf-v5-global--primary-color--200: var(--rst-slate-700);
+  --pf-v5-global--active-color--100: var(--rst-slate-900);
+  --pf-v5-global--link--Color: var(--rst-slate-600);
+  --pf-v5-global--link--Color--hover: var(--rst-slate-900);
+  --pf-v5-global--Color--100: var(--rst-slate-800);
+  --pf-v5-global--Color--200: var(--rst-slate-500);
+  --pf-v5-global--danger-color--100: var(--rst-rose-600);
+  --pf-v5-global--BorderRadius--sm: 0.375rem;
+}
+
+/* ---- Page & layout ------------------------------------------------------------------------------ */
+
+.login-pf body {
+  background: var(--rst-slate-50);
+  color: var(--rst-slate-800);
+  font-family: var(--rst-font);
+}
+
+.pf-v5-c-login {
+  --pf-v5-c-login__main--BoxShadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --pf-v5-c-login__main--BackgroundColor: #fff;
+  --pf-v5-c-login__main--MarginBottom: 1.5rem;
+  --pf-v5-c-login__header--xl--MarginTop: 0;
+  --pf-v5-c-login__header--xl--MarginBottom: 1.25rem;
+  --pf-v5-c-login__header--c-brand--MarginBottom: 0;
+  --pf-v5-c-login__header--c-brand--xl--MarginBottom: 0;
+  min-height: 100vh;
+  padding-inline: 1rem;
+}
+
+/* One centred column as wide as the SPA's landing card (max-w-md). */
+.pf-v5-c-login__container {
+  grid-template-columns: minmax(auto, 28rem);
+  max-width: 28rem;
+  padding-inline: 0;
+  margin-inline: auto;
+  width: 100%;
+}
+
+.pf-v5-c-login__header {
+  margin-block: 0 1.25rem;
+  padding-inline: 0;
+}
+
+.pf-v5-c-login__main {
+  border: 1px solid var(--rst-slate-200);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.pf-v5-c-login__main-header {
+  border-top: 0;
+  padding: 2rem 2rem 0;
+  row-gap: 0.75rem;
+}
+
+.pf-v5-c-login__main-body {
+  padding: 1.5rem 2rem 2rem;
+}
+
+.pf-v5-c-login__main-footer {
+  padding-inline: 2rem;
+}
+
+.pf-v5-c-login__main-footer-band {
+  border-top: 1px solid var(--rst-slate-100);
+  background: var(--rst-slate-50);
+  color: var(--rst-slate-600);
+  font-size: 0.875rem;
+  padding: 1rem 2rem;
+  margin-inline: -2rem;
+}
+
+.pf-v5-c-login__main-footer-band:first-child {
+  margin-block-start: 0;
+}
+
+@media (max-width: 30rem) {
+  .pf-v5-c-login__main-header { padding: 1.5rem 1.25rem 0; }
+  .pf-v5-c-login__main-body { padding: 1.25rem 1.25rem 1.5rem; }
+  .pf-v5-c-login__main-footer { padding-inline: 1.25rem; }
+  .pf-v5-c-login__main-footer-band { padding-inline: 1.25rem; margin-inline: -1.25rem; }
+}
+
+/* ---- Brand (messages: loginTitleHtml) ---------------------------------------------------------- */
+
+#kc-header-wrapper {
+  display: flex;
+  justify-content: center;
+}
+
+.rst-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.rst-brand__mark {
+  display: block;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: var(--rst-slate-900);
+}
+
+.rst-brand__name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  text-transform: none;
+  color: var(--rst-slate-900);
+}
+
+/* ---- Typography ---------------------------------------------------------------------------------- */
+
+#kc-page-title,
+.pf-v5-c-login__main-header .pf-v5-c-title {
+  font-family: var(--rst-font);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.75rem;
+  color: var(--rst-slate-900);
+}
+
+.pf-v5-c-login__main-body,
+.pf-v5-c-login__main-body p {
+  font-size: 0.875rem;
+  color: var(--rst-slate-600);
+}
+
+a,
+.pf-v5-c-button.pf-m-link {
+  color: var(--rst-slate-600);
+  font-weight: 500;
+  text-underline-offset: 2px;
+}
+
+a:hover,
+.pf-v5-c-button.pf-m-link:hover {
+  color: var(--rst-slate-900);
+  text-decoration: underline;
+}
+
+/* ---- Form ---------------------------------------------------------------------------------------- */
+
+.pf-v5-c-form {
+  --pf-v5-c-form--GridGap: 1rem;
+}
+
+.pf-v5-c-form__label,
+.pf-v5-c-form__label-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--rst-slate-500);
+}
+
+.pf-v5-c-form__label-required {
+  color: var(--rst-rose-600);
+}
+
+/* Inputs: one plain 1px border instead of PatternFly's split top/bottom borders. */
+.pf-v5-c-form-control {
+  --pf-v5-c-form-control--FontSize: 0.875rem;
+  --pf-v5-c-form-control--Color: var(--rst-slate-800);
+  --pf-v5-c-form-control--PaddingTop: 0.375rem;
+  --pf-v5-c-form-control--PaddingBottom: 0.375rem;
+  --pf-v5-c-form-control--inset--base: 0.625rem;
+  border: 1px solid var(--rst-slate-300);
+  border-radius: 0.375rem;
+  background-color: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pf-v5-c-form-control::before,
+.pf-v5-c-form-control::after {
+  border: 0 !important;
+}
+
+.pf-v5-c-form-control:focus-within {
+  border-color: var(--rst-slate-500);
+  box-shadow: 0 0 0 1px var(--rst-slate-500);
+}
+
+.pf-v5-c-form-control > :is(input, select, textarea) {
+  outline: none;
+}
+
+.pf-v5-c-form-control > :is(input, select, textarea)::placeholder {
+  color: var(--rst-slate-400);
+}
+
+.pf-v5-c-form-control.pf-m-error {
+  border-color: var(--rst-rose-400);
+}
+
+.pf-v5-c-form-control.pf-m-error:focus-within {
+  border-color: var(--rst-rose-500);
+  box-shadow: 0 0 0 1px var(--rst-rose-500);
+}
+
+.pf-v5-c-form-control.pf-m-readonly {
+  background-color: var(--rst-slate-50);
+}
+
+.pf-v5-c-helper-text__item-text.pf-m-error,
+.kc-feedback-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--rst-rose-600);
+}
+
+/* Input + trailing control (show password, restart login): one joined field. */
+.pf-v5-c-input-group > .pf-v5-c-input-group__item:not(:last-child) > .pf-v5-c-form-control {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.pf-v5-c-input-group > .pf-v5-c-input-group__item:last-child:not(:first-child) > .pf-v5-c-button.pf-m-control {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  margin-inline-start: -1px;
+}
+
+.pf-v5-c-button.pf-m-control {
+  --pf-v5-c-button--m-control--BackgroundColor: #fff;
+  --pf-v5-c-button--m-control--Color: var(--rst-slate-500);
+  --pf-v5-c-button--m-control--hover--Color: var(--rst-slate-800);
+  border: 1px solid var(--rst-slate-300);
+  border-radius: 0.375rem;
+}
+
+.pf-v5-c-button.pf-m-control:hover {
+  background-color: var(--rst-slate-100);
+}
+
+.pf-v5-c-button.pf-m-control::after {
+  border: 0 !important;
+}
+
+.pf-v5-c-check__input {
+  accent-color: var(--rst-slate-900);
+}
+
+.pf-v5-c-check__label {
+  font-size: 0.875rem;
+  color: var(--rst-slate-700);
+}
+
+/* ---- Buttons ------------------------------------------------------------------------------------- */
+
+.pf-v5-c-button {
+  --pf-v5-c-button--FontSize: 0.875rem;
+  --pf-v5-c-button--FontWeight: 500;
+  --pf-v5-c-button--PaddingTop: 0.375rem;
+  --pf-v5-c-button--PaddingBottom: 0.375rem;
+  --pf-v5-c-button--PaddingLeft: 0.75rem;
+  --pf-v5-c-button--PaddingRight: 0.75rem;
+  --pf-v5-c-button--BorderRadius: 0.375rem;
+  --pf-v5-c-button--after--BorderRadius: 0.375rem;
+  font-family: var(--rst-font);
+  font-weight: 500;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.pf-v5-c-button:focus-visible {
+  outline: 2px solid var(--rst-slate-500);
+  outline-offset: 2px;
+}
+
+.pf-v5-c-button.pf-m-block {
+  --pf-v5-c-button--PaddingTop: 0.5rem;
+  --pf-v5-c-button--PaddingBottom: 0.5rem;
+}
+
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--rst-slate-900);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--rst-slate-700);
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--rst-slate-700);
+  --pf-v5-c-button--m-primary--active--BackgroundColor: var(--rst-slate-700);
+  --pf-v5-c-button--m-primary--Color: #fff;
+  --pf-v5-c-button--m-primary--hover--Color: #fff;
+}
+
+/* Secondary = the SPA's ghost button. */
+.pf-v5-c-button.pf-m-secondary {
+  --pf-v5-c-button--m-secondary--Color: var(--rst-slate-700);
+  --pf-v5-c-button--m-secondary--hover--Color: var(--rst-slate-700);
+  --pf-v5-c-button--m-secondary--focus--Color: var(--rst-slate-700);
+  --pf-v5-c-button--m-secondary--active--Color: var(--rst-slate-700);
+  --pf-v5-c-button--m-secondary--after--BorderColor: var(--rst-slate-300);
+  --pf-v5-c-button--m-secondary--hover--after--BorderColor: var(--rst-slate-300);
+  --pf-v5-c-button--m-secondary--focus--after--BorderColor: var(--rst-slate-300);
+  --pf-v5-c-button--m-secondary--active--after--BorderColor: var(--rst-slate-300);
+  --pf-v5-c-button--m-secondary--hover--BackgroundColor: var(--rst-slate-100);
+  --pf-v5-c-button--hover--after--BorderWidth: 1px;
+  --pf-v5-c-button--focus--after--BorderWidth: 1px;
+  --pf-v5-c-button--active--after--BorderWidth: 1px;
+}
+
+.pf-v5-c-button:disabled,
+.pf-v5-c-button.pf-m-disabled {
+  opacity: 0.5;
+}
+
+/* ---- Alerts (bordered tinted boxes, like the SPA's banners) ------------------------------------- */
+
+.pf-v5-c-alert.pf-m-inline {
+  --pf-v5-c-alert--PaddingTop: 0.75rem;
+  --pf-v5-c-alert--PaddingBottom: 0.75rem;
+  --pf-v5-c-alert--PaddingLeft: 0.75rem;
+  --pf-v5-c-alert--PaddingRight: 0.75rem;
+  --pf-v5-c-alert__FontSize: 0.875rem;
+  border: 1px solid var(--rst-slate-200);
+  border-radius: 0.375rem;
+  background: var(--rst-slate-50);
+}
+
+.pf-v5-c-alert.pf-m-inline::before {
+  display: none;
+}
+
+.pf-v5-c-alert.pf-m-inline .pf-v5-c-alert__title {
+  font-weight: 500;
+}
+
+.pf-v5-c-alert.pf-m-inline.pf-m-danger {
+  border-color: var(--rst-rose-200);
+  background: var(--rst-rose-50);
+  --pf-v5-c-alert__icon--Color: var(--rst-rose-600);
+  --pf-v5-c-alert__title--Color: var(--rst-rose-700);
+  --pf-v5-c-alert--m-danger__icon--Color: var(--rst-rose-600);
+  --pf-v5-c-alert--m-danger__title--Color: var(--rst-rose-700);
+}
+
+.pf-v5-c-alert.pf-m-inline.pf-m-warning {
+  border-color: var(--rst-amber-200);
+  background: var(--rst-amber-50);
+  --pf-v5-c-alert--m-warning__icon--Color: var(--rst-amber-800);
+  --pf-v5-c-alert--m-warning__title--Color: var(--rst-amber-800);
+}
+
+.pf-v5-c-alert.pf-m-inline.pf-m-success {
+  border-color: var(--rst-emerald-200);
+  background: var(--rst-emerald-50);
+  --pf-v5-c-alert--m-success__icon--Color: var(--rst-emerald-800);
+  --pf-v5-c-alert--m-success__title--Color: var(--rst-emerald-800);
+}
+
+.pf-v5-c-alert.pf-m-inline.pf-m-info {
+  border-color: var(--rst-sky-200);
+  background: var(--rst-sky-50);
+  --pf-v5-c-alert--m-info__icon--Color: var(--rst-sky-800);
+  --pf-v5-c-alert--m-info__title--Color: var(--rst-sky-800);
+}
+
+/* ---- Misc ---------------------------------------------------------------------------------------- */
+
+.kc-login-tooltip .kc-tooltip-text {
+  background-color: var(--rst-slate-900);
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+}

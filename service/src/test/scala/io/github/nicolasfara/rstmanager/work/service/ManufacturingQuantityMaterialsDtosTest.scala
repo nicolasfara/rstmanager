@@ -12,10 +12,9 @@ import io.github.nicolasfara.rstmanager.work.service.ManufacturingHttpApi.{
   CatalogMaterialResponse,
   ManufacturingRequest,
   ManufacturingResponse,
+  given,
 }
-import io.github.nicolasfara.rstmanager.work.service.ManufacturingHttpApi.given
-import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ ManufacturingDto, MaterialCatalog }
-import io.github.nicolasfara.rstmanager.work.service.OrderDtos.given
+import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ ManufacturingDto, MaterialCatalog, given }
 
 import cats.data.ValidatedNec
 import cats.effect.{ IO, Ref }

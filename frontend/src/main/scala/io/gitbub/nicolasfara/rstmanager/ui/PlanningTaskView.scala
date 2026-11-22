@@ -112,7 +112,7 @@ object PlanningTaskView:
         div(
           cls := "flex flex-wrap items-center gap-2",
           span(cls := "text-lg font-bold leading-tight text-slate-900 break-words", context.manufacturingCode),
-          OrderCreateView.quantityBadge(context.quantity),
+          OrderFormView.quantityBadge(context.quantity),
         ),
         context.manufacturingDescription.fold[Modifier[HtmlElement]](emptyNode)(desc => p(cls := "mt-0.5 text-sm text-slate-600", desc)),
       ),

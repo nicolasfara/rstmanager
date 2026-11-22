@@ -145,7 +145,14 @@ object MaterialRequirementsHttpApi:
   def routes(orders: OrderApp.Store, materials: MaterialApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] =
     List(security.secure(requirements, Role.Viewer)(requirementsLogic(WarehouseConsumptionGateway.fromStores(orders, materials), today)))
 
-  /** The requirements of every order of the registry against every material, with the stock at the end of `today`. */
+  /**
+   * The requirements of every order of the registry against every material, with the stock at the end of `today`.
+   *
+   * Only the orders in progress or suspended need materials, but no read model tells them apart without loading them: the order registry lists every
+   * order ever created (cancelled ones included), like the one the planning lists through `OrderApp.list`. They are therefore loaded in one batched
+   * query ([[WarehouseConsumptionGateway.loadOrders]], over the cached `StreamReader`, which only fetches the events appended since the last read)
+   * and [[MaterialRequirements.compute]] drops the closed ones. An index of the open orders would need a new journal namespace.
+   */
   def requirementsLogic(gateway: WarehouseConsumptionGateway, today: IO[LocalDate])(
       excludeOrder: Option[UUID],
   ): IO[Either[ApiFailure, MaterialRequirementsResponse]] =

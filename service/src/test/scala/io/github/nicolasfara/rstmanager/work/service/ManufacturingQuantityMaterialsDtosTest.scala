@@ -18,6 +18,9 @@ import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ ManufacturingDt
 import io.github.nicolasfara.rstmanager.work.service.OrderDtos.given
 
 import cats.data.ValidatedNec
+import cats.effect.{ IO, Ref }
+import cats.effect.unsafe.implicits.global
+import cats.syntax.all.*
 import com.github.nscala_time.time.Imports.LocalDate
 import io.circe.Json
 import io.circe.parser.decode
@@ -25,6 +28,7 @@ import io.circe.syntax.*
 import io.github.iltotore.iron.*
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
+import sttp.model.StatusCode
 
 /** The catalog materials per unit and the ×N multiplier of the order manufacturings, at the HTTP DTO edge. */
 class ManufacturingQuantityMaterialsDtosTest extends AnyFlatSpecLike:
@@ -100,6 +104,30 @@ class ManufacturingQuantityMaterialsDtosTest extends AnyFlatSpecLike:
     val current = List(ManufacturingMaterial(MaterialId(oldId), Quantity(1000L)))
     valid(request(List(CatalogMaterialDto(oldId, "2"))).toDomain(id, catalog, current)).materials shouldEqual
       List(ManufacturingMaterial(MaterialId(oldId), Quantity(2000L)))
+
+  it should "keep the current materials when the request omits them, and clear them only on an empty list" in:
+    val current = List(ManufacturingMaterial(MaterialId(oldId), Quantity(1000L)), ManufacturingMaterial(MaterialId(unknownId), Quantity(2000L)))
+    val omitted = request(Nil).copy(materials = None)
+    valid(omitted.toDomain(id, MaterialCatalog.empty, current)).materials shouldEqual current
+    valid(omitted.toDomain(id, MaterialCatalog.empty, Nil)).materials shouldEqual Nil
+    valid(request(Nil).toDomain(id, MaterialCatalog.empty, current)).materials shouldEqual Nil
+
+  "ManufacturingHttpApi.updateExisting" should "answer 404 for a missing template without validating the request" in:
+    val replaced = Ref.unsafe[IO, Boolean](false)
+    val result = ManufacturingHttpApi
+      .updateExisting(id, IO.pure(Option.empty[Manufacturing]))(_ => replaced.set(true).as(Right("replaced")))
+      .unsafeRunSync()
+    result.leftMap(_._1) shouldEqual Left(StatusCode.NotFound)
+    replaced.get.unsafeRunSync() shouldBe false
+
+  it should "replace an existing template and turn a failing read into a 500" in:
+    val template = valid(request(Nil).toDomain(id, MaterialCatalog.empty, Nil))
+    ManufacturingHttpApi.updateExisting(id, IO.pure(Some(template)))(found => IO.pure(Right(found.id))).unsafeRunSync() shouldEqual
+      Right(template.id)
+    ManufacturingHttpApi
+      .updateExisting(id, IO.raiseError[Option[Manufacturing]](new RuntimeException("database down")))(_ => IO.pure(Right(())))
+      .unsafeRunSync()
+      .leftMap(_._1) shouldEqual Left(StatusCode.InternalServerError)
 
   "ManufacturingResponse" should "show the materials with their warehouse master data and survive a JSON round trip" in:
     val template: Manufacturing =

@@ -110,27 +110,31 @@ object ManufacturingHttpApi:
 
     /**
      * The template, with its materials checked against the warehouse `catalog` (see [[MaterialCatalog.resolveQuantities]]): a material of the
-     * `current` template may stay archived, a new one must be active.
+     * `current` template may stay archived, a new one must be active. Absent `materials` keep the `current` ones as they are (none on a create); an
+     * empty list clears them.
      */
     def toDomain(id: UUID, catalog: MaterialCatalog, current: List[ManufacturingMaterial]): ValidatedNec[String, Manufacturing] =
       val dependencyGraph = dependencies.foldLeft(ManufacturingDependencies()) { (current, dependency) =>
         current.addTaskDependencies(TaskId(dependency.taskId), dependency.dependsOn.map(TaskId(_)).toSet)
       }
-      catalog
-        .resolveQuantities("materials", materials.getOrElse(Nil).map(line => line.materialId -> line.quantity), current.map(_.materialId).toSet)
-        .andThen { lines =>
-          Manufacturing.createManufacturing(
-            ManufacturingId(id),
-            code,
-            name,
-            description,
-            taskIds.map(TaskId(_)),
-            dependencyGraph,
-            defaultEmployees.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> EmployeeId(entry.employeeId)).toMap,
-            taskDurations.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> entry.minutes).toMap,
-            lines.map(ManufacturingMaterial.apply),
-          )
-        }
+      val resolvedMaterials = materials.fold(current.validNec[String]) { lines =>
+        catalog
+          .resolveQuantities("materials", lines.map(line => line.materialId -> line.quantity), current.map(_.materialId).toSet)
+          .map(_.map(ManufacturingMaterial.apply))
+      }
+      resolvedMaterials.andThen { lines =>
+        Manufacturing.createManufacturing(
+          ManufacturingId(id),
+          code,
+          name,
+          description,
+          taskIds.map(TaskId(_)),
+          dependencyGraph,
+          defaultEmployees.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> EmployeeId(entry.employeeId)).toMap,
+          taskDurations.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> entry.minutes).toMap,
+          lines,
+        )
+      }
     end toDomain
   end ManufacturingRequest
 
@@ -299,17 +303,28 @@ object ManufacturingHttpApi:
 
   /** Replaces the template; materials it already has may stay archived (see [[ManufacturingRequest.toDomain]]). */
   private def updateLogic(catalog: Catalog)(id: UUID, request: ManufacturingRequest): IO[Either[ApiFailure, ManufacturingResponse]] =
-    ManufacturingApp.get(catalog.store, ManufacturingId(id)).attempt.flatMap {
-      case Left(error) => IO.pure(ApiError.internal(error).asLeft)
-      case Right(current) =>
-        validated(catalog, request, id, current.toList.flatMap(_.materials)) { manufacturing =>
-          ManufacturingApp.update(catalog.store, manufacturing).attempt.flatMap {
-            case Left(error) => IO.pure(ApiError.internal(error).asLeft)
-            case Right(Left(ManufacturingError.ManufacturingNotFound)) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
-            case Right(Left(error)) => IO.pure(conflict(error).asLeft)
-            case Right(Right(())) => hydrate(catalog, manufacturing)
-          }
+    updateExisting(id, ManufacturingApp.get(catalog.store, ManufacturingId(id))) { current =>
+      validated(catalog, request, id, current.materials) { manufacturing =>
+        ManufacturingApp.update(catalog.store, manufacturing).attempt.flatMap {
+          case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+          case Right(Left(ManufacturingError.ManufacturingNotFound)) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
+          case Right(Left(error)) => IO.pure(conflict(error).asLeft)
+          case Right(Right(())) => hydrate(catalog, manufacturing)
         }
+      }
+    }
+
+  /**
+   * Runs `replace` on the stored template `id` read by `load`: a missing template is a 404 at once, before the request is validated (so an unknown or
+   * archived material in it never turns the 404 into a 400), and a failing read a 500.
+   */
+  private[service] def updateExisting[R](id: UUID, load: IO[Option[Manufacturing]])(
+      replace: Manufacturing => IO[Either[ApiFailure, R]],
+  ): IO[Either[ApiFailure, R]] =
+    load.attempt.flatMap {
+      case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+      case Right(None) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
+      case Right(Some(current)) => replace(current)
     }
 
   private def deleteLogic(store: ManufacturingApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =

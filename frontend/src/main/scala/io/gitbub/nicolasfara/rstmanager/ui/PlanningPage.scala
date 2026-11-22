@@ -685,7 +685,7 @@ object PlanningPage:
         else if OrderStatus.isEditable(row.order.status) then
           button(
             tpe := "button",
-            cls := btnSmall,
+            cls := s"$btnSmall min-h-10", // the card only shows below `sm`: touch target
             "Riattiva",
             onClick.compose(_.sample(catalogNames)) --> { names =>
               openReactivate(row, names.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId)))
@@ -1058,9 +1058,30 @@ object PlanningPage:
         ),
         div(
           cls := "flex shrink-0 items-center gap-1",
-          button(tpe := "button", cls := btnSmall, "−", onClick --> (_ => simRemoveOne(entry.id))),
-          button(tpe := "button", cls := btnSmall, "+", onClick --> (_ => simAdd(entry.id))),
-          button(tpe := "button", cls := btnDanger, "✕", onClick --> (_ => simRemoveAll(entry.id))),
+          button(
+            tpe := "button",
+            cls := btnSmall,
+            aria.label := "Togli un'occorrenza",
+            title := "Togli un'occorrenza",
+            "−",
+            onClick --> (_ => simRemoveOne(entry.id)),
+          ),
+          button(
+            tpe := "button",
+            cls := btnSmall,
+            aria.label := "Aggiungi un'occorrenza",
+            title := "Aggiungi un'occorrenza",
+            "+",
+            onClick --> (_ => simAdd(entry.id)),
+          ),
+          button(
+            tpe := "button",
+            cls := btnDanger,
+            aria.label := "Rimuovi dalla simulazione",
+            title := "Rimuovi dalla simulazione",
+            "✕",
+            onClick --> (_ => simRemoveAll(entry.id)),
+          ),
         ),
       )
 

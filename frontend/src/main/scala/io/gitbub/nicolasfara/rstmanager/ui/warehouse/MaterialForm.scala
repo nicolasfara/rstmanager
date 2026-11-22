@@ -5,11 +5,13 @@ import java.util.UUID
 import scala.util.Try
 
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ MaterialRequest, MaterialResponse, MpnDto }
+import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messages, FieldIssue }
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
 
 /**
- * Pure (DOM-free) state of the material create/edit form: request building, validation messages, and the MPN rows editor.
+ * Pure (DOM-free) state of the material create/edit form: request building, validation problems (each tied to a [[Field]], so the page shows it under
+ * its input and focuses the first one on an invalid submit), and the MPN rows editor.
  *
  * The page keeps one [[State]] in a `Var` and only applies the transformations below, so every rule is unit-testable without Laminar.
  */
@@ -30,6 +32,36 @@ object MaterialForm:
     def parsedExpectedCost: Either[Unit, Option[String]] =
       if expectedUnitCost.trim.nn.isEmpty then Right(None) else WarehouseFormats.parseDecimal(expectedUnitCost, priceScale).map(Some(_)).toRight(())
 
+  /** The inputs of an MPN row a validation problem can be about. */
+  enum MpnField derives CanEqual:
+    case Supplier
+    case Code
+    case ExpectedCost
+
+  /** What a validation problem is about: a field of the material, or one input of the MPN row with key `key`. */
+  enum Field derives CanEqual:
+    case InternalCode
+    case Description
+    case Unit
+    case CustomerPrice
+    case Mpn(key: Int, field: MpnField)
+
+  /** The DOM id of the "+ Aggiungi MPN" button. */
+  val addMpnId: String = "material-add-mpn"
+
+  /** The DOM id of the input of `field` (the anchor of its label and of [[FormFocus]]). */
+  def fieldId(field: Field): String = field match
+    case Field.InternalCode => "material-code"
+    case Field.Description => "material-description"
+    case Field.Unit => "material-unit"
+    case Field.CustomerPrice => "material-price"
+    case Field.Mpn(key, mpnField) =>
+      val suffix = mpnField match
+        case MpnField.Supplier => "supplier"
+        case MpnField.Code => "code"
+        case MpnField.ExpectedCost => "cost"
+      s"material-mpn-$key-$suffix"
+
   final case class State(
       editingId: Option[UUID],
       internalCode: String,
@@ -40,7 +72,7 @@ object MaterialForm:
       customerPrice: String,
       mpns: List[MpnRow],
       nextKey: Int,
-  ):
+  ) derives CanEqual:
     /** True until the user types into a required field or adds an MPN row: validation messages stay hidden on a fresh form. */
     def pristine: Boolean =
       editingId.isEmpty && internalCode.trim.nn.isEmpty && description.trim.nn.isEmpty && customerPrice.trim.nn.isEmpty && mpns.isEmpty
@@ -50,32 +82,57 @@ object MaterialForm:
     /** The MPN rows that count, with their 1-based position in the editor (blank rows dropped). */
     private def filledRows: List[(MpnRow, Int)] = mpns.zipWithIndex.collect { case (row, index) if !row.isBlank => row -> (index + 1) }
 
-    def errors: List[String] =
-      val fieldErrors = List(
-        Option.when(internalCode.trim.nn.isEmpty)("Codice obbligatorio"),
-        Option.when(description.trim.nn.isEmpty)("Descrizione obbligatoria"),
-        Option.when(MeasureUnit.fromWire(unit).isEmpty)("Unità di misura non valida"),
-        if customerPrice.trim.nn.isEmpty then Some("Prezzo cliente obbligatorio")
-        else parsedPrice.fold(Some("Prezzo non valido (es. 18,50, al massimo 4 decimali)"))(_ => None),
+    /** Every problem, in display order (fields, MPN rows, repeated MPNs): the issue (with the full message) and the short inline text. */
+    private def problems: List[(FieldIssue[Field], String)] =
+      def same(field: Field, message: String) = FieldIssue(field, message) -> message
+      val fieldProblems = List(
+        Option.when(internalCode.trim.nn.isEmpty)(same(Field.InternalCode, "Codice obbligatorio")),
+        Option.when(description.trim.nn.isEmpty)(same(Field.Description, "Descrizione obbligatoria")),
+        Option.when(MeasureUnit.fromWire(unit).isEmpty)(same(Field.Unit, "Unità di misura non valida")),
+        if customerPrice.trim.nn.isEmpty then Some(same(Field.CustomerPrice, "Prezzo cliente obbligatorio"))
+        else parsedPrice.fold(Some(same(Field.CustomerPrice, "Prezzo non valido (es. 18,50, al massimo 4 decimali)")))(_ => None),
       ).flatten
-      val rowErrors = filledRows.flatMap { (row, n) =>
+      val rowProblems = filledRows.flatMap { (row, n) =>
         List(
-          Option.when(parseUuid(row.supplierId).isEmpty)(s"Fornitore mancante nella riga MPN $n"),
-          Option.when(row.code.trim.nn.isEmpty)(s"Codice mancante nella riga MPN $n"),
-          Option.when(row.parsedExpectedCost.isLeft)(s"Prezzo acquisto previsto non valido nella riga MPN $n (es. 3,50, al massimo 4 decimali)"),
+          Option.when(parseUuid(row.supplierId).isEmpty)(
+            FieldIssue(Field.Mpn(row.key, MpnField.Supplier), s"Fornitore mancante nella riga MPN $n") -> "Fornitore mancante",
+          ),
+          Option
+            .when(row.code.trim.nn.isEmpty)(FieldIssue(Field.Mpn(row.key, MpnField.Code), s"Codice mancante nella riga MPN $n") -> "Codice mancante"),
+          Option.when(row.parsedExpectedCost.isLeft)(
+            FieldIssue(
+              Field.Mpn(row.key, MpnField.ExpectedCost),
+              s"Prezzo acquisto previsto non valido nella riga MPN $n (es. 3,50, al massimo 4 decimali)",
+            ) -> "Prezzo non valido (es. 3,50, al massimo 4 decimali)",
+          ),
         ).flatten
       }
-      val duplicateErrors = filledRows
+      // A repeated MPN is reported once, on the code of its first repetition.
+      val duplicateProblems = filledRows
         .filter((row, _) => row.code.trim.nn.nonEmpty && parseUuid(row.supplierId).isDefined)
         .groupBy((row, _) => (row.supplierId.trim.nn, normalizedCode(row.code)))
         .values
         .filter(_.size > 1)
-        .map(group => group.map(_._2).sorted)
+        .map(_.sortBy(_._2))
         .toList
-        .sortBy(_.headOption)
-        .map(positions => s"MPN ripetuto per lo stesso fornitore nelle righe ${positions.mkString(", ")}")
-      fieldErrors ++ rowErrors ++ duplicateErrors
-    end errors
+        .sortBy(_.headOption.map(_._2))
+        .flatMap { group =>
+          val positions = group.map(_._2)
+          group.drop(1).headOption.map { (repeated, _) =>
+            FieldIssue(Field.Mpn(repeated.key, MpnField.Code), s"MPN ripetuto per lo stesso fornitore nelle righe ${positions.mkString(", ")}") ->
+              s"MPN ripetuto per lo stesso fornitore (righe ${positions.mkString(", ")})"
+          }
+        }
+      fieldProblems ++ rowProblems ++ duplicateProblems
+    end problems
+
+    /** Every validation problem, each tied to its field: the fields first, then the MPN rows, then the repeated MPNs. */
+    def issues: List[FieldIssue[Field]] = problems.map(_._1)
+
+    /** The inline message of `field` (without the row position of an MPN row), if it has a problem. */
+    def inlineError(field: Field): Option[String] = problems.collectFirst { case (issue, message) if issue.field == field => message }
+
+    def errors: List[String] = issues.messages
 
     /** The payload to send, or `None` while [[errors]] is not empty. */
     def request: Option[MaterialRequest] =

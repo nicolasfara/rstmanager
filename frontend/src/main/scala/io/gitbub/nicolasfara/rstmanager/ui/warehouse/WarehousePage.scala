@@ -1,6 +1,7 @@
 package io.gitbub.nicolasfara.rstmanager.ui.warehouse
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.ui.NavigationGuard
 
 /** A section of the warehouse page. */
 enum WarehouseTab(val label: String) derives CanEqual:
@@ -25,7 +26,8 @@ object WarehousePage:
   /** Selected tab, kept at module level so it survives navigating away from the page and back within the session. */
   private val currentTab = Var(WarehouseTab.Materials)
 
-  private val tabBase = "rounded-full px-3 py-1 text-xs font-medium border transition-colors"
+  // Mobile: at least 40px tall, a comfortable touch target.
+  private val tabBase = "inline-flex min-h-10 items-center rounded-full px-3 py-1 text-xs font-medium border transition-colors md:min-h-0"
 
   private def tabCls(active: Boolean): String =
     if active then s"$tabBase bg-slate-900 text-white border-slate-900"
@@ -48,7 +50,8 @@ object WarehousePage:
             tpe := "button",
             cls <-- currentTab.signal.map(active => tabCls(active == tab)),
             tab.label,
-            onClick --> (_ => currentTab.set(tab)),
+            // A tab with a dirty side form asks before leaving it, like the top navigation.
+            onClick --> (_ => if currentTab.now() != tab then NavigationGuard.request(() => currentTab.set(tab))),
           )
         },
       ),

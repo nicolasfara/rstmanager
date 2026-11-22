@@ -8,6 +8,7 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.MaterialDrafts.{ Context, Row }
+import org.scalajs.dom
 
 /**
  * The materials ("Materiali") of an order manufacturing: the read-only lines with their frozen prices and cost, the Operator-gated editor modal of an
@@ -17,8 +18,6 @@ import io.gitbub.nicolasfara.rstmanager.ui.MaterialDrafts.{ Context, Row }
  * offered are the active warehouse materials, loaded on demand and refreshed on [[AppBus.warehouseTicks]].
  */
 object MaterialsEditor:
-
-  private def hint(text: String): HtmlElement = div(cls := "mt-1 text-xs text-slate-400", text)
 
   /** The active warehouse materials, loaded when the returned signal is first observed. */
   private def activeMaterials(): Signal[Option[ApiClient.Result[List[MaterialResponse]]]] =
@@ -47,7 +46,25 @@ object MaterialsEditor:
    * messages. Blank lines are ignored.
    */
   def rowsEditor(rows: Var[List[Row]], context: Signal[Context], nextKey: () => Int): HtmlElement =
+    rowsEditor(rows, context, nextKey, None)
+
+  /** Variant of [[rowsEditor]] that focuses the material of the row with key `focusKey` once it is mounted (a line just added from outside). */
+  private def rowsEditor(rows: Var[List[Row]], context: Signal[Context], nextKey: () => Int, focusKey: Option[Int]): HtmlElement =
     val options = context.map(_.options).distinct
+    // The row whose material gets the focus when mounted: the one "+ Materiale" just added.
+    var pendingFocus = focusKey
+
+    def addRow(): Unit =
+      val row = Row.empty(nextKey())
+      pendingFocus = Some(row.key)
+      rows.update(_ :+ row)
+
+    def focusMaterial(key: Int, rowElement: dom.Element): Unit =
+      if pendingFocus.contains(key) then
+        pendingFocus = None
+        rowElement.querySelector("input") match
+          case material: dom.HTMLElement => material.focus()
+          case _ => ()
 
     def update(key: Int)(change: Row => Row): Unit = rows.update(_.map(row => if row.key == key then change(row) else row))
 
@@ -56,6 +73,7 @@ object MaterialsEditor:
       val preview = withContext.map(MaterialDrafts.pricePreview)
       div(
         cls := "grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-2 sm:grid-cols-[minmax(0,1fr)_7.5rem_8.5rem_6.5rem_auto] sm:items-start",
+        onMountCallback(ctx => focusMaterial(key, ctx.thisNode.ref)),
         field(
           "Materiale",
           searchableSelect(rowSignal.map(_.materialId), Observer[String](v => update(key)(_.copy(materialId = v))), options, "Cerca materiale…", 20),
@@ -109,7 +127,7 @@ object MaterialsEditor:
       div(cls := "space-y-2", children <-- rows.signal.split(_.key)((key, _, rowSignal) => renderRow(key, rowSignal))),
       div(
         cls := "flex flex-wrap items-center justify-between gap-2",
-        button(tpe := "button", cls := btnSmall, "+ Materiale", onClick --> (_ => rows.update(_ :+ Row.empty(nextKey())))),
+        button(tpe := "button", cls := btnSmall, "+ Materiale", onClick --> (_ => addRow())),
         div(
           cls := "text-sm text-slate-600",
           "Costo materiali: ",
@@ -119,7 +137,7 @@ object MaterialsEditor:
           ),
         ),
       ),
-      child.maybe <-- errors.map(list => Option.when(list.nonEmpty)(ul(cls := "list-disc pl-5 text-xs text-rose-600", list.map(e => li(e))))),
+      errorList(errors),
     )
   end rowsEditor
 
@@ -130,27 +148,49 @@ object MaterialsEditor:
    * is also written to `contextSink`, which the form validates the lines against on submit.
    */
   def draftEditor(rows: Var[List[Row]], nextKey: () => Int, contextSink: Observer[Context]): HtmlElement =
+    draftEditor(rows, nextKey, contextSink, emptyMod)
+
+  /** Variant of [[draftEditor]] whose block carries DOM id `anchorId`, the target [[FormFocus.focus]] moves to for a material issue. */
+  def draftEditor(rows: Var[List[Row]], nextKey: () => Int, contextSink: Observer[Context], anchorId: String): HtmlElement =
+    draftEditor(rows, nextKey, contextSink, idAttr := anchorId)
+
+  private def draftEditor(rows: Var[List[Row]], nextKey: () => Int, contextSink: Observer[Context], anchor: Modifier[HtmlElement]): HtmlElement =
+    // The first line added from the empty state, whose material gets the focus once the editor is shown.
+    var firstAdded = Option.empty[Int]
     div(
-      cls := "mt-2 space-y-2",
-      div(cls := "text-xs font-medium text-slate-500", "Materiali"),
+      cls := "space-y-2",
+      anchor,
+      subheading("Materiali"),
       child <-- rows.signal.map(_.isEmpty).distinct.map { empty =>
         if empty then
           div(
             cls := "flex flex-wrap items-center gap-2",
-            button(tpe := "button", cls := btnSmall, "+ Materiale", onClick --> (_ => rows.set(List(Row.empty(nextKey()))))),
+            button(
+              tpe := "button",
+              cls := btnSmall,
+              "+ Materiale",
+              onClick --> { _ =>
+                val row = Row.empty(nextKey())
+                firstAdded = Some(row.key)
+                rows.set(List(row))
+              },
+            ),
             span(cls := "text-xs text-slate-400", "Nessun materiale (si possono aggiungere anche dopo la creazione)"),
           )
         else
           val materials = activeMaterials()
           val context = contextOf(materials, Nil)
+          val focusKey = firstAdded
+          firstAdded = None
           div(
             context --> contextSink,
             materialsStatus(materials),
-            rowsEditor(rows, context, nextKey),
+            rowsEditor(rows, context, nextKey, focusKey),
             hint("Senza un prezzo inserito si congela il prezzo di listino del materiale alla creazione dell'ordine."),
           )
       },
     )
+  end draftEditor
 
   // ---- Existing manufacturing --------------------------------------------------------------------
 
@@ -188,7 +228,7 @@ object MaterialsEditor:
       cls := "mt-3 rounded-md border border-slate-100 bg-slate-50/60 px-3 py-2",
       div(
         cls := "flex flex-wrap items-center justify-between gap-2",
-        div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Materiali"),
+        subheading("Materiali"),
         div(
           cls := "flex items-center gap-2 text-xs text-slate-500",
           "Costo materiali: ",

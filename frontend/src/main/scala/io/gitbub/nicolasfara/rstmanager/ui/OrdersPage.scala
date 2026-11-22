@@ -13,13 +13,13 @@ import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
-import io.gitbub.nicolasfara.rstmanager.ui.OrderDrafts.{ MfgCoreState, MfgSnapshot, TaskState }
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /**
- * Orders: filterable list with lifecycle transitions, a nested create form, and a full edit modal covering order data (priority, work deadline,
- * description), per-manufacturing description/deadline/status, add/remove of manufacturings and tasks, and the dependency graphs (between
- * manufacturings and between the tasks of a manufacturing). Completing or delivering an order asks for an explicit acknowledgement first.
+ * Orders: filterable list with lifecycle transitions, the full-page create form ([[OrderCreateView]]), and a full edit modal covering order data
+ * (priority, work deadline, description), per-manufacturing description/deadline/status, add/remove of manufacturings and tasks, and the dependency
+ * graphs (between manufacturings and between the tasks of a manufacturing). Completing or delivering an order asks for an explicit acknowledgement
+ * first.
  */
 object OrdersPage:
 
@@ -41,35 +41,6 @@ object OrdersPage:
     "cancelled" -> "Annullati",
   )
 
-  /** Extracts the `yyyy-MM-dd` day part of an ISO-8601 instant for a date input's initial value. */
-  private def dayOf(iso: String): String = iso.take(10)
-
-  private def pad2(value: Int): String = if value < 10 then s"0$value" else value.toString
-
-  private def formatDay(date: js.Date): String =
-    s"${date.getFullYear().toInt}-${pad2(date.getMonth().toInt + 1)}-${pad2(date.getDate().toInt)}"
-
-  private def parseDay(day: String): Option[js.Date] =
-    day.split("-").nn.toList.map(_.nn) match
-      case yearRaw :: monthRaw :: dayRaw :: Nil =>
-        for
-          year <- yearRaw.toIntOption
-          month <- monthRaw.toIntOption
-          dayOfMonth <- dayRaw.toIntOption
-        yield new js.Date(year, month - 1, dayOfMonth)
-      case _ => None
-
-  private def daysBefore(day: String, days: Int): String =
-    parseDay(day).map { date =>
-      val shifted = new js.Date(date.getTime())
-      shifted.setDate(date.getDate() - days.toDouble)
-      formatDay(shifted)
-    }
-      .getOrElse("")
-
-  private def todayDay(): String =
-    formatDay(new js.Date())
-
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
   /** `java.util.UUID.randomUUID` is unavailable on Scala.js (needs SecureRandom); use the Web Crypto API. */
@@ -86,36 +57,6 @@ object OrdersPage:
   private def priorityBadge(priority: String): HtmlElement = priority match
     case "urgent" => badge("Urgente", "bg-rose-50 text-rose-700 border-rose-200")
     case _ => badge("Normale", "bg-slate-50 text-slate-600 border-slate-200")
-
-  private def readField(labelText: String, valueNode: Modifier[HtmlElement]): HtmlElement =
-    div(
-      cls := "space-y-0.5",
-      div(cls := "text-xs font-medium text-slate-500", labelText),
-      div(cls := "text-sm text-slate-800", valueNode),
-    )
-
-  // ---- State case classes ----------------------------------------------------------------------
-  // The immutable draft records `TaskState`/`MfgCoreState` and the pure draft->DTO transforms live in [[OrderDrafts]];
-  // the `Var`-holding draft wrappers below stay here since they carry live Laminar state.
-
-  /** Mutable draft holder: stable key for `split`, all mutable fields consolidated in one `Var`. */
-  private final case class TaskDraft(key: Int, state: Var[TaskState])
-
-  /** `tasks` and `materials` are kept as separate `Var`s because they undergo their own add/remove mutations. */
-  private final case class MfgDraft(key: Int, state: Var[MfgCoreState], tasks: Var[List[TaskDraft]], materials: Var[List[MaterialDrafts.Row]])
-
-  /** Consolidated create-form state; reset is atomic via a single `Var.set`. */
-  private case class CreateOrderState(
-      number: String,
-      numberManuallyEdited: Boolean,
-      customerId: String,
-      creationDate: String,
-      deliveryDate: String,
-      workDeadline: String,
-      workDeadlineManuallyEdited: Boolean,
-      priority: String,
-      description: String,
-  )
 
   /** State for the inline add-manufacturing form. `taskEmployees` mirrors the create-form per-task employee overrides for catalog mode. */
   private case class AddMfgState(
@@ -159,56 +100,27 @@ object OrdersPage:
       tracker: DirtyTracker[MfgEditState],
   )
 
-  /**
-   * "Depends on" checkbox chips. `currentSet` drives the checked state; `toggle(id, checked)` is called on every checkbox change. Hidden when
-   * `choices` is empty.
-   */
-  private def dependsOnChips(
-      choices: Signal[List[(String, String)]],
-      currentSet: Signal[Set[String]],
-      toggle: (String, Boolean) => Unit,
-  ): HtmlElement =
-    div(
-      child <-- choices.map { list =>
-        if list.isEmpty then emptyNode
-        else
-          div(
-            cls := "mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600",
-            span(cls := "font-medium text-slate-500", "Dipende da"),
-            list.map { case (id, labelText) =>
-              label(
-                cls := "inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1",
-                input(
-                  typ := "checkbox",
-                  checked <-- currentSet.map(_.contains(id)),
-                  onChange.mapToChecked --> { isChecked => toggle(id, isChecked) },
-                ),
-                labelText,
-              )
-            },
-          )
-      },
-    )
+  /** What the page shows: the list (with the edit modal), or the full-page create form in its place. */
+  private enum View derives CanEqual:
+    case List, Create
 
   /** A lifecycle transition awaiting an explicit user acknowledgement. */
   private final case class ConfirmData(orderId: UUID, action: String, title: String, message: String)
 
+  /** A removal from a saved order awaiting confirmation: a whole manufacturing, or one task of it (`task` = scheduled task id, template task id). */
+  private final case class PendingRemoval(orderId: UUID, mfgId: UUID, mfgCode: String, task: Option[(UUID, UUID)])
+
   def apply(): HtmlElement =
     val pageError = Var(Option.empty[ApiError])
-    val showCreate = Var(false)
+    val view = Var(View.List)
     val statusFilter = Var("")
     val query = Var("")
     val pager = Pagination(Paging.defaultPageSize)
-    var keyCounter = 0
-    def nextKey(): Int =
-      keyCounter += 1; keyCounter
-
     val ordersData = loadable(AppBus.ordersTicks)(() => ApiClient.listOrders())
     val customersData = loadable(AppBus.customersTicks)(() => ApiClient.listCustomers())
     val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
     val manufacturingCatalogData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
-    val ordersSnapshot = Var(List.empty[OrderResponse])
     val manufacturingCatalogs = Var(List.empty[ManufacturingCatalogResponse])
     // Synchronous view of each catalog task's default employee, used to propose it when a task is picked in custom mode.
     val taskDefaultEmployees = Var(Map.empty[String, UUID])
@@ -244,46 +156,6 @@ object OrdersPage:
       case _ => List("" -> "—")
     }
 
-    // ---- Create form state -----------------------------------------------------------------------
-    val createState = Var(
-      CreateOrderState(
-        number = GeneratedCodes.next("ORD", Nil),
-        numberManuallyEdited = false,
-        customerId = "",
-        creationDate = todayDay(),
-        deliveryDate = "",
-        workDeadline = "",
-        workDeadlineManuallyEdited = false,
-        priority = "normal",
-        description = "",
-      ),
-    )
-
-    def newTask(): TaskDraft = TaskDraft(nextKey(), Var(TaskState("", "8:00", Set.empty, "")))
-    def newMfg(): MfgDraft =
-      MfgDraft(nextKey(), Var(MfgCoreState("custom", "", "", "", "", "", Set.empty, Map.empty)), Var(List(newTask())), Var(Nil))
-
-    val mfgs = Var(List(newMfg()))
-    // Materials the draft material lines are checked against on submit, written by the drafts' materials editors once loaded.
-    val draftMaterialsContext = Var(MaterialDrafts.Context.empty)
-
-    def resetCreate(): Unit =
-      createState.set(
-        CreateOrderState(
-          number = GeneratedCodes.next("ORD", ordersSnapshot.now().map(_.number)),
-          numberManuallyEdited = false,
-          customerId = "",
-          creationDate = todayDay(),
-          deliveryDate = "",
-          workDeadline = "",
-          workDeadlineManuallyEdited = false,
-          priority = "normal",
-          description = "",
-        ),
-      )
-      mfgs.set(List(newMfg()))
-      pageError.set(None)
-
     def catalogById(rawId: String): Option[ManufacturingCatalogResponse] =
       parseUuid(rawId).flatMap(id => manufacturingCatalogs.now().find(_.id == id))
 
@@ -291,61 +163,20 @@ object OrdersPage:
     def defaultTaskEmployees(rawCatalogId: String): Map[String, String] =
       catalogById(rawCatalogId).map(_.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap).getOrElse(Map.empty)
 
-    /** Resolves a live manufacturing draft (with its `Var`s) into the immutable snapshot [[OrderDrafts]] operates on. */
-    def snapshotOf(m: MfgDraft): MfgSnapshot =
-      MfgSnapshot(m.key, m.state.now(), m.tasks.now().map(_.state.now()), m.materials.now())
-
-    def collectManufacturings(): Either[ApiError, List[ManufacturingDto]] =
-      OrderDrafts.collectManufacturings(
-        mfgs.now().map(snapshotOf),
-        createState.now().workDeadline,
-        catalogById,
-        draftMaterialsContext.now(),
-        () => randomUuid(),
-      )
-
-    def collectDependencies(): Option[List[ManufacturingDependencyByIndexDto]] =
-      OrderDrafts.collectDependencies(mfgs.now().map(snapshotOf))
-
-    val createFormErrors: Signal[List[String]] = createState.signal.map { cs =>
-      List(
-        Option.when(cs.number.trim.nn.isEmpty)("Numero ordine obbligatorio"),
-        Option.when(cs.customerId.isEmpty)("Cliente obbligatorio"),
-        Option.when(cs.creationDate.trim.nn.isEmpty)("Data creazione obbligatoria"),
-        Option.when(cs.deliveryDate.trim.nn.isEmpty)("Data consegna obbligatoria"),
-        Option.when(cs.workDeadline.trim.nn.isEmpty)("Scadenza lavoro obbligatoria"),
-      ).flatten
-    }
-
-    def submitCreate(): Unit =
-      val cs = createState.now()
-      parseUuid(cs.customerId) match
-        case None => showError(pageError, "Creazione ordine")(ApiError("invalid-form", "Seleziona un cliente valido.", Nil))
-        case Some(cId) =>
-          if cs.deliveryDate.isEmpty then showError(pageError, "Creazione ordine")(ApiError("invalid-form", "Inserisci la consegna cliente.", Nil))
-          else if cs.workDeadline.isEmpty then
-            showError(pageError, "Creazione ordine")(ApiError("invalid-form", "Inserisci la deadline di fine lavorazione.", Nil))
-          else
-            collectManufacturings() match
-              case Left(err) => showError(pageError, "Creazione ordine")(err)
-              case Right(manufacturings) =>
-                val request = OrderRequest(
-                  cs.number.trim.nn,
-                  cId,
-                  Formats.toIso(cs.creationDate),
-                  Formats.toIso(cs.deliveryDate),
-                  Formats.toIso(cs.workDeadline),
-                  cs.priority,
-                  manufacturings,
-                  normalizeStr(cs.description),
-                  collectDependencies(),
-                )
-                ApiClient.createOrder(request).foreach {
-                  case Right(_) => resetCreate(); showCreate.set(false); AppBus.mutatedOrders()
-                  case Left(err) => showError(pageError, "Creazione ordine")(err)
-                }
-      end match
-    end submitCreate
+    // The create form gets the shared loaded data; mounted only while creating, so each opening starts from a fresh draft.
+    val createDeps = OrderCreateView.Deps(
+      customerOptions,
+      tasksData.map {
+        case Some(Right(list)) => list
+        case _ => Nil
+      },
+      manufacturingCatalogs.signal,
+      employeeOptions,
+      ordersData.map {
+        case Some(Right(list)) => list.map(_.number)
+        case _ => Nil
+      },
+    )
 
     // ---- Edit modal state ------------------------------------------------------------------------
     val editing = Var(Option.empty[OrderResponse])
@@ -376,7 +207,7 @@ object OrdersPage:
         order.dependencies.map(d => d.manufacturingId -> d.dependsOn.map(_.toString).toSet).toMap
       val headerState = EditHeaderState(
         priority = order.priority,
-        promised = order.promisedDeliveryDate.map(dayOf).getOrElse(""),
+        promised = order.promisedDeliveryDate.map(DayText.dayOf).getOrElse(""),
         description = order.description.getOrElse(""),
       )
       editHeader.set(headerState)
@@ -394,7 +225,7 @@ object OrdersPage:
       })
       editMfgs.set(order.manufacturings.map { m =>
         val desc = m.description.getOrElse("")
-        val completionDate = dayOf(m.completionDate)
+        val completionDate = DayText.dayOf(m.completionDate)
         val deps = orderDepsByMfg.getOrElse(m.id, Set.empty)
         val state = MfgEditState(desc, completionDate, m.status, deps, m.preferredEmployeeId.map(_.toString).getOrElse(""))
         MfgEditRow(m.id, DirtyTracker(state, Var(state)))
@@ -559,6 +390,8 @@ object OrdersPage:
 
     // ---- Row actions -----------------------------------------------------------------------------
     val confirm = Var(Option.empty[ConfirmData])
+    // Removals from the edit modal hit the saved order at once, so they are confirmed first.
+    val pendingRemoval = Var(Option.empty[PendingRemoval])
 
     def transition(id: UUID, action: String): Unit =
       ApiClient.orderTransition(id, TransitionRequest(action, None)).foreach {
@@ -624,280 +457,6 @@ object OrdersPage:
         button(tpe := "button", cls := btnSmall, label, onClick --> (_ => requestTransition(order, action)))
       }
 
-    // ---- Create form rendering -------------------------------------------------------------------
-
-    /** Selectable prerequisites for a task draft: the (valid) template tasks chosen by the sibling drafts. */
-    def taskDependencyChoices(m: MfgDraft, t: TaskDraft): Signal[List[(String, String)]] =
-      m.tasks.signal.combineWith(taskOptions).map { case (rows, options) =>
-        val labels = options.toMap
-        rows
-          .filter(_.key != t.key)
-          .flatMap { other =>
-            val id = other.state.now().taskId
-            if id.isEmpty || id == t.state.now().taskId then None else labels.get(id).map(labelText => id -> labelText)
-          }
-          .distinctBy(_._1)
-      }
-
-    def renderTask(m: MfgDraft, t: TaskDraft): HtmlElement =
-      div(
-        div(
-          cls := "grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_11rem_5rem_auto] sm:items-end",
-          div(
-            cls := "flex-1",
-            field(
-              "Task",
-              // When the taskId changes, clear the dependsOn for that slot and force the tasks signal to re-propagate.
-              selectInput(
-                t.state.signal.map(_.taskId),
-                Observer[String] { next =>
-                  // Propose the picked task's default employee; still overridable in the row.
-                  t.state.update(ts => ts.copy(taskId = next, dependsOn = ts.dependsOn - next, employeeId = proposedEmployee(next)))
-                  m.tasks.update(_.map(identity))
-                },
-                taskOptions,
-              ),
-            ),
-          ),
-          field(
-            "Dipendente",
-            selectInput(t.state.signal.map(_.employeeId), Observer[String](v => t.state.update(_.copy(employeeId = v))), employeeOptions),
-          ),
-          field(
-            "Durata (h:mm)",
-            textInput(t.state.signal.map(_.hours), Observer[String](v => t.state.update(_.copy(hours = v))), "1:35"),
-          ),
-          button(
-            tpe := "button",
-            cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
-            "✕",
-            onClick --> (_ => m.tasks.update(_.filterNot(_.key == t.key))),
-          ),
-        ),
-        dependsOnChips(
-          taskDependencyChoices(m, t),
-          t.state.signal.map(_.dependsOn),
-          (id, checked) => t.state.update(s => s.copy(dependsOn = if checked then s.dependsOn + id else s.dependsOn - id)),
-        ),
-      )
-
-    /**
-     * Per-task employee selects for a catalog-mode manufacturing: one row per template task, prefilled with the catalog default and overridable
-     * before submit. Hidden until a valid template is selected.
-     */
-    def catalogTaskEmployeeOverrides(
-        catalogIdSignal: Signal[String],
-        currentMap: Signal[Map[String, String]],
-        setEmployee: (String, String) => Unit,
-    ): HtmlElement =
-      div(
-        child <-- catalogIdSignal.combineWith(manufacturingCatalogs.signal).map { case (rawId, catalogs) =>
-          parseUuid(rawId).flatMap(id => catalogs.find(_.id == id)) match
-            case None => emptyNode
-            case Some(template) =>
-              div(
-                cls := "space-y-1 rounded-md border border-slate-200 p-2",
-                div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Dipendente per task"),
-                template.tasks.map { task =>
-                  div(
-                    cls := "grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)] sm:items-center",
-                    div(cls := "text-sm text-slate-700", s"${task.name} (${Formats.duration(task.requiredMinutes)}h)"),
-                    selectInput(
-                      currentMap.map(_.getOrElse(task.id.toString, "")),
-                      Observer[String](v => setEmployee(task.id.toString, v)),
-                      employeeOptions,
-                    ),
-                  )
-                },
-              )
-        },
-      )
-
-    def catalogPreview(catalogIdSignal: Signal[String]): HtmlElement =
-      div(
-        child <-- catalogIdSignal.combineWith(manufacturingCatalogs.signal).map { case (rawId, catalogs) =>
-          val selected = parseUuid(rawId).flatMap(id => catalogs.find(_.id == id))
-          selected match
-            case None => emptyNode
-            case Some(template) =>
-              div(
-                cls := "rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600",
-                div(cls := "font-medium text-slate-700", s"${template.code} · ${template.name}"),
-                div(cls := "mt-1", template.tasks.map(task => s"${task.name} (${Formats.duration(task.requiredMinutes)}h)").mkString(", ")),
-                div(
-                  cls := "mt-1 text-slate-400",
-                  s"${Formats.duration(template.totalRequiredMinutes)}h totali · ${template.dependencies.map(_.dependsOn.size).sum} dipendenze",
-                ),
-              )
-        },
-      )
-
-    /** Selectable prerequisites for a manufacturing draft: the sibling drafts, labelled by their position and code/catalog name. */
-    def mfgDependencyChoices(m: MfgDraft): Signal[List[(String, String)]] =
-      mfgs.signal.combineWith(manufacturingCatalogs.signal).map { case (drafts, catalogs) =>
-        drafts.zipWithIndex.filter((other, _) => other.key != m.key).map { (other, index) =>
-          val ms = other.state.now()
-          val labelText =
-            if ms.mode == "catalog" then
-              parseUuid(ms.catalogId)
-                .flatMap(id => catalogs.find(_.id == id))
-                .map(_.code)
-                .getOrElse("lavorazione")
-            else Some(ms.code.trim.nn).filter(_.nonEmpty).getOrElse("lavorazione")
-          other.key.toString -> s"${index + 1}. $labelText"
-        }
-      }
-
-    def renderMfg(m: MfgDraft): HtmlElement =
-      val catalogIdSignal = m.state.signal.map(_.catalogId)
-      // Shows the order-level work deadline as the effective value while the field is untouched;
-      // clearing the field snaps back to the deadline, matching the submit-time fallback.
-      val completionDisplay = m.state.signal
-        .map(_.completionDate)
-        .combineWith(createState.signal.map(_.workDeadline))
-        .map((completion, deadline) => if completion.nonEmpty then completion else deadline)
-      div(
-        cls := "rounded-lg border border-slate-200 p-3",
-        div(
-          cls := "grid grid-cols-1 gap-2 sm:grid-cols-[11rem_10rem_auto] sm:items-end",
-          field("Tipo", staticSelect(m.state.signal.map(_.mode), Observer[String](v => m.state.update(_.copy(mode = v))), manufacturingModeOptions)),
-          field(
-            "Completamento (default: deadline)",
-            textInput(completionDisplay, Observer[String](v => m.state.update(_.copy(completionDate = v))), "", "date"),
-          ),
-          button(
-            tpe := "button",
-            cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
-            "Rimuovi",
-            onClick --> (_ => mfgs.update(_.filterNot(_.key == m.key))),
-          ),
-        ),
-        div(
-          cls := "mt-2",
-          field(
-            "Dipendente preferito",
-            selectInput(m.state.signal.map(_.employeeId), Observer[String](v => m.state.update(_.copy(employeeId = v))), employeeOptions),
-          ),
-        ),
-        dependsOnChips(
-          mfgDependencyChoices(m),
-          m.state.signal.map(_.dependsOn),
-          (id, checked) => m.state.update(s => s.copy(dependsOn = if checked then s.dependsOn + id else s.dependsOn - id)),
-        ),
-        // `.distinct` is required: without it every keystroke into the fields below re-emits the
-        // state Var, recreating this whole subtree and stealing focus from the active input.
-        child <-- m.state.signal.map(_.mode).distinct.map {
-          case "catalog" =>
-            div(
-              cls := "mt-2 space-y-2",
-              field(
-                "Lavorazione catalogo",
-                selectInput(
-                  catalogIdSignal,
-                  // Selecting a template also prefills the per-task employees from the catalog defaults.
-                  Observer[String] { v =>
-                    m.state.update(_.copy(catalogId = v, taskEmployees = defaultTaskEmployees(v)))
-                    mfgs.update(_.map(identity))
-                  },
-                  manufacturingCatalogOptions,
-                ),
-              ),
-              catalogPreview(catalogIdSignal),
-              catalogTaskEmployeeOverrides(
-                catalogIdSignal,
-                m.state.signal.map(_.taskEmployees),
-                (taskId, employeeId) => m.state.update(s => s.copy(taskEmployees = s.taskEmployees.updated(taskId, employeeId))),
-              ),
-            )
-          case _ =>
-            div(
-              cls := "mt-2 space-y-2",
-              field(
-                "Codice lavorazione",
-                textInput(m.state.signal.map(_.code), Observer[String](v => m.state.update(_.copy(code = v))), "MFG-2026-001").amend(
-                  onInput.mapToValue --> (_ => mfgs.update(_.map(identity))),
-                ),
-              ),
-              field(
-                "Descrizione lavorazione",
-                textInput(m.state.signal.map(_.description), Observer[String](v => m.state.update(_.copy(description = v))), "Opzionale"),
-              ),
-              div(cls := "space-y-2", children <-- m.tasks.signal.split(_.key)((_, initial, _) => renderTask(m, initial))),
-              button(tpe := "button", cls := btnSmall, "+ Task", onClick --> (_ => m.tasks.update(_ :+ newTask()))),
-            )
-        },
-        MaterialsEditor.draftEditor(m.materials, () => nextKey(), draftMaterialsContext.writer),
-      )
-    end renderMfg
-
-    val createForm =
-      div(
-        cls := "space-y-4",
-        div(
-          cls := "grid grid-cols-1 gap-3 sm:grid-cols-2",
-          field(
-            "Numero ordine",
-            textInput(createState.signal.map(_.number), Observer[String](v => createState.update(_.copy(number = v))), "ORD-2026-001").amend(
-              onInput.mapToValue --> (_ => createState.update(_.copy(numberManuallyEdited = true))),
-            ),
-          ),
-          field(
-            "Cliente",
-            searchableSelect(
-              createState.signal.map(_.customerId),
-              Observer[String](v => createState.update(_.copy(customerId = v))),
-              customerOptions,
-              "Cerca cliente…",
-              maxResults = 20,
-            ),
-          ),
-          field(
-            "Creazione",
-            textInput(createState.signal.map(_.creationDate), Observer[String](v => createState.update(_.copy(creationDate = v))), "", "date"),
-          ),
-          field(
-            "Consegna cliente",
-            textInput(createState.signal.map(_.deliveryDate), Observer[String](v => createState.update(_.copy(deliveryDate = v))), "", "date").amend(
-              onInput.mapToValue --> { value =>
-                if !createState.now().workDeadlineManuallyEdited then createState.update(_.copy(workDeadline = daysBefore(value, 5)))
-              },
-            ),
-          ),
-          field(
-            "Deadline fine lavorazione",
-            textInput(createState.signal.map(_.workDeadline), Observer[String](v => createState.update(_.copy(workDeadline = v))), "", "date").amend(
-              onInput.mapToValue --> (_ => createState.update(_.copy(workDeadlineManuallyEdited = true))),
-            ),
-          ),
-          field(
-            "Priorità",
-            staticSelect(createState.signal.map(_.priority), Observer[String](v => createState.update(_.copy(priority = v))), priorityOptions),
-          ),
-        ),
-        field(
-          "Descrizione ordine",
-          textInput(createState.signal.map(_.description), Observer[String](v => createState.update(_.copy(description = v))), "Opzionale"),
-        ),
-        div(
-          cls := "space-y-2",
-          div(cls := "text-xs font-semibold uppercase tracking-wide text-slate-500", "Lavorazioni"),
-          children <-- mfgs.signal.split(_.key)((_, initial, _) => renderMfg(initial)),
-          button(tpe := "button", cls := btnGhost, "+ Lavorazione", onClick --> (_ => mfgs.update(_ :+ newMfg()))),
-        ),
-        child.maybe <-- pageError.signal.map(_.map(errorBanner)),
-        div(
-          cls := "flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end",
-          button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => showCreate.set(false))),
-          button(
-            tpe := "button",
-            cls := s"$btnPrimary justify-center",
-            "Crea ordine",
-            disabled <-- createFormErrors.map(_.nonEmpty),
-            onClick --> (_ => submitCreate()),
-          ),
-        ),
-      )
-
     // ---- Edit modal rendering --------------------------------------------------------------------
     def editContent(order: OrderResponse): HtmlElement =
       // Viewers open the same modal in read-only mode ("Dettaglio"); mutations require the operator role.
@@ -957,11 +516,14 @@ object OrdersPage:
                   tpe := "button",
                   cls := s"$btnDanger w-full justify-center sm:mb-0.5 sm:w-auto",
                   disabled := m.tasks.size <= 1,
+                  aria.label := "Rimuovi task",
+                  title := "Rimuovi task",
                   "✕",
-                  onClick --> (_ => if m.tasks.size > 1 then applyStructural(ApiClient.removeManufacturingTask(order.id, m.id, t.id))),
+                  onClick --> (_ => if m.tasks.size > 1 then pendingRemoval.set(Some(PendingRemoval(order.id, m.id, m.code, Some((t.id, t.taskId)))))),
                 ),
               ),
-              dependsOnChips(
+              checkboxChips(
+                "Dipende da",
                 taskEditDependencyChoices(m, row),
                 row.tracker.current.signal.map(_.dependsOn),
                 (id, checked) => row.tracker.current.update(s => s.copy(dependsOn = if checked then s.dependsOn + id else s.dependsOn - id)),
@@ -1092,7 +654,8 @@ object OrdersPage:
                       ),
                     ),
                   ),
-                  dependsOnChips(
+                  checkboxChips(
+                    "Dipende da",
                     mfgEditDependencyChoices(m.id),
                     row.tracker.current.signal.map(_.dependsOn),
                     (id, checked) => row.tracker.current.update(s => s.copy(dependsOn = if checked then s.dependsOn + id else s.dependsOn - id)),
@@ -1119,7 +682,7 @@ object OrdersPage:
                 tpe := "button",
                 cls := s"$btnDanger w-full justify-center sm:w-auto",
                 "Rimuovi lavorazione",
-                onClick --> (_ => applyStructural(ApiClient.removeManufacturing(order.id, m.id))),
+                onClick --> (_ => pendingRemoval.set(Some(PendingRemoval(order.id, m.id, m.code, None)))),
               ),
             )
           else emptyNode,
@@ -1165,9 +728,11 @@ object OrdersPage:
                           manufacturingCatalogOptions,
                         ),
                       ),
-                      catalogPreview(addMfgState.signal.map(_.catalogId)),
-                      catalogTaskEmployeeOverrides(
+                      OrderCreateView.catalogPreview(addMfgState.signal.map(_.catalogId), manufacturingCatalogs.signal),
+                      OrderCreateView.catalogTaskEmployeeOverrides(
                         addMfgState.signal.map(_.catalogId),
+                        manufacturingCatalogs.signal,
+                        employeeOptions,
                         addMfgState.signal.map(_.taskEmployees),
                         (taskId, employeeId) => addMfgState.update(s => s.copy(taskEmployees = s.taskEmployees.updated(taskId, employeeId))),
                       ),
@@ -1283,25 +848,35 @@ object OrdersPage:
     end editContent
 
     val editModal =
-      div(
-        cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-2 sm:p-4",
-        cls <-- editing.signal.map(o => if o.isDefined then "flex" else "hidden"),
-        div(
-          cls := "mt-2 w-full max-w-2xl sm:mt-8",
-          card(
-            div(
-              cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
-              h2(
-                cls := "text-sm font-semibold text-slate-800",
-                child.text <-- editing.signal.map(
-                  _.map(o => s"${if OrderStatus.isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse(""),
-                ),
-              ),
-              button(cls := "text-slate-400 hover:text-slate-700", "✕", onClick --> (_ => editing.set(None))),
-            ),
-            div(cls := "p-4", child <-- editing.signal.map { case Some(o) => editContent(o); case None => emptyNode }),
-          ),
+      modal(
+        editing.signal.map(_.isDefined),
+        editing.signal.map(
+          _.map(o => s"${if OrderStatus.isEditable(o.status) then "Modifica" else "Dettaglio"} ordine ${o.number}").getOrElse(""),
         ),
+        "max-w-2xl",
+        () => editing.set(None),
+      )(div(child <-- editing.signal.map { case Some(o) => editContent(o); case None => emptyNode }))
+
+    val removalDialog =
+      confirmDialog(
+        isOpen = pendingRemoval.signal.map(_.isDefined),
+        titleText = pendingRemoval.signal.combineWith(tasksMap).map {
+          case (Some(PendingRemoval(_, _, code, Some((_, templateId)))), names) =>
+            s"Rimuovere il task «${names.getOrElse(templateId, Formats.shortId(templateId))}» da «$code»?"
+          case (Some(removal), _) => s"Rimuovere la lavorazione «${removal.mfgCode}»?"
+          case (None, _) => ""
+        },
+        message = Signal.fromValue("La rimozione viene applicata subito all'ordine salvato e non è reversibile."),
+        confirmLabel = "Rimuovi",
+        tone = DialogTone.Danger,
+        onCancel = () => pendingRemoval.set(None),
+        onConfirm = () =>
+          pendingRemoval.now().foreach { removal =>
+            pendingRemoval.set(None)
+            removal.task match
+              case Some((scheduledId, _)) => applyStructural(ApiClient.removeManufacturingTask(removal.orderId, removal.mfgId, scheduledId))
+              case None => applyStructural(ApiClient.removeManufacturing(removal.orderId, removal.mfgId))
+          },
       )
 
     // ---- Confirmation (ACK) modal ----------------------------------------------------------------
@@ -1356,7 +931,7 @@ object OrdersPage:
           readField("Task", s"$taskCount task"),
         ),
         div(
-          cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3",
+          cls := cardActionsCls,
           orderActionButtons(order),
         ),
       )
@@ -1475,38 +1050,36 @@ object OrdersPage:
         case Some(Right(list)) => taskDefaultEmployees.set(list.flatMap(t => t.defaultEmployeeId.map(t.id.toString -> _)).toMap)
         case _ => ()
       },
-      ordersData --> {
-        case Some(Right(list)) =>
-          ordersSnapshot.set(list)
-          if showCreate.now() && !createState.now().numberManuallyEdited then
-            createState.update(_.copy(number = GeneratedCodes.next("ORD", list.map(_.number))))
-        case _ => ()
-      },
       div(
-        cls := "mb-4 flex items-center justify-between",
-        sectionTitle("Ordini"),
-        roleGated(Role.Operator)(
-          button(
-            tpe := "button",
-            cls := btnPrimary,
-            "+ Nuovo ordine",
-            onClick --> (_ =>
-              resetCreate(); showCreate.set(true)
+        cls <-- view.signal.map(current => if current == View.List then "" else "hidden"),
+        div(
+          cls := "mb-4 flex items-center justify-between",
+          sectionTitle("Ordini"),
+          roleGated(Role.Operator)(
+            button(
+              tpe := "button",
+              cls := btnPrimary,
+              "+ Nuovo ordine",
+              onClick --> (_ => view.set(View.Create)),
             ),
           ),
         ),
+        child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mb-4", errorBanner(e)))),
+        filterBar,
+        card(
+          cls := "overflow-hidden",
+          renderResult(ordersData) { orders =>
+            if orders.isEmpty then div(cls := "p-4", emptyState("Nessun ordine. Crea il primo ordine."))
+            else ordersTable(orders)
+          },
+        ),
       ),
-      child.maybe <-- pageError.signal.map(_.map(e => div(cls := "mb-4", errorBanner(e)))),
-      filterBar,
-      card(
-        cls := "overflow-hidden",
-        renderResult(ordersData) { orders =>
-          if orders.isEmpty then div(cls := "p-4", emptyState("Nessun ordine. Crea il primo ordine."))
-          else ordersTable(orders)
-        },
+      child.maybe <-- view.signal.distinct.map(current =>
+        Option.when(current == View.Create)(OrderCreateView(createDeps, () => view.set(View.List))),
       ),
-      modal(showCreate, "Nuovo ordine")(createForm),
       editModal,
+      // After the edit modal, so they stack above it; as its siblings, their Escape never reaches it.
+      removalDialog,
       confirmModal,
     )
   end apply

@@ -99,6 +99,33 @@ final class MaterialFormSpec extends AnyFunSuite with Matchers:
   test("the same code of different suppliers is allowed"):
     valid.copy(mpns = List(row(0, supplierA.toString, "AC-1"), row(1, supplierB.toString, "AC-1"))).errors shouldBe Nil
 
+  // ---- field targeting ---------------------------------------------------------------------------
+
+  test("field issues target their field, in display order"):
+    MaterialForm.empty.copy(unit = "barrels", customerPrice = "x").issues.map(_.field) shouldBe
+      List(Field.InternalCode, Field.Description, Field.Unit, Field.CustomerPrice)
+
+  test("MPN row issues target the input of the row by key, with the position in the message but not inline"):
+    val state = valid.copy(mpns = List(MpnRow(4, "", "A1", "", "1,23456"), row(9, supplierA.toString, " ")))
+    state.issues.map(_.field) shouldBe List(
+      Field.Mpn(4, MpnField.Supplier),
+      Field.Mpn(4, MpnField.ExpectedCost),
+      Field.Mpn(9, MpnField.Code),
+    )
+    state.errors shouldBe state.issues.map(_.message)
+    state.inlineError(Field.Mpn(4, MpnField.Supplier)) shouldBe Some("Fornitore mancante")
+    state.inlineError(Field.Mpn(9, MpnField.Code)) shouldBe Some("Codice mancante")
+    state.inlineError(Field.Mpn(9, MpnField.Supplier)) shouldBe None
+
+  test("a repeated MPN is reported once, on the code of its first repetition"):
+    val state = valid.copy(mpns = List(row(2, supplierA.toString, "ac-1"), row(5, supplierB.toString, "AC-1"), row(7, supplierA.toString, "AC-1")))
+    state.issues.map(_.field) shouldBe List(Field.Mpn(7, MpnField.Code))
+    state.inlineError(Field.Mpn(7, MpnField.Code)) shouldBe Some("MPN ripetuto per lo stesso fornitore (righe 1, 3)")
+
+  test("field ids are stable per row key"):
+    MaterialForm.fieldId(Field.InternalCode) shouldBe "material-code"
+    MaterialForm.fieldId(Field.Mpn(3, MpnField.ExpectedCost)) shouldBe "material-mpn-3-cost"
+
   test("pristine is true only for a fresh, untouched create form"):
     MaterialForm.empty.pristine shouldBe true
     MaterialForm.empty.copy(unit = "kilograms", materialType = "Tessuti").pristine shouldBe true

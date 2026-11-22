@@ -13,6 +13,7 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.{
   MaterialResponse,
   SupplierResponse,
 }
+import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messages, FieldIssue }
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats
 
 /**
@@ -24,7 +25,8 @@ import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats
  * of the MPN, unless the user already typed one; changing the supplier moves every line onto the MPNs of the new supplier for the same material.
  *
  * The page keeps one [[State]] in a `Var` and passes the [[Context]] of the loaded materials to the transformations below, so every rule is
- * unit-testable without Laminar. The server re-checks everything (and the stock, which needs the full ledger).
+ * unit-testable without Laminar. Validation problems are [[FieldIssue]]s tied to a [[Field]], so the editor shows each one under its input and
+ * focuses the first one on an invalid submit. The server re-checks everything (and the stock, which needs the full ledger).
  */
 object DeliveryNoteForm:
 
@@ -112,6 +114,40 @@ object DeliveryNoteForm:
     /** The active `materials`, plus the archived ones in `kept` (the materials of the delivery note being edited), sorted by internal code. */
     def of(materials: List[MaterialResponse], kept: Set[UUID]): Context =
       Context(materials.filter(material => !material.archived || kept.contains(material.id)).sortBy(_.internalCode))
+
+  // ---- Fields ------------------------------------------------------------------------------------
+
+  /** The inputs of a line a validation problem can be about. */
+  enum RowField derives CanEqual:
+    case Material
+    case NewMpnCode
+    case Quantity
+    case UnitCost
+
+  /** What a validation problem is about: a header input, the lines as a whole (no row at all), or one input of the line with key `key`. */
+  enum Field derives CanEqual:
+    case Date
+    case Number
+    case Supplier
+    case Lines
+    case Row(key: Int, field: RowField)
+
+  /** The DOM id of the "+ Riga" button. */
+  val addRowId: String = "ddt-add-row"
+
+  /** The DOM id of the input of `field` (the anchor of its label and of [[FormFocus]]); [[Field.Lines]] is the rows block. */
+  def fieldId(field: Field): String = field match
+    case Field.Date => "ddt-date"
+    case Field.Number => "ddt-number"
+    case Field.Supplier => "ddt-supplier"
+    case Field.Lines => "ddt-lines"
+    case Field.Row(key, rowField) =>
+      val suffix = rowField match
+        case RowField.Material => "material"
+        case RowField.NewMpnCode => "new-mpn"
+        case RowField.Quantity => "quantity"
+        case RowField.UnitCost => "cost"
+      s"ddt-row-$key-$suffix"
 
   // ---- Rows and state ----------------------------------------------------------------------------
 
@@ -238,8 +274,8 @@ object DeliveryNoteForm:
         }
         owner.fold(Right(code))(material => Left(s"L'MPN ${normalizedCode(code)} di questo fornitore è già del materiale ${material.internalCode}"))
 
-    /** One non-blank row as a request line, or its messages (without the row prefix). */
-    private def resolve(row: Row, context: Context): Either[List[String], DeliveryNoteLineRequest] =
+    /** One non-blank row as a request line, or its problems (messages without the row prefix), each tied to the input it is about. */
+    private def resolve(row: Row, context: Context): Either[List[(RowField, String)], DeliveryNoteLineRequest] =
       val option: Either[String, LineOption] =
         if row.choice.trim.nn.isEmpty then Left("Seleziona il materiale")
         else optionOf(row, context).toRight("Il materiale selezionato non è disponibile per questo fornitore")
@@ -249,33 +285,63 @@ object DeliveryNoteForm:
       (option, code, quantity, cost) match
         case (Right(o), Right(c), Right(q), Right(uc)) => Right(DeliveryNoteLineRequest(o.materialId, c, o.isNewMpn, q, uc))
         case _ =>
-          Left((option.left.toOption ++ option.toOption.flatMap(_ => code.left.toOption) ++ quantity.left.toOption ++ cost.left.toOption).toList)
+          Left(
+            (option.left.toOption.map(RowField.Material -> _) ++
+              option.toOption.flatMap(_ => code.left.toOption).map(RowField.NewMpnCode -> _) ++
+              quantity.left.toOption.map(RowField.Quantity -> _) ++
+              cost.left.toOption.map(RowField.UnitCost -> _)).toList,
+          )
+    end resolve
 
-    /** The request lines (blank rows skipped, order kept), or every message prefixed with the 1-based row number (`Riga 2: …`). */
-    private def lines(context: Context): Either[List[String], List[DeliveryNoteLineRequest]] =
-      val checked = rows.zipWithIndex.filterNot((row, _) => row.isBlank).map { (row, index) =>
-        resolve(row, context).left.map(_.map(message => s"Riga ${index + 1}: $message"))
-      }
-      if checked.isEmpty then Left(List("Aggiungi almeno una riga"))
-      else
-        val errors = checked.flatMap(_.left.getOrElse(Nil))
-        if errors.isEmpty then Right(checked.flatMap(_.toOption)) else Left(errors)
+    /**
+     * Every problem, header first then the lines: the issue (messages of a line prefixed with its 1-based position, `Riga 2: …`) and the bare text.
+     */
+    private def problems(context: Context): List[(FieldIssue[Field], String)] =
+      val day = MovementForm.parseDay(date, today).left.toOption.map(Field.Date -> _)
+      val numberCheck = Option.when(number.trim.nn.isEmpty)(Field.Number -> "Numero DDT obbligatorio")
+      val supplier = Option.when(parseUuid(supplierId).isEmpty)(Field.Supplier -> "Seleziona il fornitore")
+      val headerProblems = (day ++ numberCheck ++ supplier).toList.map((field, message) => FieldIssue(field, message) -> message)
+      val filled = rows.zipWithIndex.filterNot((row, _) => row.isBlank)
+      // With only blank rows the first one is pointed at ("Seleziona il materiale"); the block-level message is for a note without rows.
+      val lineProblems =
+        if filled.isEmpty then
+          rows.headOption match
+            case Some(first) =>
+              List(FieldIssue(Field.Row(first.key, RowField.Material), "Riga 1: Seleziona il materiale") -> "Seleziona il materiale")
+            case None => List(FieldIssue(Field.Lines, "Aggiungi almeno una riga") -> "Aggiungi almeno una riga")
+        else
+          filled.flatMap { (row, index) =>
+            resolve(row, context).left.getOrElse(Nil).map { (rowField, message) =>
+              FieldIssue(Field.Row(row.key, rowField), s"Riga ${index + 1}: $message") -> message
+            }
+          }
+      headerProblems ++ lineProblems
+    end problems
 
-    private def header: Either[List[String], (String, String, UUID)] =
-      val day = MovementForm.parseDay(date, today)
-      val numberCheck = Some(number.trim.nn).filter(_.nonEmpty).toRight("Numero DDT obbligatorio")
-      val supplier = parseUuid(supplierId).toRight("Seleziona il fornitore")
-      (day, numberCheck, supplier) match
-        case (Right(d), Right(n), Right(s)) => Right((d, n, s))
-        case _ => Left((day.left.toOption ++ numberCheck.left.toOption ++ supplier.left.toOption).toList)
+    /** Every validation problem, each tied to its field: the header first, then the lines (`Riga n: …`). */
+    def issues(context: Context): List[FieldIssue[Field]] = problems(context).map(_._1)
+
+    /** The inline message of `field` (without the `Riga n:` prefix of a line), if it has a problem. */
+    def inlineError(field: Field, context: Context): Option[String] = problems(context).collectFirst {
+      case (issue, message) if issue.field == field => message
+    }
 
     /** The payload to send, or every validation message: header first, then the lines. */
     def validated(context: Context): Either[List[String], DeliveryNoteRequest] =
-      (header, lines(context)) match
-        case (Right((day, n, supplier)), Right(requestLines)) => Right(DeliveryNoteRequest(n, day, supplier, SupplierForm.opt(note), requestLines))
-        case (h, l) => Left(h.left.getOrElse(Nil) ++ l.left.getOrElse(Nil))
+      val found = issues(context)
+      if found.nonEmpty then Left(found.messages)
+      else
+        val lines = rows.filterNot(_.isBlank).flatMap(resolve(_, context).toOption)
+        (MovementForm.parseDay(date, today), parseUuid(supplierId)) match
+          case (Right(day), Some(supplier)) => Right(DeliveryNoteRequest(number.trim.nn, day, supplier, SupplierForm.opt(note), lines))
+          case _ => Left(found.messages)
 
     def errors(context: Context): List[String] = validated(context).left.getOrElse(Nil)
+
+    /** The DOM id to focus for a problem of `field`: for missing lines the first line's material, or "+ Riga" when there is none. */
+    def focusId(field: Field): String = field match
+      case Field.Lines => rows.headOption.fold(addRowId)(row => fieldId(Field.Row(row.key, RowField.Material)))
+      case other => fieldId(other)
 
     def request(context: Context): Option[DeliveryNoteRequest] = validated(context).toOption
   end State

@@ -3,12 +3,21 @@ package io.gitbub.nicolasfara.rstmanager.ui.warehouse
 import scala.math.BigDecimal.RoundingMode
 import scala.util.Try
 
-import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ DeliveryNoteResponse, FlowBucketResponse, MovementResponse, StateRowResponse }
+import io.gitbub.nicolasfara.rstmanager.api.Dtos.{
+  DeliveryNoteResponse,
+  FlowBucketResponse,
+  MaterialResponse,
+  MaterialSupplierDto,
+  MovementResponse,
+  StateRowResponse,
+  StockDto,
+}
 import io.gitbub.nicolasfara.rstmanager.ui.{ Formats, SearchTerms, WarehouseFormats }
 
 /**
- * Pure (DOM-free) derivations behind the warehouse history ("Storico"), flows ("Entrate/Uscite"), and delivery notes ("DDT") tabs and the movements
- * list: report periods, day navigation, bucket labels, bar scaling, and row filtering. The pages only render what these return.
+ * Pure (DOM-free) derivations behind the warehouse materials ("Materiali"), history ("Storico"), flows ("Entrate/Uscite"), and delivery notes ("DDT")
+ * tabs and the movements list: material summaries, report periods, day navigation, bucket labels, bar scaling, and row filtering. The pages only
+ * render what these return.
  */
 object WarehouseViews:
 
@@ -165,6 +174,64 @@ object WarehouseViews:
     def percent(value: BigDecimal): Double =
       if max.signum == 0 || value.signum == 0 then 0.0 else (value * 100 / max).toDouble.max(minVisiblePercent)
     parsed.map((in, out) => BarPair(percent(in), percent(out)))
+
+  // ---- Material summaries (Materiali, Storico) ---------------------------------------------------
+
+  /**
+   * What the material cards and the compact material tables show, for a registry material ([[MaterialResponse]], stock of today) and a row of the
+   * history ([[StateRowResponse]], stock of a past day) alike, so the two tabs render a material the same way. `archivedLabel` is the badge text of
+   * an archived material; `customerPrice` is absent for a history row without a price in effect that day.
+   */
+  final case class MaterialSummary(
+      internalCode: String,
+      description: String,
+      materialType: Option[String],
+      notes: Option[String],
+      unit: String,
+      archivedLabel: Option[String],
+      stock: StockDto,
+      customerPrice: Option[String],
+      suppliers: List[MaterialSupplierDto],
+      mpnCodes: List[String],
+  ) derives CanEqual:
+    def archived: Boolean = archivedLabel.isDefined
+  end MaterialSummary
+
+  /** `"Archiviato il DD/MM/YYYY"` (or `"Archiviato"` without a day) for an archived material, `None` otherwise. */
+  def archivedLabel(archived: Boolean, archivedOn: Option[String]): Option[String] =
+    Option.when(archived)(archivedOn.fold("Archiviato")(day => s"Archiviato il ${IsoDay.display(day)}"))
+
+  def materialSummary(material: MaterialResponse): MaterialSummary =
+    MaterialSummary(
+      material.internalCode,
+      material.description,
+      material.materialType,
+      material.notes,
+      material.unit,
+      archivedLabel(material.archived, material.archivedOn),
+      material.stock,
+      Some(material.customerPrice),
+      material.suppliers,
+      material.mpns.map(_.code),
+    )
+
+  def materialSummary(row: StateRowResponse): MaterialSummary =
+    MaterialSummary(
+      row.internalCode,
+      row.description,
+      row.materialType,
+      row.notes,
+      row.unit,
+      archivedLabel(row.archived, None),
+      row.stock,
+      row.customerPrice,
+      row.suppliers,
+      row.mpns.map(_.code),
+    )
+
+  /** The type and the short unit of a material as one line: `"Tessuto · m"`, or just `"m"` without a type. */
+  def typeAndUnit(materialType: Option[String], unit: String): String =
+    (materialType.map(_.trim.nn).filter(_.nonEmpty).toList :+ WarehouseFormats.unitShortLabel(unit)).mkString(" · ")
 
   // ---- Storico rows ------------------------------------------------------------------------------
 

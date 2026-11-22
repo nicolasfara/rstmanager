@@ -6,6 +6,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Try
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
@@ -14,6 +15,9 @@ import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 
 /** Catalog of reusable tasks (name, description, required hours) referenced when building orders. */
 object TasksPage:
+
+  /** The content of the task form, compared with the loaded one to detect unsaved edits. */
+  private final case class Draft(editingId: Option[UUID], name: String, description: String, hours: String, defaultEmployee: String) derives CanEqual
 
   def apply(): HtmlElement =
     val formError = Var(Option.empty[ApiError])
@@ -36,19 +40,37 @@ object TasksPage:
       case _ => Map.empty
     }
 
+    val draft = DraftGuard[Draft](
+      () => Draft(editingId.now(), name.now(), description.now(), hours.now(), defaultEmployee.now()),
+      d => DraftGuard.discardTitle(Option.when(d.editingId.isDefined)(d.name.trim.nn), "il nuovo task"),
+    )
+
     def resetForm(): Unit =
       editingId.set(None); name.set(""); description.set(""); hours.set("8:00"); defaultEmployee.set(""); formError.set(None)
+      draft.markClean()
 
     val formAnchor = FormAnchor()
 
+    // Replacing a dirty draft asks first; the form is revealed once the new content is loaded.
     def edit(task: TaskResponse): Unit =
-      formAnchor.reveal()
-      editingId.set(Some(task.id))
-      name.set(task.name)
-      description.set(task.description.getOrElse(""))
-      hours.set(Formats.duration(task.requiredMinutes))
-      defaultEmployee.set(task.defaultEmployeeId.map(_.toString).getOrElse(""))
-      formError.set(None)
+      draft.discardThen { () =>
+        formAnchor.revealAndFocus()
+        editingId.set(Some(task.id))
+        name.set(task.name)
+        description.set(task.description.getOrElse(""))
+        hours.set(Formats.duration(task.requiredMinutes))
+        defaultEmployee.set(task.defaultEmployeeId.map(_.toString).getOrElse(""))
+        formError.set(None)
+        draft.markClean()
+      }
+
+    /** "+ Nuovo task" (mobile, where the form follows the list): leaves a task being edited, then shows the form. */
+    def startNew(): Unit =
+      if editingId.now().isDefined then
+        draft.discardThen(() =>
+          resetForm(); formAnchor.revealAndFocus(),
+        )
+      else formAnchor.revealAndFocus()
 
     def submit(): Unit =
       Formats.parseDuration(hours.now()) match
@@ -61,17 +83,24 @@ object TasksPage:
             minutes,
             Try(UUID.fromString(defaultEmployee.now()).nn).toOption,
           )
+          val editing = editingId.now().isDefined
           val effect = editingId.now() match
             case Some(id) => ApiClient.updateTask(id, request)
             case None => ApiClient.createTask(request)
           effect.foreach {
-            case Right(_) => resetForm(); AppBus.mutatedTasks()
+            case Right(_) =>
+              resetForm()
+              Notifications.success(s"Task ${request.name} ${if editing then "salvato" else "creato"}")
+              AppBus.mutatedTasks()
             case Left(err) => showError(formError, "Salvataggio task")(err)
           }
 
-    def delete(id: UUID): Unit =
-      ApiClient.deleteTask(id).foreach {
-        case Right(_) => AppBus.mutatedTasks()
+    def delete(task: TaskResponse): Unit =
+      ApiClient.deleteTask(task.id).foreach {
+        case Right(_) =>
+          if editingId.now() == Some(task.id) then resetForm()
+          Notifications.success(s"Task ${task.name} eliminato")
+          AppBus.mutatedTasks()
         case Left(err) if err.code == "task-in-use" => showError(blockedDelete, "Eliminazione task")(err)
         case Left(err) => showError(formError, "Eliminazione task")(err)
       }
@@ -144,19 +173,19 @@ object TasksPage:
           span(cls := "text-xs font-medium text-slate-500", "Dipendente predefinito: "),
           span(child.text <-- defaultEmployeeLabel(task)),
         ),
-        roleGated(Role.Admin)(div(cls := "flex flex-wrap gap-2 border-t border-slate-100 pt-3", actionButtons(task))),
+        roleGated(Role.Admin)(div(cls := cardActionsCls, actionButtons(task))),
       )
 
     // Double-check before the destructive delete.
     val confirmDeleteModal =
       confirmDialog(
         isOpen = confirmDelete.signal.map(_.isDefined),
-        titleText = Signal.fromValue("Elimina task"),
-        message = confirmDelete.signal.map(_.fold("")(t => s"Eliminare definitivamente il task “${t.name}”? L'operazione non è reversibile.")),
+        titleText = confirmDelete.signal.map(_.fold("")(t => s"Eliminare il task «${t.name}»?")),
+        message = Signal.fromValue("Il task viene rimosso dal catalogo. L'operazione non è reversibile."),
         confirmLabel = "Elimina",
         tone = DialogTone.Danger,
         onCancel = () => confirmDelete.set(None),
-        onConfirm = () => confirmDelete.now().foreach { t => delete(t.id); confirmDelete.set(None) },
+        onConfirm = () => confirmDelete.now().foreach { t => delete(t); confirmDelete.set(None) },
       )
 
     div(
@@ -165,9 +194,11 @@ object TasksPage:
         roleGatedGridCols(Role.Admin, "lg:grid-cols-[20rem_1fr]"),
         roleGated(Role.Admin)(
           card(
-            cls := "self-start p-4",
+            // Mobile: the list comes first (finding a task must not mean scrolling past the form); "+ Nuovo task" reaches the form.
+            cls := "order-last self-start p-4 lg:order-none",
             formAnchor.bind,
-            sectionTitle("Nuovo task"),
+            draft.bind,
+            child <-- editingId.signal.map(_.isDefined).distinct.map(editing => sectionTitle(if editing then "Modifica task" else "Nuovo task")),
             div(
               cls := "mt-3 space-y-3",
               field("Nome", textInput(name, "Es. Taglio")),
@@ -183,7 +214,9 @@ object TasksPage:
                   child.text <-- editingId.signal.map(_.fold("Crea")(_ => "Salva")),
                   onClick --> (_ => submit()),
                 ),
-                child.maybe <-- editingId.signal.map(_.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => resetForm())))),
+                child.maybe <-- editingId.signal.map(
+                  _.map(_ => button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => draft.discardThen(() => resetForm())))),
+                ),
               ),
             ),
           ),
@@ -192,7 +225,13 @@ object TasksPage:
           cls := "overflow-hidden",
           div(
             cls := "space-y-2 border-b border-slate-100 p-3",
-            searchBox(query, "Cerca per nome, descrizione, dipendente…", pager),
+            div(
+              cls := "flex items-center gap-2",
+              div(cls := "min-w-0 flex-1", searchBox(query, "Cerca per nome, descrizione, dipendente…", pager)),
+              roleGated(Role.Admin)(
+                button(tpe := "button", cls := s"$btnSmall min-h-10 shrink-0 lg:hidden", "+ Nuovo task", onClick --> (_ => startNew())),
+              ),
+            ),
             div(
               cls := "md:hidden",
               sort.picker(List("name" -> "Nome", "description" -> "Descrizione", "duration" -> "Durata", "employee" -> "Dipendente")),
@@ -227,39 +266,22 @@ object TasksPage:
           },
         ),
       ),
-      div(
-        cls := "fixed inset-0 z-50 items-center justify-center overflow-y-auto bg-slate-900/50 p-4",
-        cls <-- blockedDelete.signal.map(err => if err.isDefined then "flex" else "hidden"),
-        onClick --> (_ => blockedDelete.set(None)),
+      // An accessible dialog (Escape, focus trap and restore) explaining why the task cannot be deleted.
+      modal(blockedDelete.signal.map(_.isDefined), Signal.fromValue("Task usato in lavorazioni"), "max-w-md", () => blockedDelete.set(None))(
         div(
-          cls := "w-full max-w-sm",
-          card(
-            cls := "p-6",
-            onClick.stopPropagation --> (_ => ()),
-            div(
-              cls := "flex flex-col items-center gap-4 text-center",
-              div(
-                cls := "flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600",
-                span(cls := "text-2xl leading-none", "⚠"),
-              ),
-              div(
-                cls := "space-y-1",
-                h2(cls := "text-base font-semibold text-slate-900", "Task usato in lavorazioni"),
-                p(cls := "text-sm text-slate-500", child.text <-- blockedDelete.signal.map(_.map(_.message).getOrElse(""))),
-              ),
-            ),
-            ul(
-              cls := "mt-4 list-disc space-y-1 rounded-md bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-700",
-              children <-- blockedDelete.signal.map(_.fold(List.empty[String])(_.details).map(item => li(item))),
-            ),
-            div(
-              cls := "mt-6",
-              button(tpe := "button", cls := s"$btnPrimary w-full justify-center", "Ok", onClick --> (_ => blockedDelete.set(None))),
-            ),
+          p(cls := "text-sm text-slate-500", child.text <-- blockedDelete.signal.map(_.map(_.message).getOrElse(""))),
+          ul(
+            cls := "mt-4 list-disc space-y-1 rounded-md bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-700",
+            children <-- blockedDelete.signal.map(_.fold(List.empty[String])(_.details).map(item => li(item))),
+          ),
+          div(
+            cls := "mt-6",
+            button(tpe := "button", cls := s"$btnPrimary w-full justify-center", "Ok", onClick --> (_ => blockedDelete.set(None))),
           ),
         ),
       ),
       confirmDeleteModal,
+      draft.dialog,
     )
   end apply
 end TasksPage

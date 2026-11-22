@@ -43,10 +43,21 @@ final class ClosureFormSpec extends AnyFunSuite with Matchers:
     annual.copy(day = "0").errors shouldBe List("Giorno non valido")
     annual.copy(month = "13").errors shouldBe List("Mese non valido")
 
-  test("a blank form holds back its messages; a loaded one does not"):
-    ClosureForm.empty.isBlank shouldBe true
-    period.isBlank shouldBe false
-    ClosureForm.fromResponse(ClosureResponse(closureId, "annual", "Natale", None, None, Some(12), Some(25))).isBlank shouldBe false
+  test("issues are addressed to their field and the focus goes to the first one on screen"):
+    import ClosureForm.Field
+    ClosureForm.empty.issues.map(_.field) shouldBe List(Field.Reason, Field.StartDate, Field.EndDate)
+    // The reason is listed first, but sits after the days on screen.
+    ClosureForm.empty.firstIssueOnScreen.map(_.field) shouldBe Some(Field.StartDate)
+    period.copy(endDate = "2026-08-09").issues.map(_.field) shouldBe List(Field.EndDate)
+    annual.copy(day = "31", month = "4", reason = "").firstIssueOnScreen.map(_.field) shouldBe Some(Field.Day)
+    annual.copy(day = "", startDate = "garbage").issues.map(_.field) shouldBe List(Field.Day)
+    period.firstIssueOnScreen shouldBe None
+    ClosureForm.fieldId(Field.Reason) shouldBe "closure-reason"
+
+  test("a loaded closure equals its reload, so an untouched edit page is not dirty"):
+    val stored = ClosureResponse(closureId, "annual", "Natale", None, None, Some(12), Some(25))
+    ClosureForm.fromResponse(stored) == ClosureForm.fromResponse(stored) shouldBe true
+    ClosureForm.fromResponse(stored).copy(reason = "Natale ") == ClosureForm.fromResponse(stored) shouldBe false
 
   test("fromResponse -> request round-trips both kinds"):
     val storedPeriod =

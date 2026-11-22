@@ -2,15 +2,17 @@ package io.gitbub.nicolasfara.rstmanager.ui
 
 import java.util.UUID
 
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.ExecutionContext
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js.timers.{ clearInterval, setInterval, SetIntervalHandle }
 
 import com.raquo.laminar.api.L.*
+import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.{ AuthService, Role }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
+import io.gitbub.nicolasfara.rstmanager.ui.PlanningTaskView.TaskTarget
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 import io.gitbub.nicolasfara.rstmanager.ui.employees.CompanyCalendarView
 
@@ -26,21 +28,14 @@ object PlanningPage:
   /** Interval of the silent background poll that keeps the plan fresh while the page is open. */
   private val pollIntervalMs = 15000
 
-  /** What the task modal is doing: adjusting the progress of a planned task, or reactivating a completed one. */
-  private enum EditKind derives CanEqual:
-    case Progress, Reactivate
-
-  /** Editable task-modal fields, tracked against the values loaded when the modal opens. */
-  private final case class TaskModalState(completed: String, expected: String, employeeId: String) derives CanEqual
-
   /** Visual treatment for a planned task slice based on how close its day is to the manufacturing deadline. */
-  private final case class Urgency(cardCls: String, label: String, labelCls: String)
+  private[ui] final case class Urgency(cardCls: String, label: String, labelCls: String)
 
   /**
    * Maps the days between a slice's scheduled day and its manufacturing deadline to a colour scale: red = late, orange = due today, yellow = due
    * tomorrow, sky = due soon, blue = on time.
    */
-  private def urgencyFor(daysToDeadline: Option[Int]): Urgency = daysToDeadline match
+  private[ui] def urgencyFor(daysToDeadline: Option[Int]): Urgency = daysToDeadline match
     case Some(d) if d < 0 => Urgency("border-rose-300 border-l-rose-500 bg-rose-50", "In ritardo", "bg-rose-100 text-rose-700")
     case Some(0) => Urgency("border-orange-300 border-l-orange-500 bg-orange-50", "Scade oggi", "bg-orange-100 text-orange-700")
     case Some(1) => Urgency("border-amber-300 border-l-amber-500 bg-amber-50", "Scade domani", "bg-amber-100 text-amber-700")
@@ -91,16 +86,8 @@ object PlanningPage:
       case None => "Date da verificare"
 
   def apply(): HtmlElement =
-    // ---- Task modal state (shared by progress editing and reactivation) ---------------------------
-    // The scheduled task instance being edited: (orderId, manufacturingId, taskInstanceId).
-    val editing = Var(Option.empty[(UUID, UUID, UUID)])
-    val editKind = Var(EditKind.Progress)
-    val editName = Var("")
-    val editState = Var(TaskModalState("", "", ""))
-    val editTracker = Var(DirtyTracker(TaskModalState("", "", ""), editState))
-    val modalOpen = Var(false)
-    val modalError = Var(Option.empty[ApiError])
-    val saving = Var(false)
+    // ---- Task page: shown in place of the board, which stays mounted (week, filters and scroll are kept) ----------------
+    val taskView = SubView[TaskTarget]()
 
     val weekIndex = Var(0)
 
@@ -156,10 +143,6 @@ object PlanningPage:
       ordersList.map { orders =>
         orders.flatMap(order => order.manufacturings.map(manufacturing => manufacturing.id -> ManufacturingContext(order, manufacturing))).toMap
       }
-    // Maps scheduledManufacturingId -> preferredEmployeeId (from the order data).
-    val preferredByMfg: Signal[Map[UUID, Option[UUID]]] = ordersList.map { orders =>
-      orders.flatMap(_.manufacturings.map(m => m.id -> m.preferredEmployeeId)).toMap
-    }
     // Catalog task id -> task name (from the task catalog).
     val catalogNames: Signal[Map[UUID, String]] = tasksData.map {
       case Some(Right(list)) => list.map(t => t.id -> t.name).toMap
@@ -176,12 +159,47 @@ object PlanningPage:
       Signal.combine(ordersList, catalogNames).map { case (orders, names) =>
         orders.flatMap(_.manufacturings.flatMap(_.tasks.map(t => t.id -> names.getOrElse(t.taskId, Formats.shortId(t.taskId))))).toMap
       }
-    // Resolve a slice's scheduled-task instance id to its current progress/estimate, so the modal opens pre-filled.
+    // Resolve a slice's scheduled-task instance id to its current progress/estimate.
     val scheduledTaskById: Signal[Map[UUID, ScheduledTaskDto]] =
       ordersList.map(_.flatMap(_.manufacturings.flatMap(_.tasks.map(t => t.id -> t))).toMap)
-    val editLookup: Signal[(Map[UUID, ScheduledTaskDto], Map[UUID, String])] =
-      scheduledTaskById.combineWith(scheduledTaskNames)
-    val editAndPref = editLookup.flatMapSwitch(el => preferredByMfg.map((el, _)))
+    // What the task page needs to describe a task, sampled when it opens (the page keeps that snapshot).
+    val taskContextLookup: Signal[
+      (Map[UUID, ManufacturingContext], Map[UUID, String], Map[UUID, String], Map[(UUID, UUID), List[MaterialShortages.SliceShortage]]),
+    ] =
+      Signal.combine(manufacturingContexts, orderCustomerNames, catalogNames, shortagesBySlice)
+    def taskContext(
+        ctx: ManufacturingContext,
+        task: ScheduledTaskDto,
+        customers: Map[UUID, String],
+        names: Map[UUID, String],
+        shortages: Map[(UUID, UUID), List[MaterialShortages.SliceShortage]],
+    ): PlanningTaskView.TaskContext =
+      PlanningTaskView.TaskContext(
+        ctx.order.id,
+        ctx.order.number,
+        customers.get(ctx.order.id),
+        ctx.manufacturing.id,
+        ctx.manufacturing.code,
+        ctx.manufacturing.description.map(_.trim.nn).filter(_.nonEmpty),
+        ctx.manufacturing.completionDate,
+        task,
+        names.getOrElse(task.taskId, Formats.shortId(task.taskId)),
+        ctx.manufacturing.quantity,
+        shortages.get((ctx.order.id, ctx.manufacturing.id)).map(MaterialShortages.sliceTitle),
+      )
+
+    /** "Riattiva" on a completed task (table row or mobile card): opens its reactivation page. */
+    def reactivateButton(row: CompletedRow, extraCls: String): HtmlElement =
+      button(
+        tpe := "button",
+        cls := s"$btnSmall $extraCls",
+        "Riattiva",
+        onClick.compose(_.sample(taskContextLookup)) --> { case (_, customers, names, shortages) =>
+          taskView.open(
+            TaskTarget.Reactivate(taskContext(ManufacturingContext(row.order, row.manufacturing), row.task, customers, names, shortages)),
+          )
+        },
+      )
     val catalogData = loadable(AppBus.manufacturingsTicks)(() => ApiClient.listManufacturingCatalog())
     val catalogList: Signal[List[ManufacturingCatalogResponse]] = catalogData.map {
       case Some(Right(list)) => list
@@ -202,158 +220,6 @@ object PlanningPage:
     val catalogTaskLabels: Signal[Map[String, String]] = catalogNames.map(_.map((id, name) => id.toString -> name))
     val employeeLabels: Signal[Map[String, String]] = employeeNames.map(_.map((id, name) => id.toString -> name))
     val manufacturingLabels: Signal[Map[String, String]] = catalogList.map(_.map(entry => entry.code -> s"${entry.code} · ${entry.name}").toMap)
-
-    // ---- Task modal ------------------------------------------------------------------------------
-    def openEdit(slice: ScheduledTaskSliceDto, task: ScheduledTaskDto, name: String, preferred: Option[UUID]): Unit =
-      if AuthService.currentHasRole(Role.Operator) then
-        val completed = task.completedMinutes.getOrElse(0)
-        val prefStr = preferred.map(_.toString).getOrElse("")
-        val state = TaskModalState(Formats.duration(completed), Formats.duration(task.expectedMinutes), prefStr)
-        editing.set(Some((slice.orderId, slice.manufacturingId, slice.taskId)))
-        editKind.set(EditKind.Progress)
-        editName.set(name)
-        editState.set(state)
-        editTracker.set(DirtyTracker(state, editState))
-        modalError.set(None)
-        modalOpen.set(true)
-
-    def openReactivate(row: CompletedRow, name: String): Unit =
-      val initial = TaskModalState(Formats.duration(row.task.completedMinutes.getOrElse(0)), Formats.duration(row.task.expectedMinutes), "")
-      editing.set(Some((row.order.id, row.manufacturing.id, row.task.id)))
-      editKind.set(EditKind.Reactivate)
-      editName.set(name)
-      // The task is completed, so its recorded hours cover the estimate: ask for the hours actually done.
-      editState.set(initial.copy(completed = ""))
-      editTracker.set(DirtyTracker(initial, editState))
-      modalError.set(None)
-      modalOpen.set(true)
-
-    def closeEdit(): Unit =
-      modalOpen.set(false); editing.set(None); saving.set(false)
-
-    def save(): Unit =
-      editing.now().foreach { case (orderId, manufacturingId, taskId) =>
-        val state = editState.now()
-        val tracker = editTracker.now()
-        val completedRaw = state.completed.trim.nn
-        val expectedRaw = state.expected.trim.nn
-        val completed = Formats.parseDuration(state.completed)
-        val expected = Formats.parseDuration(state.expected)
-        val reactivating = editKind.now() == EditKind.Reactivate
-        if completedRaw.nonEmpty && completed.isEmpty then
-          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore svolte non sono valide. Usa il formato h:mm (es. 1:35).", Nil))
-        else if expectedRaw.nonEmpty && expected.isEmpty then
-          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali non sono valide. Usa il formato h:mm (es. 1:35).", Nil))
-        else if expected.exists(_ < 1) then
-          showError(modalError, "Aggiornamento task")(ApiError("invalid", "Le ore totali devono essere almeno 1 minuto.", Nil))
-        else if reactivating && !completed.zip(expected).exists((done, total) => done < total) then
-          showError(modalError, "Aggiornamento task")(
-            ApiError("invalid", "Per riportare il task in lavorazione le ore svolte devono essere inferiori alle ore totali.", Nil),
-          )
-        else
-          val taskRequest = TaskProgressUpdateRequest(
-            completed.filter(_ => tracker.changed(s => Formats.parseDuration(s.completed))),
-            expected.filter(_ => tracker.changed(s => Formats.parseDuration(s.expected))),
-          )
-          val employeeChanged = !reactivating && tracker.changed(_.employeeId)
-          val hasTaskChanges = taskRequest.completedMinutes.isDefined || taskRequest.expectedMinutes.isDefined
-
-          if !hasTaskChanges && !employeeChanged then closeEdit()
-          else
-            saving.set(true)
-            modalError.set(None)
-            val taskF: Future[ApiClient.Result[Unit]] =
-              if hasTaskChanges then ApiClient.updateScheduledTask(orderId, manufacturingId, taskId, taskRequest).map(_.map(_ => ()))
-              else Future.successful(Right(()))
-            taskF.flatMap {
-              case Left(err) => Future.successful(Left(err))
-              case Right(()) =>
-                if employeeChanged then
-                  val empId = scala.util.Try(UUID.fromString(state.employeeId).nn).toOption
-                  ApiClient.setPreferredEmployee(orderId, manufacturingId, empId).map(_.map(_ => ()))
-                else Future.successful(Right(()))
-            }.foreach {
-              case Right(_) => closeEdit(); AppBus.mutatedOrders()
-              case Left(err) => saving.set(false); showError(modalError, "Aggiornamento task")(err)
-            }
-        end if
-      }
-
-    /** Quick action: completes the task by aligning the hours done to the total. */
-    def markCompleted(): Unit =
-      editState.update(state => state.copy(completed = state.expected))
-      save()
-
-    val modalTitle = editKind.signal.map {
-      case EditKind.Progress => "Aggiorna task"
-      case EditKind.Reactivate => "Riattiva task"
-    }
-
-    val taskModal =
-      modal(modalOpen, modalTitle)(
-        div(
-          cls := "space-y-3",
-          div(cls := "text-sm font-semibold text-slate-800", child.text <-- editName.signal),
-          div(
-            cls := "grid grid-cols-2 gap-3",
-            field(
-              "Ore svolte (h:mm)",
-              textInput(editState.signal.map(_.completed), Observer[String](v => editState.update(_.copy(completed = v))), "1:35"),
-            ),
-            field(
-              "Ore totali (h:mm)",
-              textInput(editState.signal.map(_.expected), Observer[String](v => editState.update(_.copy(expected = v))), "1:35"),
-            ),
-          ),
-          child <-- editKind.signal.map {
-            case EditKind.Progress =>
-              field(
-                "Dipendente preferito",
-                selectInput(editState.signal.map(_.employeeId), Observer[String](v => editState.update(_.copy(employeeId = v))), employeeOptions),
-              )
-            case EditKind.Reactivate => emptyNode
-          },
-          p(
-            cls := "text-xs text-slate-400",
-            child.text <-- editKind.signal.map {
-              case EditKind.Progress =>
-                "Le ore svolte pari o superiori alle ore totali completano il task. La pianificazione si aggiorna in automatico."
-              case EditKind.Reactivate =>
-                "Indica le ore effettivamente svolte: se inferiori alle ore totali il task torna attivo e rientra nella pianificazione."
-            },
-          ),
-          child.maybe <-- modalError.signal.map(_.map(errorBanner)),
-          div(
-            cls := "flex items-center justify-between gap-2 pt-1",
-            child <-- editKind.signal.map {
-              case EditKind.Progress =>
-                button(
-                  tpe := "button",
-                  cls := btnGhost,
-                  disabled <-- saving.signal,
-                  "Segna completato",
-                  onClick --> (_ => markCompleted()),
-                )
-              case EditKind.Reactivate => emptyNode
-            },
-            div(
-              cls := "flex gap-2",
-              button(tpe := "button", cls := btnGhost, "Annulla", onClick --> (_ => closeEdit())),
-              button(
-                tpe := "button",
-                cls := btnPrimary,
-                disabled <-- saving.signal,
-                child.text <-- saving.signal.combineWith(editKind.signal).map {
-                  case (true, _) => "Salvataggio…"
-                  case (false, EditKind.Progress) => "Salva"
-                  case (false, EditKind.Reactivate) => "Riattiva"
-                },
-                onClick --> (_ => save()),
-              ),
-            ),
-          ),
-        ),
-      )
 
     // ---- Board -----------------------------------------------------------------------------------
     /** The "material to order" cart icon of a slice short of material, `label` naming the materials and what is missing. */
@@ -402,26 +268,35 @@ object PlanningPage:
       val deadlineHint: Signal[String] = manufacturingDeadlines.map(
         _.get(slice.manufacturingId).fold("Consegna lavorazione non disponibile")(d => s"Consegna lavorazione: ${Formats.date(d)}"),
       )
-      val openSlice = Observer[((Map[UUID, ScheduledTaskDto], Map[UUID, String]), Map[UUID, Option[UUID]])] { case ((byId, names), pref) =>
-        byId
-          .get(slice.taskId)
-          .foreach(task =>
-            openEdit(slice, task, names.getOrElse(slice.taskId, Formats.shortId(slice.taskId)), pref.get(slice.manufacturingId).flatten),
-          )
+      val shortages: Signal[Option[List[MaterialShortages.SliceShortage]]] = shortagesBySlice.map(_.get((slice.orderId, slice.manufacturingId)))
+      val openSlice = Observer[
+        (Map[UUID, ManufacturingContext], Map[UUID, String], Map[UUID, String], Map[(UUID, UUID), List[MaterialShortages.SliceShortage]]),
+      ] { case (contexts, customers, names, missing) =>
+        for
+          ctx <- contexts.get(slice.manufacturingId)
+          task <- ctx.manufacturing.tasks.find(_.id == slice.taskId)
+        do taskView.open(TaskTarget.Progress(taskContext(ctx, task, customers, names, missing), ctx.manufacturing.preferredEmployeeId, slice.day))
       }
+      // Only an Operator can update a task: for a Viewer the card is plain content, not a button (UI gating is cosmetic, the server enforces it).
+      val interactive: Modifier[HtmlElement] =
+        if !AuthService.currentHasRole(Role.Operator) then emptyMod
+        else
+          List(
+            cls := "cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
+            cls := "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+            role := "button",
+            tabIndex := 0,
+            // The cart icon inside is not read out (the label replaces the content), so the shortage is part of the label.
+            aria.label <-- manufacturingCode.combineWith(taskName, shortages).map { (code, task, missing) =>
+              s"Lavorazione $code, task $task: aggiorna avanzamento" + missing.fold("")(list => s". ${MaterialShortages.sliceTitle(list)}")
+            },
+            onClick.compose(_.sample(taskContextLookup)) --> openSlice,
+            onKeyDown.filter(e => e.key == "Enter" || e.key == " ").preventDefault.compose(_.sample(taskContextLookup)) --> openSlice,
+          )
       div(
-        cls := "group rounded-lg border border-l-4 p-2.5 cursor-pointer transition hover:shadow-md hover:ring-1 hover:ring-slate-300",
-        cls := "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500",
+        cls := "group rounded-lg border border-l-4 p-2.5",
         cls <-- urgency.map(_.cardCls),
-        role := "button",
-        tabIndex := 0,
-        // The cart icon inside is not read out (the label replaces the content), so the shortage is part of the label.
-        aria.label <-- manufacturingCode.combineWith(taskName, shortagesBySlice.map(_.get((slice.orderId, slice.manufacturingId)))).map {
-          (code, task, shortages) =>
-            s"Lavorazione $code, task $task: aggiorna avanzamento" + shortages.fold("")(list => s". ${MaterialShortages.sliceTitle(list)}")
-        },
-        onClick.compose(_.sample(editAndPref)) --> openSlice,
-        onKeyDown.filter(e => e.key == "Enter" || e.key == " ").preventDefault.compose(_.sample(editAndPref)) --> openSlice,
+        interactive,
         // Order number (context) + urgency badge vs the manufacturing deadline
         div(
           cls := "flex items-center justify-between gap-2",
@@ -431,9 +306,7 @@ object PlanningPage:
           ),
           span(
             cls := "flex shrink-0 items-center gap-1",
-            child.maybe <-- shortagesBySlice.map(
-              _.get((slice.orderId, slice.manufacturingId)).map(list => cartIcon(MaterialShortages.sliceTitle(list))),
-            ),
+            child.maybe <-- shortages.map(_.map(list => cartIcon(MaterialShortages.sliceTitle(list)))),
             child <-- urgency.map { u =>
               if u.label.isEmpty then emptyNode
               else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", title <-- deadlineHint, u.label)
@@ -681,15 +554,7 @@ object PlanningPage:
         td(
           cls := "px-4 py-2 text-right",
           if !AuthService.currentHasRole(Role.Operator) then emptyNode
-          else if OrderStatus.isEditable(row.order.status) then
-            button(
-              tpe := "button",
-              cls := btnSmall,
-              "Riattiva",
-              onClick.compose(_.sample(catalogNames)) --> { names =>
-                openReactivate(row, names.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId)))
-              },
-            )
+          else if OrderStatus.isEditable(row.order.status) then reactivateButton(row, "")
           else span(cls := "text-xs text-slate-400", "ordine non modificabile"),
         ),
       )
@@ -721,15 +586,7 @@ object PlanningPage:
           ),
         ),
         if !AuthService.currentHasRole(Role.Operator) then emptyNode
-        else if OrderStatus.isEditable(row.order.status) then
-          button(
-            tpe := "button",
-            cls := s"$btnSmall min-h-10", // the card only shows below `sm`: touch target
-            "Riattiva",
-            onClick.compose(_.sample(catalogNames)) --> { names =>
-              openReactivate(row, names.getOrElse(row.task.taskId, Formats.shortId(row.task.taskId)))
-            },
-          )
+        else if OrderStatus.isEditable(row.order.status) then reactivateButton(row, "min-h-10") // the card only shows below `sm`: touch target
         else span(cls := "text-xs text-slate-400", "ordine non modificabile"),
       )
 
@@ -1243,32 +1100,37 @@ object PlanningPage:
     var pollHandle = Option.empty[SetIntervalHandle]
 
     div(
-      cls := "space-y-4",
       onMountUnmountCallback(
         mount = _ => pollHandle = Some(setInterval(pollIntervalMs.toDouble)(pollTick.update(_ + 1))),
         unmount = _ =>
           pollHandle.foreach(clearInterval); pollHandle = None,
       ),
-      taskModal,
-      sectionTitle("Pianificazione dei lavori"),
-      simulatorSection,
-      renderResult(planningData) { state =>
-        div(
-          cls := "space-y-4",
-          delaysSection(state),
-          panel("Errori di dominio", state.errors.map(e => e.message), "text-rose-600"),
-          card(
-            div(
-              cls := "border-b border-slate-100 px-4 py-3",
-              div(cls := "text-sm font-semibold text-slate-800", "Pianificazione attuale"),
-              div(cls := "text-xs text-slate-400", "Clicca un task per aggiornare ore svolte e ore totali, o per segnarlo completato."),
+      div(
+        cls := "space-y-4",
+        taskView.listMods,
+        sectionTitle("Pianificazione dei lavori"),
+        simulatorSection,
+        renderResult(planningData) { state =>
+          div(
+            cls := "space-y-4",
+            delaysSection(state),
+            panel("Errori di dominio", state.errors.map(e => e.message), "text-rose-600"),
+            card(
+              div(
+                cls := "border-b border-slate-100 px-4 py-3",
+                div(cls := "text-sm font-semibold text-slate-800", "Pianificazione attuale"),
+                roleGated(Role.Operator)(
+                  div(cls := "text-xs text-slate-400", "Clicca un task per aggiornare ore svolte e ore totali, o per segnarlo completato."),
+                ),
+              ),
+              div(cls := "p-4", board(state)),
             ),
-            div(cls := "p-4", board(state)),
-          ),
-          diagnosticsSection(state),
-        )
-      },
-      child <-- ordersList.map(completedSection),
+            diagnosticsSection(state),
+          )
+        },
+        child <-- ordersList.map(completedSection),
+      ),
+      taskView.page(target => PlanningTaskView(target, employeeOptions, () => taskView.close())),
     )
   end apply
 end PlanningPage

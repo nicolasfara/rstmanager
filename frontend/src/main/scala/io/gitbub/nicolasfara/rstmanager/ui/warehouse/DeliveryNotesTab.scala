@@ -9,16 +9,17 @@ import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 import io.gitbub.nicolasfara.rstmanager.auth.Role
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, TableSort, WarehouseFormats }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, Pagination, Paging, SubView, TableSort, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.Column
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.DeliveryNoteEditor.Target
 
 /**
  * Delivery notes ("DDT") of the warehouse: the history of the registered notes — newest first, filtered by period and supplier on the server and by
- * number on screen — each expandable to its lines. "Registra DDT" and "Modifica" (Operator) open the [[DeliveryNoteEditor]]; "Annulla DDT" (Admin)
- * cancels a note, removing the stock it loaded, after asking for a reason. A cancelled note stays listed as such, without actions; a line whose stock
- * load the server has not applied yet is marked "non ancora applicato".
+ * number on screen — each expandable to its lines. "Registra DDT" and "Modifica" (Operator) open the [[DeliveryNoteEditor]] page in place of the list
+ * (kept mounted, so period, filters, search, page, sort and expanded rows survive); after a save the list is back with the saved note expanded.
+ * "Annulla DDT" (Admin) cancels a note, removing the stock it loaded, after asking for a reason. A cancelled note stays listed as such, without
+ * actions; a line whose stock load the server has not applied yet is marked "non ancora applicato".
  */
 object DeliveryNotesTab:
 
@@ -47,14 +48,11 @@ object DeliveryNotesTab:
         case (start, end, supplier) => ApiClient.listDeliveryNotes(start, end, supplier)
     }
     val suppliers = loadable(AppBus.warehouseTicks)(() => ApiClient.listSuppliers())
-    val editor = Var(Option.empty[Target])
+    val view = SubView[Target]()
     val expanded = Var(Set.empty[UUID])
     val pendingCancel = Var(Option.empty[DeliveryNoteResponse])
     val cancelReason = Var("")
     val actionError = Var(Option.empty[ApiError])
-    val closeEditor: () => Unit = () => editor.set(None)
-    // What the modal's ✕ and Escape run: the open editor swaps in its draft-guarded cancel (asks before discarding a dirty DDT).
-    val cancelEditor = Var(closeEditor)
 
     val supplierFilterOptions: Signal[List[(String, String)]] = suppliers.map { loaded =>
       val listed = loaded match
@@ -112,7 +110,7 @@ object DeliveryNotesTab:
         div(cls := "min-w-[10rem] flex-1", field("Cerca", searchBox(search, "Numero DDT", pager))),
         div(
           cls := "ml-auto",
-          roleGated(Role.Operator)(button(tpe := "button", cls := btnPrimary, "Registra DDT", onClick --> (_ => editor.set(Some(Target.New))))),
+          roleGated(Role.Operator)(button(tpe := "button", cls := btnPrimary, "Registra DDT", onClick --> (_ => view.open(Target.New)))),
         ),
       )
 
@@ -135,7 +133,7 @@ object DeliveryNotesTab:
       if WarehouseViews.isCancelled(note) then Nil
       else
         List(
-          roleGated(Role.Operator)(button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => editor.set(Some(Target.Edit(note)))))),
+          roleGated(Role.Operator)(button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => view.open(Target.Edit(note))))),
           roleGated(Role.Admin)(button(tpe := "button", cls := btnDanger, "Annulla DDT", onClick --> (_ => pendingCancel.set(Some(note))))),
         )
 
@@ -358,21 +356,38 @@ object DeliveryNotesTab:
         },
       )
 
+    /** True once a reload of the list shows the note being edited as cancelled (never for a new note). */
+    def cancelledMeanwhile(target: Target): Signal[Boolean] = target match
+      case Target.New => Signal.fromValue(false)
+      case Target.Edit(note) => notes.map(_.exists(_.exists(DeliveryNoteForm.cancelledIn(note.id, _)))).distinct
+
+    def editorPage(target: Target): HtmlElement =
+      DeliveryNoteEditor(
+        target,
+        () => view.close(),
+        savedId =>
+          expanded.update(_ + savedId)
+          view.close()
+        ,
+        cancelledMeanwhile(target),
+      )
+
     div(
-      cls := "space-y-4",
-      range.combineWith(supplierFilter.signal) --> {
-        case (Right((start, end)), supplier) =>
-          applied.set((start, end, Try(UUID.fromString(supplier).nn).toOption)); pager.reset()
-        case (Left(_), _) => ()
-      },
-      toolbar,
-      child.maybe <-- range.map(_.left.toOption.map(message => div(cls := "text-xs text-rose-600", message))),
-      child.maybe <-- actionError.signal.map(_.map(errorBanner)),
-      renderResult(notes)(notesTable),
-      cancelDialog,
-      modal(editor.signal.map(_.isDefined), editor.signal.map(_.fold("")(DeliveryNoteEditor.title)), "max-w-6xl", () => cancelEditor.now()())(
-        div(child.maybe <-- editor.signal.distinct.map(_.map(DeliveryNoteEditor(_, closeEditor, cancelEditor.set)))),
+      div(
+        cls := "space-y-4",
+        view.listMods,
+        range.combineWith(supplierFilter.signal) --> {
+          case (Right((start, end)), supplier) =>
+            applied.set((start, end, Try(UUID.fromString(supplier).nn).toOption)); pager.reset()
+          case (Left(_), _) => ()
+        },
+        toolbar,
+        child.maybe <-- range.map(_.left.toOption.map(message => div(cls := "text-xs text-rose-600", message))),
+        child.maybe <-- actionError.signal.map(_.map(errorBanner(_, () => actionError.set(None)))),
+        renderResult(notes)(notesTable),
       ),
+      view.page(editorPage),
+      cancelDialog,
     )
   end apply
 end DeliveryNotesTab

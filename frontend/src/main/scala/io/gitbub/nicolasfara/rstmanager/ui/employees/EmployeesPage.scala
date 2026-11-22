@@ -34,7 +34,7 @@ object EmployeesPage:
             tpe := "button",
             cls <-- currentTab.signal.map(active => tabCls(active == tab)),
             tab.label,
-            // A tab with a dirty side form asks before leaving it, like the top navigation.
+            // A tab with a dirty form page asks before leaving it, like the top navigation.
             onClick --> (_ => if currentTab.now() != tab then NavigationGuard.request(() => currentTab.set(tab))),
           )
         },

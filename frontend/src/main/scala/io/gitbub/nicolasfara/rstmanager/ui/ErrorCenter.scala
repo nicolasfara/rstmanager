@@ -32,6 +32,12 @@ object ErrorCenter:
     report(context, error)
     target.set(Some(error))
 
+  /** Like [[reportTo]] for an error the page already shows next to what failed (a list banner): logged, without the global toast. */
+  def logTo(target: Var[Option[ApiError]], context: String)(error: ApiError): Unit =
+    nextId += 1
+    log(ErrorReport(nextId, context, error))
+    target.set(Some(error))
+
   def dismiss(id: Int): Unit =
     latest.update {
       case Some(entry) if entry.id == id => None

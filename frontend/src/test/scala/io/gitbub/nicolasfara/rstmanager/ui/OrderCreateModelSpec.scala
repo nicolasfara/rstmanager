@@ -61,6 +61,7 @@ final class OrderCreateModelSpec extends AnyFunSuite with Matchers:
     OrderCreateModel.isBlankDraft(snapshot(emptyCore.copy(mode = "catalog"))) shouldBe true
     OrderCreateModel.isBlankDraft(snapshot(emptyCore, List(TaskState("", "", Set.empty, "")))) shouldBe true
     OrderCreateModel.isBlankDraft(snapshot(emptyCore.copy(code = "M1"))) shouldBe false
+    OrderCreateModel.isBlankDraft(snapshot(emptyCore.copy(quantity = "3"))) shouldBe false
     OrderCreateModel.isBlankDraft(snapshot(emptyCore, List(TaskState("", "2:00", Set.empty, "")))) shouldBe false
     OrderCreateModel.isBlankDraft(MfgSnapshot(1, emptyCore, Nil, List(MaterialDrafts.Row(1, "", "3", "")))) shouldBe false
 

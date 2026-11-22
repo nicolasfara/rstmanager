@@ -260,6 +260,9 @@ object DeliveryNoteForm:
     def total(context: Context): String =
       rows.flatMap(lineTotal(_, context)).map(BigDecimal(_)).sum.setScale(2, RoundingMode.HALF_UP).bigDecimal.toPlainString.nn
 
+    /** How many lines will be sent: the rows something was entered in (blank rows are ignored). */
+    def filledCount: Int = rows.count(!_.isBlank)
+
     /** The code of the new MPN of `row`, checked against the MPNs the supplier already has on other materials. */
     private def newMpnCode(row: Row, option: LineOption, context: Context): Either[String, String] =
       val code = row.newMpnCode.trim.nn
@@ -373,6 +376,21 @@ object DeliveryNoteForm:
     val listed = suppliers.sortBy(_.name.toLowerCase.nn).map(s => s.id.toString -> s.name)
     val missing = current.filterNot((id, _) => suppliers.exists(_.id == id)).map((id, name) => id.toString -> s"$name (eliminato)")
     listed ++ missing
+
+  /** "1 riga" / "n righe", for the summary of the editor. */
+  def linesText(count: Int): String = if count == 1 then "1 riga" else s"$count righe"
+
+  /** The name of the supplier with id text `supplierId` among the select `options`, if it is one of them. */
+  def supplierName(supplierId: String, options: List[(String, String)]): Option[String] =
+    val wanted = supplierId.trim.nn
+    options.collectFirst { case (id, name) if id == wanted => name }
+
+  /**
+   * True when the reloaded `notes` list the note with id `noteId` as cancelled (e.g. by an Admin while it was being edited): its changes can no
+   * longer be saved. A note that is simply not listed (outside the period filter) does not count.
+   */
+  def cancelledIn(noteId: UUID, notes: List[DeliveryNoteResponse]): Boolean =
+    notes.exists(note => note.id == noteId && WarehouseViews.isCancelled(note))
 
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value.trim).nn).toOption
 end DeliveryNoteForm

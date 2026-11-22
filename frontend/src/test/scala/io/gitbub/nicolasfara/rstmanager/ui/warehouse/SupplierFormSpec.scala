@@ -32,4 +32,10 @@ final class SupplierFormSpec extends AnyFunSuite with Matchers:
     val state = SupplierForm.fromResponse(response)
     state.editingId shouldBe Some(supplierId)
     state.request shouldBe SupplierRequest("Tessuti Srl", Some("IT0123"), Some("a@b.it"), None, Some("Via Porto 3"), None)
+
+  test("isGone: the edited supplier is gone once the reloaded registry no longer lists it"):
+    val response = SupplierResponse(supplierId, "Tessuti Srl", None, None, None, None, None)
+    SupplierForm.isGone(supplierId, List(response)) shouldBe false
+    SupplierForm.isGone(supplierId, Nil) shouldBe true
+    SupplierForm.isGone(supplierId, List(response.copy(id = UUID.fromString("00000000-0000-0000-0000-000000000302").nn))) shouldBe true
 end SupplierFormSpec

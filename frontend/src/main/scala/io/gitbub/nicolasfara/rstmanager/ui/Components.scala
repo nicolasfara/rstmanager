@@ -57,10 +57,6 @@ object Components:
   def roleGated(required: Role)(el: => HtmlElement): Modifier[HtmlElement] =
     child.maybe <-- AuthService.hasRoleSignal(required).map(allowed => Option.when(allowed)(el))
 
-  /** Applies the multi-column grid classes only when the role-gated side panel (usually the edit form) is visible. */
-  def roleGatedGridCols(required: Role, cols: String): Modifier[HtmlElement] =
-    cls <-- AuthService.hasRoleSignal(required).map(allowed => if allowed then cols else "")
-
   def sectionTitle(text: String): HtmlElement =
     h2(cls := "text-base font-semibold text-slate-800", text)
 
@@ -75,34 +71,7 @@ object Components:
       div(cls := "break-words text-sm text-slate-800", valueNode),
     )
 
-  /**
-   * Marks the form card that "Modifica" fills in place. On mobile the form is stacked after a long list, so `revealAndFocus()` scrolls it into view
-   * when its top is off-screen or in the lower half of the viewport (barely visible near the bottom), then focuses its first field; `scroll-mt-20`
-   * keeps it clear of the sticky header.
-   */
-  final class FormAnchor:
-    private val element = Var(Option.empty[dom.Element])
-
-    val bind: Modifier[HtmlElement] = List(
-      cls := "scroll-mt-20",
-      onMountUnmountCallback(ctx => element.set(Some(ctx.thisNode.ref)), _ => element.set(None)),
-    )
-
-    def revealAndFocus(): Unit = element.now().foreach { el =>
-      val top = el.getBoundingClientRect().top
-      if top < 0 || top > dom.window.innerHeight / 2 then el.scrollIntoView(true)
-      // On the next frame, so a form whose content was just replaced is rendered first.
-      val _ = dom.window.requestAnimationFrame { _ =>
-        el.querySelector(formFirstFieldSelector) match
-          case field: dom.HTMLElement =>
-            field.focus(new dom.FocusOptions:
-              preventScroll = true)
-          case _ => ()
-      }
-    }
-  end FormAnchor
-
-  /** The first field of a form, which [[FormAnchor.revealAndFocus]] focuses. */
+  /** The first field of a form, which [[formPage]] focuses for [[PageFocus.FirstField]]. */
   private val formFirstFieldSelector = "input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled])"
 
   // ---- Form controls -----------------------------------------------------------------------------
@@ -487,8 +456,9 @@ object Components:
    * Variant of [[segmented]] with `groupMods` on the `radiogroup` element (e.g. a [[FieldSpec]] `bind`, or `aria.label`). Each option is a `button`
    * with `role=radio` and `aria-checked`, following the ARIA radio group pattern: the group is a single Tab stop (the checked option, or the first
    * when none is), Left/Up and Right/Down select the previous/next option (wrapping), Home/End the first/last, and the focus follows the selection.
-   * The options stay mounted when the value changes, so a caller rebuilding other content on a switch keeps the focus here. Options are 40px tall
-   * below `md` (touch target).
+   * The options stay mounted when the value changes, so a caller rebuilding other content on a switch keeps the focus here. When the group itself
+   * gets the focus (e.g. a page or [[FormFocus.focus]] focusing its DOM id), it hands it to the checked option, so the arrow keys work at once.
+   * Options are 40px tall below `md` (touch target).
    */
   def segmented(valueSignal: Signal[String], writer: Observer[String], opts: List[(String, String)], groupMods: Modifier[HtmlElement]): HtmlElement =
     val values = opts.map(_._1)
@@ -522,6 +492,14 @@ object Components:
       role := "radiogroup",
       cls := "inline-flex flex-wrap gap-1 rounded-md border border-slate-300 bg-slate-50 p-0.5",
       groupMods,
+      inContext { group =>
+        onFocus --> { event =>
+          if event.target.eq(group.ref) then
+            group.ref.querySelector("[aria-checked='true']") match
+              case option: dom.HTMLElement => option.focus()
+              case _ => ()
+        }
+      },
       options,
     )
   end segmented
@@ -697,8 +675,72 @@ object Components:
       ),
     )
 
+  /**
+   * Variant of [[summaryLayout]] without the mobile bar (read-only pages): no fixed bar and no bottom padding for it; below `lg` the sidebar is not
+   * shown, so `main` should carry everything the sidebar summarizes. The document gets the top scroll padding only.
+   */
+  def summaryLayout(main: HtmlElement, sidebar: HtmlElement): HtmlElement =
+    div(
+      onMountUnmountCallback(
+        _ => dom.document.documentElement.classList.add(summaryTopScrollPaddingCls),
+        _ => dom.document.documentElement.classList.remove(summaryTopScrollPaddingCls),
+      ),
+      div(
+        cls := "grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]",
+        div(cls := "min-w-0", main),
+        asideTag(cls := "hidden self-start lg:sticky lg:top-20 lg:block", sidebar),
+      ),
+    )
+
+  /**
+   * The content of the fixed bottom bar of a [[summaryLayout]]: `leading` (live totals or changes, truncated), `extra` (e.g. an [[issueBadge]]), and
+   * the primary button, showing `busyLabel` while `busy` and disabled while `disabledSignal`.
+   */
+  def mobileSubmitBar(
+      leading: Modifier[HtmlElement],
+      extra: Modifier[HtmlElement],
+      primaryLabel: String,
+      busyLabel: String,
+      busy: Signal[Boolean],
+      disabledSignal: Signal[Boolean],
+      onPrimary: () => Unit,
+  ): HtmlElement =
+    div(
+      cls := "flex items-center gap-3",
+      div(cls := "min-w-0 flex-1 truncate text-sm tabular-nums text-slate-700", leading),
+      extra,
+      button(
+        tpe := "button",
+        cls := s"$btnPrimary min-h-10 shrink-0",
+        disabled <-- disabledSignal,
+        aria.busy <-- busy,
+        child.text <-- busy.map(isBusy => if isBusy then busyLabel else primaryLabel),
+        onClick --> (_ => onPrimary()),
+      ),
+    )
+
+  /** The "⚠ n" button of a [[mobileSubmitBar]] (nothing while `count` is 0), going to the first issue. */
+  def issueBadge(count: Signal[Int], onSelect: () => Unit): Modifier[HtmlElement] =
+    child.maybe <-- count.map { n =>
+      Option.when(n > 0)(
+        button(
+          tpe := "button",
+          cls := "min-h-10 shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100",
+          aria.label := s"$n elementi da completare: vai al primo",
+          s"⚠ $n",
+          onClick --> (_ => onSelect()),
+        ),
+      )
+    }
+
+  /** Top scroll padding of the document while a [[summaryLayout]] is mounted (for the sticky header). */
+  private val summaryTopScrollPaddingCls = "scroll-pt-24"
+
   /** Scroll padding of the document while a [[summaryLayout]] is mounted (literal Tailwind classes, so the scanner generates them). */
-  private val summaryScrollPaddingCls = List("max-lg:scroll-pb-32", "scroll-pt-24")
+  private val summaryScrollPaddingCls = List("max-lg:scroll-pb-32", summaryTopScrollPaddingCls)
+
+  /** `text`, or "—" when it is blank (an empty value of a summary or read-only field). */
+  def orDash(text: String): String = if text.trim.nn.isEmpty then "—" else text
 
   /** One `label · value` line of a summary. */
   def summaryRow(labelText: String, value: Signal[String]): HtmlElement =
@@ -764,6 +806,252 @@ object Components:
       ),
     )
 
+  /**
+   * Variant of [[formActions]] whose submit is also disabled while `blocked` is `Some(reason)` (e.g. the edited record no longer exists); the reason
+   * shows as a hint next to the buttons (above them on mobile). Otherwise the same contract as [[formActions]].
+   */
+  def formActions(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      blocked: Signal[Option[String]],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): HtmlElement =
+    div(
+      cls := "flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-end",
+      actionButtons(submitLabel, busyLabel, submitting, blocked, onCancel, onSubmit),
+      blockedHint(blocked, "sm:order-first sm:mr-auto"),
+    )
+
+  /**
+   * Variant of [[formActions]] for a bar ([[stickyActionBar]]): no top border or padding, the buttons in one row on the right, 40px tall below `md`,
+   * the primary one rightmost and widest. Same contract as [[formActions]].
+   */
+  def formActionsInline(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): HtmlElement =
+    formActionsInline(submitLabel, busyLabel, submitting, Signal.fromValue(None), onCancel, onSubmit)
+
+  /** Variant of [[formActionsInline]] whose submit is also disabled while `blocked` is `Some(reason)`, shown as a hint before the buttons. */
+  def formActionsInline(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      blocked: Signal[Option[String]],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): HtmlElement =
+    div(
+      cls := "ml-auto flex flex-wrap items-center justify-end gap-2",
+      blockedHint(blocked, ""),
+      div(
+        cls := "flex items-center gap-2 *:min-h-10 md:*:min-h-0",
+        actionButtons(submitLabel, busyLabel, submitting, blocked, onCancel, onSubmit).map(_.amend(cls := "min-w-24")),
+      ),
+    )
+
+  /** The cancel (when `onCancel` is defined) and submit buttons shared by the [[formActions]] variants that take a `blocked` reason. */
+  private def actionButtons(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      blocked: Signal[Option[String]],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): List[HtmlElement] =
+    onCancel.toList.map(cancel => button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => cancel()))) :+
+      button(
+        tpe := "button",
+        cls := s"$btnPrimary justify-center",
+        disabled <-- submitting.combineWith(blocked).map((busy, reason) => busy || reason.isDefined),
+        aria.busy <-- submitting,
+        child.text <-- submitting.map(busy => if busy then busyLabel else submitLabel),
+        onClick --> (_ => onSubmit()),
+      )
+
+  /** Why the submit is disabled (a polite live region), empty while `blocked` is `None`; `extraCls` positions it in its row. */
+  private def blockedHint(blocked: Signal[Option[String]], extraCls: String): HtmlElement =
+    p(
+      aria.live := "polite",
+      cls := s"text-xs text-slate-500 $extraCls",
+      cls <-- blocked.map(reason => if reason.isDefined then "" else "hidden"),
+      child.text <-- blocked.map(_.getOrElse("")),
+    )
+
+  /** "Modifiche da salvare" checklist (complex edit pages): same look as [[issueList]] with neutral slate bullets, "Nessuna modifica" when empty. */
+  def changeList[A](changes: Signal[List[A]], text: A => String, onSelect: A => Unit): HtmlElement =
+    div(
+      aria.live := "polite",
+      child <-- changes.map { list =>
+        if list.isEmpty then div(cls := "text-sm text-slate-500", "Nessuna modifica")
+        else
+          ul(
+            cls := "-mx-2 space-y-0.5",
+            list.map { change =>
+              li(
+                button(
+                  tpe := "button",
+                  cls := "flex min-h-9 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-50 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400",
+                  span(aria.hidden := true, cls := "text-slate-400", "•"),
+                  span(text(change)),
+                  onClick --> (_ => onSelect(change)),
+                ),
+              )
+            },
+          )
+      },
+    )
+
+  // ---- Form page ---------------------------------------------------------------------------------
+
+  /** Where the focus lands when a [[formPage]] mounts. */
+  enum PageFocus derives CanEqual:
+    /** The page `h1` (edit and read-only pages): it announces the page, and Tab next reaches the back link. */
+    case Title
+
+    /** The first enabled field of the page (create pages). */
+    case FirstField
+
+    /** The element with DOM id `id`, through [[FormFocus.focus]] (e.g. the "Override" section, the movement kind switch). */
+    case Element(id: String)
+
+  /**
+   * What the header of a [[formPage]] shows.
+   *
+   * @param backLabel
+   *   the back link, e.g. "← Torna ai clienti"
+   * @param onBack
+   *   the GUARDED leave, the same as "Annulla" (e.g. `() => draft.discardThen(view.close)`); the browser back button runs it too
+   * @param title
+   *   the `h1`: "Nuovo cliente", "Modifica cliente «Mario Rossi»" (named from the loaded snapshot, so fixed per opening in practice)
+   * @param context
+   *   the context trail, joined with " / " (e.g. `List("Ordini", "ORD-2026-014")`); plain text, not links; empty = none
+   * @param status
+   *   badges next to the title (text badges, never color only)
+   * @param actions
+   *   `btnSmall` header actions on the right of the title
+   * @param notes
+   *   [[infoNote]] / [[warningNote]] under the title (read-only reason, record no longer exists)
+   * @param requiredLegend
+   *   whether to show "I campi con * sono obbligatori." (false on read-only pages)
+   * @param initialFocus
+   *   where the focus lands on mount: [[PageFocus.Title]] for edit and read-only pages, [[PageFocus.FirstField]] for create pages
+   */
+  final case class PageHeader(
+      backLabel: String,
+      onBack: () => Unit,
+      title: Signal[String],
+      context: List[String] = Nil,
+      status: Modifier[HtmlElement] = emptyMod,
+      actions: Modifier[HtmlElement] = emptyMod,
+      notes: Modifier[HtmlElement] = emptyMod,
+      requiredLegend: Boolean = true,
+      initialFocus: PageFocus = PageFocus.Title,
+  )
+
+  /**
+   * A full-page form shown in place of its list (see [[SubView]]): the header (back link with a 40px touch target below `md`, context trail, `h1`
+   * with `tabindex=-1`, status, actions, legend, notes), then `body` (a [[formColumn]] for a simple page, a [[summaryLayout]] for a complex one). On
+   * mount it scrolls to the top and focuses `header.initialFocus` on the next frame. It binds [[SubViewHistory]], so the browser (or Android) back
+   * button runs `header.onBack`.
+   */
+  def formPage(header: PageHeader)(body: Modifier[HtmlElement]*): HtmlElement =
+    val heading = h1(
+      tabIndex := -1,
+      cls := "min-w-0 text-xl font-semibold text-slate-900 focus:outline-none",
+      child.text <-- header.title,
+    )
+    div(
+      cls := "space-y-6",
+      SubViewHistory.bind(header.onBack),
+      onMountCallback { ctx =>
+        dom.window.scrollTo(0, 0)
+        val root = ctx.thisNode.ref
+        header.initialFocus match
+          case PageFocus.Element(id) => FormFocus.focus(id)
+          case PageFocus.Title =>
+            val _ = dom.window.requestAnimationFrame(_ => focusWithoutScroll(heading.ref))
+          case PageFocus.FirstField =>
+            val _ = dom.window.requestAnimationFrame { _ =>
+              root.querySelector(formFirstFieldSelector) match
+                case first: dom.HTMLElement => focusWithoutScroll(first)
+                case _ => focusWithoutScroll(heading.ref)
+            }
+      },
+      div(
+        button(tpe := "button", cls := s"$btnLink min-h-10 md:min-h-0", header.backLabel, onClick --> (_ => header.onBack())),
+        if header.context.isEmpty then emptyNode else p(cls := "mt-2 text-xs text-slate-500", header.context.mkString(" / ")),
+        div(
+          cls := "mt-2 flex flex-wrap items-center gap-x-3 gap-y-2",
+          heading,
+          div(cls := "flex flex-wrap items-center gap-2", header.status),
+          div(cls := "ml-auto flex flex-wrap items-center gap-2", header.actions),
+        ),
+        if header.requiredLegend then requiredLegend.amend(cls := "mt-1") else emptyNode,
+        div(cls := "mt-3 space-y-2 empty:hidden", header.notes),
+      ),
+      body,
+    )
+  end formPage
+
+  private def focusWithoutScroll(element: dom.HTMLElement): Unit =
+    element.focus(new dom.FocusOptions:
+      preventScroll = true)
+
+  /** The column of a simple form page: `max-w-3xl`, sections stacked with `space-y-6`, then usually a [[stickyActionBar]] as the last child. */
+  def formColumn(content: Modifier[HtmlElement]*): HtmlElement =
+    formColumn("max-w-3xl")(content*)
+
+  /**
+   * Variant of [[formColumn]] with another width as a Tailwind `max-w-*` class (e.g. "max-w-2xl" for the planning task, "max-w-6xl" with a table).
+   */
+  def formColumn(maxWidthCls: String)(content: Modifier[HtmlElement]*): HtmlElement =
+    div(cls := s"w-full min-w-0 space-y-6 pb-4 $maxWidthCls", content)
+
+  /**
+   * The action bar of a simple form page: sticky at the bottom of its [[formColumn]] at all widths (in the flow, so at the end of the page it sits
+   * after the last section instead of covering it), white/95 with a top border and backdrop blur, safe-area bottom padding, `z-20` (below the app
+   * header and the dialogs). `leading` sits on the left (e.g. [[dirtyNote]], a live total), `actions` on the right (usually [[formActionsInline]]).
+   * While mounted, the document gets a bottom scroll padding below `lg`, so a control reached with Tab is scrolled clear of the bar.
+   */
+  def stickyActionBar(leading: Modifier[HtmlElement], actions: HtmlElement): HtmlElement =
+    div(
+      onMountUnmountCallback(
+        _ => dom.document.documentElement.classList.add(stickyBarScrollPaddingCls),
+        _ => dom.document.documentElement.classList.remove(stickyBarScrollPaddingCls),
+      ),
+      cls := "sticky bottom-0 z-20 rounded-t-lg border-t border-slate-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur",
+      div(
+        cls := "flex flex-wrap items-center gap-x-3 gap-y-2",
+        div(cls := "min-w-0 flex-1 text-sm text-slate-600", leading),
+        actions,
+      ),
+    )
+
+  /** Scroll padding of the document while a [[stickyActionBar]] is mounted (a literal Tailwind class, so the scanner generates it). */
+  private val stickyBarScrollPaddingCls = "max-lg:scroll-pb-24"
+
+  /** "● Modifiche non salvate" (amber) while `isDirty`, nothing otherwise; a polite live region, always mounted so the change is announced. */
+  def dirtyNote(isDirty: Signal[Boolean]): HtmlElement =
+    div(
+      aria.live := "polite",
+      cls := "text-xs font-medium text-amber-700",
+      children <-- isDirty.map(dirty => if dirty then List(span(aria.hidden := true, "● "), span("Modifiche non salvate")) else Nil),
+    )
+
+  /** Neutral information box (slate), e.g. the read-only reason under a [[formPage]] title. */
+  def infoNote(text: String): HtmlElement =
+    div(role := "note", cls := "rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700", text)
+
+  /** Warning variant of [[infoNote]] (amber), e.g. "the record no longer exists", "completed manufacturing: stock unload updated". */
+  def warningNote(text: String): HtmlElement =
+    div(role := "note", cls := "rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800", text)
+
   // ---- Feedback ----------------------------------------------------------------------------------
 
   def badge(text: String, colorClasses: String): HtmlElement =
@@ -793,8 +1081,36 @@ object Components:
       else emptyNode,
     )
 
+  /**
+   * Variant of [[errorBanner]] with a "Chiudi" button, for page-level messages not tied to a form (e.g. a refused delete over a list). An ARIA
+   * `alert`; `onDismiss` should clear the caller's state. Give it an `idAttr` (via `amend`) to move the focus to it with [[FormFocus.focus]].
+   */
+  def errorBanner(err: ApiError, onDismiss: () => Unit): HtmlElement =
+    div(
+      role := "alert",
+      cls := "flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700",
+      div(
+        cls := "min-w-0 flex-1",
+        div(cls := "font-medium", err.message),
+        if err.details.nonEmpty then ul(cls := "mt-1 list-disc pl-5 text-xs", err.details.map(d => li(d))) else emptyNode,
+      ),
+      button(
+        tpe := "button",
+        cls := "inline-flex min-h-10 shrink-0 items-center rounded-md border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 md:min-h-0",
+        "Chiudi",
+        onClick --> (_ => onDismiss()),
+      ),
+    )
+
   def showError(target: Var[Option[ApiError]], context: String)(err: ApiError): Unit =
     ErrorCenter.reportTo(target, context)(err)
+
+  /**
+   * Variant of [[showError]] for a refused list action (e.g. a delete) whose banner over the list is the only feedback: logged, without the global
+   * toast, so the user does not see the same error twice.
+   */
+  def showBannerError(target: Var[Option[ApiError]], context: String)(err: ApiError): Unit =
+    ErrorCenter.logTo(target, context)(err)
 
   /** Renders a possibly-loading, possibly-failed remote resource. */
   def renderResult[A](signal: Signal[Option[ApiClient.Result[A]]])(render: A => HtmlElement): HtmlElement =
@@ -855,7 +1171,7 @@ object Components:
         if shown.isEmpty then div(cls := "p-4", emptyState(noMatch)) else render(shown)
     }
 
-  // ---- Modal -------------------------------------------------------------------------------------
+  // ---- Dialogs -----------------------------------------------------------------------------------
 
   /** `aria-modal`, which Laminar does not predefine. */
   private val ariaModal: HtmlAttr[String] = htmlAttr("aria-modal", StringAsIsCodec)
@@ -1026,72 +1342,6 @@ object Components:
       div(cls := "w-full max-w-sm", dialogCard),
     )
   end confirmDialog
-
-  def modal(isOpen: Var[Boolean], titleText: String)(content: HtmlElement): HtmlElement =
-    modal(isOpen, Signal.fromValue(titleText))(content)
-
-  def modal(isOpen: Var[Boolean], titleText: Signal[String])(content: HtmlElement): HtmlElement =
-    modal(isOpen.signal, titleText, "max-w-2xl", () => isOpen.set(false))(content)
-
-  /**
-   * Variant of [[modal]] driven by a `Signal` (typically derived from a `Var[Option[T]]` holding what the modal is about), with the card width as a
-   * Tailwind `max-w-*` class; `onClose` runs when the ✕ is clicked or Escape is pressed, and should flip the caller's state closed. An ARIA `dialog`
-   * labelled by its title: on opening the focus moves into the card, Tab cycles inside it, and on closing the focus returns where it was.
-   */
-  def modal(isOpen: Signal[Boolean], titleText: Signal[String], maxWidthCls: String, onClose: () => Unit)(content: HtmlElement): HtmlElement =
-    val titleId = nextDomId("dialog-title")
-    val dialogCard = card(
-      role := "dialog",
-      ariaModal := "true",
-      aria.labelledBy := titleId,
-      // Focusable only programmatically: the initial focus lands on the card itself, not on the first control (which may be a combobox).
-      tabIndex := -1,
-      cls := "focus:outline-none",
-      div(
-        cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
-        h2(idAttr := titleId, cls := "text-sm font-semibold text-slate-800", child.text <-- titleText),
-        button(
-          tpe := "button",
-          // 40px touch target below `md`; the negative margins keep the header height unchanged.
-          cls := "-my-2.5 -mr-2 inline-flex size-10 shrink-0 items-center justify-center rounded-md text-slate-400 hover:text-slate-700 " +
-            "md:m-0 md:size-auto",
-          aria.label := "Chiudi",
-          title := "Chiudi",
-          "✕",
-          onClick --> (_ => onClose()),
-        ),
-      ),
-      div(cls := "p-4", content),
-    )
-    div(
-      cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-4",
-      cls <-- isOpen.map(open => if open then "flex" else "hidden"),
-      onKeyDown --> { event =>
-        event.key match
-          case "Escape" =>
-            event.stopPropagation()
-            onClose()
-          case "Tab" => trapTab(dialogCard.ref, event)
-          case _ => ()
-      },
-      dialogFocus(isOpen, () => Some(dialogCard.ref)),
-      // When the focused control was re-rendered away (e.g. after removing a row) the focus falls back to <body>, out of the handler above:
-      // Escape still closes and Tab re-enters the card.
-      documentEvents(_.onKeyDown).withCurrentValueOf(isOpen) --> { (event, open) =>
-        val focusLost = dom.document.activeElement match
-          case element: dom.HTMLElement => element eq dom.document.body
-          case _ => true
-        if open && focusLost then
-          event.key match
-            case "Escape" => onClose()
-            case "Tab" =>
-              event.preventDefault()
-              dialogCard.ref.focus()
-            case _ => ()
-      },
-      div(cls := s"mt-8 w-full $maxWidthCls", dialogCard),
-    )
-  end modal
 end Components
 
 /**

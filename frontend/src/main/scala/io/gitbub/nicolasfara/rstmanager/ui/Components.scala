@@ -697,8 +697,28 @@ object Components:
       ),
     )
 
+  /**
+   * Variant of [[summaryLayout]] without the mobile bar (read-only pages): no fixed bar and no bottom padding for it; below `lg` the sidebar is not
+   * shown, so `main` should carry everything the sidebar summarizes. The document gets the top scroll padding only.
+   */
+  def summaryLayout(main: HtmlElement, sidebar: HtmlElement): HtmlElement =
+    div(
+      onMountUnmountCallback(
+        _ => dom.document.documentElement.classList.add(summaryTopScrollPaddingCls),
+        _ => dom.document.documentElement.classList.remove(summaryTopScrollPaddingCls),
+      ),
+      div(
+        cls := "grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]",
+        div(cls := "min-w-0", main),
+        asideTag(cls := "hidden self-start lg:sticky lg:top-20 lg:block", sidebar),
+      ),
+    )
+
+  /** Top scroll padding of the document while a [[summaryLayout]] is mounted (for the sticky header). */
+  private val summaryTopScrollPaddingCls = "scroll-pt-24"
+
   /** Scroll padding of the document while a [[summaryLayout]] is mounted (literal Tailwind classes, so the scanner generates them). */
-  private val summaryScrollPaddingCls = List("max-lg:scroll-pb-32", "scroll-pt-24")
+  private val summaryScrollPaddingCls = List("max-lg:scroll-pb-32", summaryTopScrollPaddingCls)
 
   /** One `label · value` line of a summary. */
   def summaryRow(labelText: String, value: Signal[String]): HtmlElement =
@@ -764,6 +784,252 @@ object Components:
       ),
     )
 
+  /**
+   * Variant of [[formActions]] whose submit is also disabled while `blocked` is `Some(reason)` (e.g. the edited record no longer exists); the reason
+   * shows as a hint next to the buttons (above them on mobile). Otherwise the same contract as [[formActions]].
+   */
+  def formActions(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      blocked: Signal[Option[String]],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): HtmlElement =
+    div(
+      cls := "flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-end",
+      actionButtons(submitLabel, busyLabel, submitting, blocked, onCancel, onSubmit),
+      blockedHint(blocked, "sm:order-first sm:mr-auto"),
+    )
+
+  /**
+   * Variant of [[formActions]] for a bar ([[stickyActionBar]]): no top border or padding, the buttons in one row on the right, 40px tall below `md`,
+   * the primary one rightmost and widest. Same contract as [[formActions]].
+   */
+  def formActionsInline(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): HtmlElement =
+    formActionsInline(submitLabel, busyLabel, submitting, Signal.fromValue(None), onCancel, onSubmit)
+
+  /** Variant of [[formActionsInline]] whose submit is also disabled while `blocked` is `Some(reason)`, shown as a hint before the buttons. */
+  def formActionsInline(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      blocked: Signal[Option[String]],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): HtmlElement =
+    div(
+      cls := "ml-auto flex flex-wrap items-center justify-end gap-2",
+      blockedHint(blocked, ""),
+      div(
+        cls := "flex items-center gap-2 *:min-h-10 md:*:min-h-0",
+        actionButtons(submitLabel, busyLabel, submitting, blocked, onCancel, onSubmit).map(_.amend(cls := "min-w-24")),
+      ),
+    )
+
+  /** The cancel (when `onCancel` is defined) and submit buttons shared by the [[formActions]] variants that take a `blocked` reason. */
+  private def actionButtons(
+      submitLabel: String,
+      busyLabel: String,
+      submitting: Signal[Boolean],
+      blocked: Signal[Option[String]],
+      onCancel: Option[() => Unit],
+      onSubmit: () => Unit,
+  ): List[HtmlElement] =
+    onCancel.toList.map(cancel => button(tpe := "button", cls := s"$btnGhost justify-center", "Annulla", onClick --> (_ => cancel()))) :+
+      button(
+        tpe := "button",
+        cls := s"$btnPrimary justify-center",
+        disabled <-- submitting.combineWith(blocked).map((busy, reason) => busy || reason.isDefined),
+        aria.busy <-- submitting,
+        child.text <-- submitting.map(busy => if busy then busyLabel else submitLabel),
+        onClick --> (_ => onSubmit()),
+      )
+
+  /** Why the submit is disabled (a polite live region), empty while `blocked` is `None`; `extraCls` positions it in its row. */
+  private def blockedHint(blocked: Signal[Option[String]], extraCls: String): HtmlElement =
+    p(
+      aria.live := "polite",
+      cls := s"text-xs text-slate-500 $extraCls",
+      cls <-- blocked.map(reason => if reason.isDefined then "" else "hidden"),
+      child.text <-- blocked.map(_.getOrElse("")),
+    )
+
+  /** "Modifiche da salvare" checklist (complex edit pages): same look as [[issueList]] with neutral slate bullets, "Nessuna modifica" when empty. */
+  def changeList[A](changes: Signal[List[A]], text: A => String, onSelect: A => Unit): HtmlElement =
+    div(
+      aria.live := "polite",
+      child <-- changes.map { list =>
+        if list.isEmpty then div(cls := "text-sm text-slate-500", "Nessuna modifica")
+        else
+          ul(
+            cls := "-mx-2 space-y-0.5",
+            list.map { change =>
+              li(
+                button(
+                  tpe := "button",
+                  cls := "flex min-h-9 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-50 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400",
+                  span(aria.hidden := true, cls := "text-slate-400", "•"),
+                  span(text(change)),
+                  onClick --> (_ => onSelect(change)),
+                ),
+              )
+            },
+          )
+      },
+    )
+
+  // ---- Form page ---------------------------------------------------------------------------------
+
+  /** Where the focus lands when a [[formPage]] mounts. */
+  enum PageFocus derives CanEqual:
+    /** The page `h1` (edit and read-only pages): it announces the page, and Tab next reaches the back link. */
+    case Title
+
+    /** The first enabled field of the page (create pages). */
+    case FirstField
+
+    /** The element with DOM id `id`, through [[FormFocus.focus]] (e.g. the "Override" section, the movement kind switch). */
+    case Element(id: String)
+
+  /**
+   * What the header of a [[formPage]] shows.
+   *
+   * @param backLabel
+   *   the back link, e.g. "← Torna ai clienti"
+   * @param onBack
+   *   the GUARDED leave, the same as "Annulla" (e.g. `() => draft.discardThen(view.close)`); the browser back button runs it too
+   * @param title
+   *   the `h1`: "Nuovo cliente", "Modifica cliente «Mario Rossi»" (named from the loaded snapshot, so fixed per opening in practice)
+   * @param context
+   *   the context trail, joined with " / " (e.g. `List("Ordini", "ORD-2026-014")`); plain text, not links; empty = none
+   * @param status
+   *   badges next to the title (text badges, never color only)
+   * @param actions
+   *   `btnSmall` header actions on the right of the title
+   * @param notes
+   *   [[infoNote]] / [[warningNote]] under the title (read-only reason, record no longer exists)
+   * @param requiredLegend
+   *   whether to show "I campi con * sono obbligatori." (false on read-only pages)
+   * @param initialFocus
+   *   where the focus lands on mount: [[PageFocus.Title]] for edit and read-only pages, [[PageFocus.FirstField]] for create pages
+   */
+  final case class PageHeader(
+      backLabel: String,
+      onBack: () => Unit,
+      title: Signal[String],
+      context: List[String] = Nil,
+      status: Modifier[HtmlElement] = emptyMod,
+      actions: Modifier[HtmlElement] = emptyMod,
+      notes: Modifier[HtmlElement] = emptyMod,
+      requiredLegend: Boolean = true,
+      initialFocus: PageFocus = PageFocus.Title,
+  )
+
+  /**
+   * A full-page form shown in place of its list (see [[SubView]]): the header (back link with a 40px touch target below `md`, context trail, `h1`
+   * with `tabindex=-1`, status, actions, legend, notes), then `body` (a [[formColumn]] for a simple page, a [[summaryLayout]] for a complex one). On
+   * mount it scrolls to the top and focuses `header.initialFocus` on the next frame. It binds [[SubViewHistory]], so the browser (or Android) back
+   * button runs `header.onBack`.
+   */
+  def formPage(header: PageHeader)(body: Modifier[HtmlElement]*): HtmlElement =
+    val heading = h1(
+      tabIndex := -1,
+      cls := "min-w-0 text-xl font-semibold text-slate-900 focus:outline-none",
+      child.text <-- header.title,
+    )
+    div(
+      cls := "space-y-6",
+      SubViewHistory.bind(header.onBack),
+      onMountCallback { ctx =>
+        dom.window.scrollTo(0, 0)
+        val root = ctx.thisNode.ref
+        header.initialFocus match
+          case PageFocus.Element(id) => FormFocus.focus(id)
+          case PageFocus.Title =>
+            val _ = dom.window.requestAnimationFrame(_ => focusWithoutScroll(heading.ref))
+          case PageFocus.FirstField =>
+            val _ = dom.window.requestAnimationFrame { _ =>
+              root.querySelector(formFirstFieldSelector) match
+                case first: dom.HTMLElement => focusWithoutScroll(first)
+                case _ => focusWithoutScroll(heading.ref)
+            }
+      },
+      div(
+        button(tpe := "button", cls := s"$btnLink min-h-10 md:min-h-0", header.backLabel, onClick --> (_ => header.onBack())),
+        if header.context.isEmpty then emptyNode else p(cls := "mt-2 text-xs text-slate-500", header.context.mkString(" / ")),
+        div(
+          cls := "mt-2 flex flex-wrap items-center gap-x-3 gap-y-2",
+          heading,
+          div(cls := "flex flex-wrap items-center gap-2", header.status),
+          div(cls := "ml-auto flex flex-wrap items-center gap-2", header.actions),
+        ),
+        if header.requiredLegend then requiredLegend.amend(cls := "mt-1") else emptyNode,
+        div(cls := "mt-3 space-y-2 empty:hidden", header.notes),
+      ),
+      body,
+    )
+  end formPage
+
+  private def focusWithoutScroll(element: dom.HTMLElement): Unit =
+    element.focus(new dom.FocusOptions:
+      preventScroll = true)
+
+  /** The column of a simple form page: `max-w-3xl`, sections stacked with `space-y-6`, then usually a [[stickyActionBar]] as the last child. */
+  def formColumn(content: Modifier[HtmlElement]*): HtmlElement =
+    formColumn("max-w-3xl")(content*)
+
+  /**
+   * Variant of [[formColumn]] with another width as a Tailwind `max-w-*` class (e.g. "max-w-2xl" for the planning task, "max-w-6xl" with a table).
+   */
+  def formColumn(maxWidthCls: String)(content: Modifier[HtmlElement]*): HtmlElement =
+    div(cls := s"w-full min-w-0 space-y-6 pb-4 $maxWidthCls", content)
+
+  /**
+   * The action bar of a simple form page: sticky at the bottom of its [[formColumn]] at all widths (in the flow, so at the end of the page it sits
+   * after the last section instead of covering it), white/95 with a top border and backdrop blur, safe-area bottom padding, `z-20` (below the app
+   * header and the dialogs). `leading` sits on the left (e.g. [[dirtyNote]], a live total), `actions` on the right (usually [[formActionsInline]]).
+   * While mounted, the document gets a bottom scroll padding below `lg`, so a control reached with Tab is scrolled clear of the bar.
+   */
+  def stickyActionBar(leading: Modifier[HtmlElement], actions: HtmlElement): HtmlElement =
+    div(
+      onMountUnmountCallback(
+        _ => dom.document.documentElement.classList.add(stickyBarScrollPaddingCls),
+        _ => dom.document.documentElement.classList.remove(stickyBarScrollPaddingCls),
+      ),
+      cls := "sticky bottom-0 z-20 rounded-t-lg border-t border-slate-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur",
+      div(
+        cls := "flex flex-wrap items-center gap-x-3 gap-y-2",
+        div(cls := "min-w-0 flex-1 text-sm text-slate-600", leading),
+        actions,
+      ),
+    )
+
+  /** Scroll padding of the document while a [[stickyActionBar]] is mounted (a literal Tailwind class, so the scanner generates it). */
+  private val stickyBarScrollPaddingCls = "max-lg:scroll-pb-24"
+
+  /** "● Modifiche non salvate" (amber) while `isDirty`, nothing otherwise; a polite live region, always mounted so the change is announced. */
+  def dirtyNote(isDirty: Signal[Boolean]): HtmlElement =
+    div(
+      aria.live := "polite",
+      cls := "text-xs font-medium text-amber-700",
+      children <-- isDirty.map(dirty => if dirty then List(span(aria.hidden := true, "● "), span("Modifiche non salvate")) else Nil),
+    )
+
+  /** Neutral information box (slate), e.g. the read-only reason under a [[formPage]] title. */
+  def infoNote(text: String): HtmlElement =
+    div(role := "note", cls := "rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700", text)
+
+  /** Warning variant of [[infoNote]] (amber), e.g. "the record no longer exists", "completed manufacturing: stock unload updated". */
+  def warningNote(text: String): HtmlElement =
+    div(role := "note", cls := "rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800", text)
+
   // ---- Feedback ----------------------------------------------------------------------------------
 
   def badge(text: String, colorClasses: String): HtmlElement =
@@ -791,6 +1057,27 @@ object Components:
       div(cls := "font-medium", err.message),
       if err.details.nonEmpty then ul(cls := "mt-1 list-disc pl-5 text-xs", err.details.map(d => li(d)))
       else emptyNode,
+    )
+
+  /**
+   * Variant of [[errorBanner]] with a "Chiudi" button, for page-level messages not tied to a form (e.g. a refused delete over a list). An ARIA
+   * `alert`; `onDismiss` should clear the caller's state. Give it an `idAttr` (via `amend`) to move the focus to it with [[FormFocus.focus]].
+   */
+  def errorBanner(err: ApiError, onDismiss: () => Unit): HtmlElement =
+    div(
+      role := "alert",
+      cls := "flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700",
+      div(
+        cls := "min-w-0 flex-1",
+        div(cls := "font-medium", err.message),
+        if err.details.nonEmpty then ul(cls := "mt-1 list-disc pl-5 text-xs", err.details.map(d => li(d))) else emptyNode,
+      ),
+      button(
+        tpe := "button",
+        cls := "inline-flex min-h-10 shrink-0 items-center rounded-md border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 md:min-h-0",
+        "Chiudi",
+        onClick --> (_ => onDismiss()),
+      ),
     )
 
   def showError(target: Var[Option[ApiError]], context: String)(err: ApiError): Unit =

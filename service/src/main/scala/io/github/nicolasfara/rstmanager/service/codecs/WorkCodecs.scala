@@ -8,11 +8,13 @@ import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
   ManufacturingDependencies,
   ManufacturingDescription,
   ManufacturingId,
+  ManufacturingMaterial,
   ManufacturingName,
   ManufacturingService,
 }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.events.ManufacturingEvent
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
+  ManufacturingQuantity,
   ManufacturingStatus,
   ScheduledManufacturing,
   ScheduledManufacturingId,
@@ -58,7 +60,8 @@ object WorkCodecs:
 
   /**
    * Events persisted before per-task preferred employees existed lack the `taskPreferredEmployees` field: decode it as the empty map. `materials` is
-   * required: the v2 → v3 step of [[OrderEventSchema]] adds it to every older row.
+   * required: the v2 → v3 step of [[OrderEventSchema]] adds it to every older row. A missing multiplier `quantity` (rows written before it existed,
+   * which the v4 → v5 step also fills in) is read as `1`.
    */
   given Codec[ScheduledManufacturingInfo] = Codec.from(
     Decoder.instance { cursor =>
@@ -72,6 +75,7 @@ object WorkCodecs:
         preferredEmployeeId <- cursor.get[Option[EmployeeId]]("preferredEmployeeId")
         taskPreferredEmployees <- cursor.get[Option[Map[ScheduledTaskId, EmployeeId]]]("taskPreferredEmployees")
         materials <- cursor.get[List[ScheduledMaterial]]("materials")
+        quantity <- cursor.get[Option[Int :| ManufacturingQuantity]]("quantity")
       yield ScheduledManufacturingInfo(
         id,
         code,
@@ -82,6 +86,7 @@ object WorkCodecs:
         preferredEmployeeId,
         taskPreferredEmployees.getOrElse(Map.empty),
         materials,
+        quantity.getOrElse(1),
       )
     },
     deriveEncoder,
@@ -127,7 +132,13 @@ object WorkCodecs:
   given Codec[TaskEvent] = EventSchema.codec(TaskEventSchema)
   given taskNotificationCodec: Codec[TaskService.Notification] = deriveCodec
 
-  /** Events persisted before per-task default employees / hours overrides existed lack those fields: decode each as the empty map. */
+  /** A material line of a catalog template, with its quantity per unit as an integer count of thousandths. */
+  given Codec[ManufacturingMaterial] = deriveCodec
+
+  /**
+   * Events persisted before per-task default employees / hours overrides / materials existed lack those fields: decode each as empty (the v2 → v3
+   * step of [[ManufacturingEventSchema]] also adds the empty `materials` to older rows).
+   */
   given Codec[Manufacturing] = Codec.from(
     Decoder.instance { cursor =>
       for
@@ -139,6 +150,7 @@ object WorkCodecs:
         dependencies <- cursor.get[ManufacturingDependencies]("dependencies")
         defaultEmployees <- cursor.get[Option[Map[TaskId, EmployeeId]]]("defaultEmployees")
         taskDurations <- cursor.get[Option[Map[TaskId, TaskDuration]]]("taskDurations")
+        materials <- cursor.get[Option[List[ManufacturingMaterial]]]("materials")
       yield Manufacturing(
         id,
         code,
@@ -148,6 +160,7 @@ object WorkCodecs:
         dependencies,
         defaultEmployees.getOrElse(Map.empty),
         taskDurations.getOrElse(Map.empty),
+        materials.getOrElse(Nil),
       )
     },
     deriveEncoder,

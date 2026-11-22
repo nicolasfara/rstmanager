@@ -13,6 +13,7 @@ import org.scalatest.matchers.should.Matchers
 final class ManufacturingCatalogFormSpec extends AnyFunSuite with Matchers:
 
   private given CanEqual[ManufacturingCatalogRequest, ManufacturingCatalogRequest] = CanEqual.derived
+  private given CanEqual[CatalogMaterialDto, CatalogMaterialDto] = CanEqual.derived
 
   private val cut = "00000000-0000-0000-0000-000000000601"
   private val sew = "00000000-0000-0000-0000-000000000602"
@@ -51,14 +52,17 @@ final class ManufacturingCatalogFormSpec extends AnyFunSuite with Matchers:
         TaskRow(2, sew, Set(cut, "00000000-0000-0000-0000-000000000999"), "", "0:45"),
       ),
     )
-    state.request(Map(cut -> 60, sew -> 30)) shouldBe ManufacturingCatalogRequest(
-      "MFG-1",
-      "Tendalino",
-      None,
-      List(uuid(cut), uuid(sew)),
-      List(ManufacturingCatalogDependencyDto(uuid(cut), Nil), ManufacturingCatalogDependencyDto(uuid(sew), List(uuid(cut)))),
-      Some(List(TaskDefaultEmployeeDto(uuid(cut), uuid(employee)))),
-      Some(List(TaskDurationOverrideDto(uuid(sew), 45))),
+    state.request(Map(cut -> 60, sew -> 30), MaterialDrafts.Context.empty) shouldBe Right(
+      ManufacturingCatalogRequest(
+        "MFG-1",
+        "Tendalino",
+        None,
+        List(uuid(cut), uuid(sew)),
+        List(ManufacturingCatalogDependencyDto(uuid(cut), Nil), ManufacturingCatalogDependencyDto(uuid(sew), List(uuid(cut)))),
+        Some(List(TaskDefaultEmployeeDto(uuid(cut), uuid(employee)))),
+        Some(List(TaskDurationOverrideDto(uuid(sew), 45))),
+        Some(Nil),
+      ),
     )
 
   test("fromResponse loads one row per task with the override or catalog duration"):
@@ -84,4 +88,69 @@ final class ManufacturingCatalogFormSpec extends AnyFunSuite with Matchers:
     (state.code, state.name, state.description) shouldBe ("MFG-7", "Capottina", "Su misura")
     state.taskRows shouldBe List(TaskRow(11, cut, Set.empty, employee, "1:30"), TaskRow(12, sew, Set(cut), "", "2:30"))
     state.errors shouldBe Nil
+    state.materials shouldBe Nil
+
+  // ---- per-unit materials ------------------------------------------------------------------------
+
+  private val fabric = uuid("00000000-0000-0000-0000-000000000901")
+  private val oldScrew = uuid("00000000-0000-0000-0000-000000000902")
+
+  private val fabricMaterial: MaterialResponse =
+    MaterialResponse(
+      fabric,
+      "TES-001",
+      "Tessuto",
+      None,
+      None,
+      "linear_meters",
+      "18.5000",
+      Nil,
+      Nil,
+      "2026-10-01",
+      false,
+      None,
+      StockDto("10.000", None, None, "0.00", false),
+    )
+
+  private val storedLines = List(
+    CatalogMaterialResponse(fabric, Some("TES-001"), Some("Tessuto"), Some("linear_meters"), false, "2.500"),
+    CatalogMaterialResponse(oldScrew, Some("VIT-9"), Some("Vite"), Some("pieces"), true, "4.000"),
+  )
+
+  test("fromResponse loads the per-unit materials as price-less rows, and an archived stored line stays valid"):
+    val response = ManufacturingCatalogResponse(uuid("00000000-0000-0000-0000-000000000801"), "MFG-7", "Capottina", None, Nil, Nil, Nil, 0)
+      .copy(materials = storedLines)
+    var key = 0
+    val state = ManufacturingCatalogForm.fromResponse(
+      response,
+      () =>
+        key += 1; key,
+    )
+    state.materials shouldBe List(MaterialDrafts.Row(1, fabric.toString, "2,5", ""), MaterialDrafts.Row(2, oldScrew.toString, "4", ""))
+    val context = MaterialDrafts.Context.ofCatalog(List(fabricMaterial), storedLines)
+    context.material(oldScrew).map(_.archived) shouldBe Some(true)
+    state.materialIssues(context, true) shouldBe Nil
+    state.request(Map.empty, context).map(_.materials) shouldBe
+      Right(Some(List(CatalogMaterialDto(fabric, "2.500"), CatalogMaterialDto(oldScrew, "4.000"))))
+    // The warehouse failed to load: the stored lines are still known to the context, so the template can be saved unchanged.
+    val stored = MaterialDrafts.Context.ofCatalog(Nil, storedLines)
+    state.materialIssues(stored, false) shouldBe Nil
+    state.request(Map.empty, stored).map(_.materials.map(_.size)) shouldBe Right(Some(2))
+
+  test("materials are validated without a price, blank rows are not sent, and no line sends an explicit empty list (clears on update)"):
+    val context = MaterialDrafts.Context.ofCatalog(List(fabricMaterial), Nil)
+    val withRows = base.copy(materials = List(MaterialDrafts.Row(1, fabric.toString, "0", "")))
+    withRows.materialIssues(context, true) shouldBe List(FieldIssue(Field.Materials, "Materiali — Riga 1: la quantità deve essere maggiore di zero"))
+    base.copy(materials = List(MaterialDrafts.Row.empty(1))).request(Map.empty, context).map(_.materials) shouldBe Right(Some(Nil))
+    base.request(Map.empty, context).map(_.materials) shouldBe Right(Some(Nil))
+    base.copy(materials = List(MaterialDrafts.Row(1, fabric.toString, "1,25", "99"))).request(Map.empty, context).map(_.materials) shouldBe
+      Right(Some(List(CatalogMaterialDto(fabric, "1.250"))))
+
+  test("while the warehouse is not loaded a line that cannot be checked blocks the submit, and no request drops it"):
+    val pending = base.copy(materials = List(MaterialDrafts.Row(1, fabric.toString, "2", "")))
+    pending.materialIssues(MaterialDrafts.Context.empty, false) shouldBe List(
+      FieldIssue(Field.Materials, "Materiali — elenco del magazzino non disponibile: attendi il caricamento o ricarica la pagina prima di salvare"),
+      FieldIssue(Field.Materials, "Materiali — Riga 1: il materiale selezionato non è più disponibile"),
+    )
+    pending.request(Map.empty, MaterialDrafts.Context.empty).isLeft shouldBe true
 end ManufacturingCatalogFormSpec

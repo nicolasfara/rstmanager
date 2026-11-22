@@ -16,7 +16,8 @@ object ListSearch:
 
   def task(t: TaskResponse, defaultEmployee: Option[String]): List[String] = t.name :: (t.description.toList ++ defaultEmployee.toList)
 
-  def manufacturing(m: ManufacturingCatalogResponse): List[String] = List(m.code, m.name) ++ m.description.toList ++ m.tasks.map(_.name)
+  def manufacturing(m: ManufacturingCatalogResponse): List[String] =
+    List(m.code, m.name) ++ m.description.toList ++ m.tasks.map(_.name) ++ m.materials.flatMap(line => line.internalCode.toList ++ line.description)
 
   def supplier(s: SupplierResponse): List[String] = s.name :: List(s.vatNumber, s.email, s.phone, s.address).flatten
 

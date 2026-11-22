@@ -5,13 +5,19 @@ import java.util.UUID
 import scala.math.BigDecimal.RoundingMode
 import scala.util.Try
 
-import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ MaterialLineDto, MaterialLineResponse, MaterialResponse }
+import io.gitbub.nicolasfara.rstmanager.api.Dtos.{
+  CatalogMaterialDto,
+  CatalogMaterialResponse,
+  MaterialLineDto,
+  MaterialLineResponse,
+  MaterialResponse,
+}
 import io.gitbub.nicolasfara.rstmanager.ui.WarehouseFormats.MeasureUnit
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MovementForm
 
 /**
  * Pure (DOM-free) state of the material lines of an order manufacturing ("Materiali"): draft rows ↔ request DTOs, Italian decimal parsing, validation
- * messages, and the cost preview.
+ * messages, and the cost preview. The same rows, without the price, hold the per-unit materials of a catalog manufacturing (see [[quantityRequest]]).
  *
  * Price freezing mirrors the server: a line without a typed price keeps the price already frozen for its material in the manufacturing, or else (a
  * new material) is sent without `unitPrice`, so the server freezes the material's current customer price, which the preview shows meanwhile. A typed
@@ -27,9 +33,20 @@ object MaterialDrafts:
 
   /**
    * One editable material line: `key` keeps the row identity across edits, `materialId` the selected material (`""` = none yet), `quantity` and
-   * `unitPrice` the typed text (a blank price = not overridden).
+   * `unitPrice` the typed text (a blank price = not overridden). `perUnit` is the canonical per-unit quantity of a line prefilled from a catalog
+   * manufacturing: while it is set the quantity follows the multiplier ×N (see [[rescale]]); any edit of the material or quantity clears it. A typed
+   * price does not stop the quantity from following ×N, but makes the line the user's: it is no longer replaced when the template changes (see
+   * [[isUntouchedPrefill]]).
    */
-  final case class Row(key: Int, materialId: String, quantity: String, unitPrice: String) derives CanEqual
+  final case class Row(key: Int, materialId: String, quantity: String, unitPrice: String, perUnit: Option[String] = None) derives CanEqual:
+    /** The material picked by the user: the line no longer follows the catalog (unchanged when the value is the same). */
+    def withMaterial(value: String): Row = if value == materialId then this else copy(materialId = value, perUnit = None)
+
+    /** The quantity typed by the user: the line no longer follows the multiplier (unchanged when the value is the same). */
+    def withQuantity(value: String): Row = if value == quantity then this else copy(quantity = value, perUnit = None)
+
+    /** A line prefilled from a catalog template the user has not touched at all (material, quantity, price): a template change may replace it. */
+    def isUntouchedPrefill: Boolean = perUnit.isDefined && unitPrice.trim.nn.isEmpty
 
   object Row:
     def empty(key: Int): Row = Row(key, "", "", "")
@@ -79,11 +96,44 @@ object MaterialDrafts:
         )
       }
       Context(active ++ kept, current.map(line => line.materialId -> line.unitPrice).toMap)
+
+    /**
+     * The context of a catalog manufacturing whose per-unit materials are `current`: like [[of]] (an archived or unknown material may stay on its
+     * line), without prices.
+     */
+    def ofCatalog(materials: List[MaterialResponse], current: List[CatalogMaterialResponse]): Context =
+      val asLines = current.map(line =>
+        MaterialLineResponse(line.materialId, line.internalCode, line.description, line.unit, line.archived, line.quantity, "", ""),
+      )
+      of(materials, asLines).copy(frozen = Map.empty)
   end Context
 
   /** The editable rows of the lines already in a manufacturing: quantities as Italian input text, no price override (the frozen one is kept). */
   def rowsOf(current: List[MaterialLineResponse], newKey: () => Int): List[Row] =
     current.map(line => Row(newKey(), line.materialId.toString, WarehouseFormats.decimalInputText(line.quantity, 0, quantityScale), ""))
+
+  /** The editable rows of the per-unit materials of a catalog manufacturing (quantities as Italian input text). */
+  def rowsOfCatalog(current: List[CatalogMaterialResponse], newKey: () => Int): List[Row] =
+    current.map(line => Row(newKey(), line.materialId.toString, WarehouseFormats.decimalInputText(line.quantity, 0, quantityScale), ""))
+
+  // ---- Multiplier ×N -----------------------------------------------------------------------------
+
+  /** `perUnit × times` as a canonical quantity (3 decimals); `None` when `perUnit` is not a canonical decimal. */
+  def scaled(perUnit: String, times: Int): Option[String] =
+    Try(BigDecimal(perUnit.trim.nn)).toOption.map(value => (value * times).setScale(quantityScale, RoundingMode.HALF_UP).bigDecimal.toPlainString.nn)
+
+  /**
+   * The row of a catalog line with per-unit quantity `perUnit`, its quantity being `perUnit × times` (no price: the current customer price applies).
+   */
+  def scaledRow(key: Int, materialId: String, perUnit: String, times: Int): Row =
+    Row(key, materialId, scaled(perUnit, times).fold(perUnit)(WarehouseFormats.decimalInputText(_, 0, quantityScale)), "", Some(perUnit))
+
+  /**
+   * The rows with the quantities that still follow the catalog recomputed for the multiplier `times` (only the quantity changes: a typed price is
+   * kept); the edited quantities are kept as typed.
+   */
+  def rescale(rows: List[Row], times: Int): List[Row] =
+    rows.map(row => row.perUnit.fold(row)(base => row.copy(quantity = scaledRow(row.key, row.materialId, base, times).quantity)))
 
   /** The material selected in `row`, when the context knows it. */
   def materialOf(row: Row, context: Context): Option[Material] = parseUuid(row.materialId).flatMap(context.material)
@@ -168,13 +218,13 @@ object MaterialDrafts:
     if text.trim.nn.isEmpty then Right(None)
     else WarehouseFormats.parseDecimal(text, priceScale).map(Some(_)).toRight("prezzo unitario non valido (es. 3,50, al massimo 4 decimali)")
 
-  /** One non-blank row as a request line, or its messages (without the row prefix). */
-  private def resolve(row: Row, context: Context): Either[List[String], MaterialLineDto] =
+  /** One non-blank row as a request line, or its messages (without the row prefix); without `priced` the typed price is ignored. */
+  private def resolve(row: Row, context: Context, priced: Boolean): Either[List[String], MaterialLineDto] =
     val material: Either[String, Material] =
       if row.materialId.trim.nn.isEmpty then Left("seleziona un materiale")
       else parseUuid(row.materialId).flatMap(context.material).toRight("il materiale selezionato non è più disponibile")
     val quantity = quantityOf(row.quantity, material.toOption)
-    val price = priceOf(row.unitPrice)
+    val price = if priced then priceOf(row.unitPrice) else Right(None)
     (material, quantity, price) match
       case (Right(p), Right(q), Right(up)) => Right(MaterialLineDto(p.id, q, up))
       case _ => Left(material.left.toOption.toList ++ quantity.left.toOption ++ price.left.toOption)
@@ -184,7 +234,9 @@ object MaterialDrafts:
    * unavailable material, a material already in an earlier row, missing/invalid/zero quantity, decimals for a material counted in pieces, invalid
    * price.
    */
-  def request(rows: List[Row], context: Context): Either[List[String], List[MaterialLineDto]] =
+  def request(rows: List[Row], context: Context): Either[List[String], List[MaterialLineDto]] = checkedLines(rows, context, true)
+
+  private def checkedLines(rows: List[Row], context: Context, priced: Boolean): Either[List[String], List[MaterialLineDto]] =
     val checked = rows.zipWithIndex.filterNot((row, _) => isBlank(row)).map { (row, index) =>
       val materialKey = materialKeyOf(row)
       val repeated = materialKey.nonEmpty && rows.take(index).exists(earlier => materialKeyOf(earlier) == materialKey)
@@ -192,14 +244,21 @@ object MaterialDrafts:
         val code = parseUuid(row.materialId).flatMap(context.material).fold("il materiale")(_.internalCode)
         s"$code è già in un'altra riga: indica la quantità totale in una sola riga"
       }
-      resolve(row, context) match
+      resolve(row, context, priced) match
         case Right(line) if duplicate.isEmpty => Right(line)
         case result => Left((result.left.getOrElse(Nil) ++ duplicate).map(message => s"Riga ${index + 1}: $message"))
     }
     val errors = checked.flatMap(_.left.getOrElse(Nil))
     if errors.isEmpty then Right(checked.flatMap(_.toOption)) else Left(errors)
-  end request
+  end checkedLines
 
   /** The validation messages of `rows` (see [[request]]); empty when they can be sent. */
   def errors(rows: List[Row], context: Context): List[String] = request(rows, context).left.getOrElse(Nil)
+
+  /** The per-unit lines of a catalog manufacturing: the same checks as [[request]] without the price, or every message prefixed with its row. */
+  def quantityRequest(rows: List[Row], context: Context): Either[List[String], List[CatalogMaterialDto]] =
+    checkedLines(rows, context, false).map(_.map(line => CatalogMaterialDto(line.materialId, line.quantity)))
+
+  /** The validation messages of the per-unit lines of a catalog manufacturing (see [[quantityRequest]]). */
+  def quantityErrors(rows: List[Row], context: Context): List[String] = quantityRequest(rows, context).left.getOrElse(Nil)
 end MaterialDrafts

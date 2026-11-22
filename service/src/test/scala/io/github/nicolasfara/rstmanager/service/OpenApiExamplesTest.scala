@@ -14,6 +14,7 @@ import io.github.nicolasfara.rstmanager.warehouse.domain.material.{ MaterialCode
 import io.github.nicolasfara.rstmanager.warehouse.service.{
   DeliveryNoteHttpApi,
   MaterialHttpApi,
+  MaterialRequirementsHttpApi,
   StockHttpApi,
   SupplierHttpApi,
   WarehouseReportsHttpApi,
@@ -86,7 +87,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     validOrFail(ClosureRequest.example.toDomain(id))
     validOrFail(CustomerRequest.example.toDomain(id))
     validOrFail(TaskRequest.example.toDomain(id))
-    validOrFail(ManufacturingRequest.example.toDomain(id))
+    validOrFail(ManufacturingRequest.example.toDomain(id, exampleCatalog, Nil)).materials.map(_.quantity.value) shouldBe List(2500L)
     validOrFail(SupplierRequest.example.toDomain(id))
     validOrFail(MaterialRequest.example.toDomain(id))
     validOrFail(PurchaseRequest.example.toDomain)
@@ -108,6 +109,7 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
         MaterialHttpApi.endpoints ++
         StockHttpApi.endpoints ++
         WarehouseReportsHttpApi.endpoints ++
+        MaterialRequirementsHttpApi.endpoints ++
         DeliveryNoteHttpApi.endpoints
     val yaml = OpenAPIDocsInterpreter().toOpenAPI(endpoints, "RST Manager API", "0.1.0").toYaml
 
@@ -127,6 +129,8 @@ class OpenApiExamplesTest extends AnyFlatSpecLike:
     yaml should include("/api/v1/warehouse/flows")
     yaml should include("/api/v1/warehouse/supplier-spend")
     yaml should include("/api/v1/warehouse/export.xlsx")
+    yaml should include("/api/v1/warehouse/material-requirements")
+    yaml should include("excludeOrder")
     yaml should include("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     yaml should include("Content-Disposition")
     yaml should include("granularity")

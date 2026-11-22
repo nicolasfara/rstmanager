@@ -22,6 +22,9 @@ trait WarehouseConsumptionGateway:
   /** The order, if it exists. */
   def loadOrder(orderId: OrderId): IO[Option[Order]]
 
+  /** The existing orders among `ids`, in the order of `ids`; by default one [[loadOrder]] each. */
+  def loadOrders(ids: List[OrderId]): IO[List[(OrderId, Order)]] = ids.traverse(id => loadOrder(id).map(_.tupleLeft(id))).map(_.flatten)
+
   /** Every material, archived ones included. */
   def listMaterials: IO[List[MaterialRecord]]
 
@@ -36,6 +39,9 @@ object WarehouseConsumptionGateway:
       override def orderIds: IO[List[OrderId]] = RegistryBackend.ids(orders.registry).map(_.toList.sortBy(_.toString).map(OrderId(_)))
 
       override def loadOrder(orderId: OrderId): IO[Option[Order]] = OrderApp.get(orders, orderId)
+
+      override def loadOrders(ids: List[OrderId]): IO[List[(OrderId, Order)]] =
+        OrderApp.getMany(orders, ids).map(found => ids.flatMap(id => found.get(id).tupleLeft(id)))
 
       override def listMaterials: IO[List[MaterialRecord]] = MaterialApp.listAll(materials).map(_.map(_.material))
 

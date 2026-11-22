@@ -7,7 +7,13 @@ import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.service.codecs.WorkCodecs.given
 import io.github.nicolasfara.rstmanager.warehouse.domain.{ Quantity, UnitPrice }
 import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingCode, ManufacturingDependencies, ManufacturingId }
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
+  Manufacturing,
+  ManufacturingCode,
+  ManufacturingDependencies,
+  ManufacturingId,
+  ManufacturingMaterial,
+}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
   ScheduledManufacturingId,
@@ -112,6 +118,7 @@ class WorkCodecsTest extends AnyFlatSpecLike:
         ManufacturingDependencies(),
         Map(taskId -> employeeId),
         Map(taskId -> 9),
+        Nil,
       )
       .toEither
       .fold(errors => fail(s"Invalid template: $errors"), identity)
@@ -125,4 +132,36 @@ class WorkCodecsTest extends AnyFlatSpecLike:
     decoded.defaultEmployees shouldBe empty
     decoded.taskDurations shouldBe empty
     decoded.taskIds.toList shouldEqual List(taskId)
+
+  it should "round-trip the per-unit materials and decode templates persisted before they existed as having none" in:
+    val taskId: TaskId = TaskId(UUID.fromString("00000000-0000-0000-0000-000000000301").nn)
+    val materials = List(ManufacturingMaterial(MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000901").nn), Quantity(2500L)))
+    val template = Manufacturing
+      .createManufacturing(
+        ManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000707").nn),
+        "MFG-TEST",
+        "Serramento standard",
+        None,
+        List(taskId),
+        ManufacturingDependencies(),
+        Map.empty,
+        Map.empty,
+        materials,
+      )
+      .toEither
+      .fold(errors => fail(s"Invalid template: $errors"), identity)
+
+    template.asJson.hcursor.downField("materials").downArray.get[Long]("quantity") shouldEqual Right(2500L)
+    template.asJson.as[Manufacturing].map(_.materials) shouldEqual Right(materials)
+    template.asJson.mapObject(_.remove("materials")).as[Manufacturing].map(_.materials) shouldEqual Right(Nil)
+
+  "ScheduledManufacturingInfo codec" should "round-trip the multiplier and decode info persisted before it existed as ×1" in:
+    val info = manufacturing(firstManufacturingId).info.copy(quantity = 4)
+    info.asJson.hcursor.get[Int]("quantity") shouldEqual Right(4)
+    info.asJson.as[ScheduledManufacturingInfo].map(_.quantity: Int) shouldEqual Right(4)
+    info.asJson.mapObject(_.remove("quantity")).as[ScheduledManufacturingInfo].map(_.quantity: Int) shouldEqual Right(1)
+
+  it should "reject a multiplier out of 1 to 999" in:
+    val json = manufacturing(firstManufacturingId).info.asJson
+    List(0, 1000).map(n => json.mapObject(_.add("quantity", n.asJson)).as[ScheduledManufacturingInfo].isLeft) shouldEqual List(true, true)
 end WorkCodecsTest

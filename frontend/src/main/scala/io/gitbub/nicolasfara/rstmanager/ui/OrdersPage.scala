@@ -46,9 +46,6 @@ object OrdersPage:
   /** `java.util.UUID.randomUUID` is unavailable on Scala.js (needs SecureRandom); use the Web Crypto API. */
   private def randomUuid(): UUID = UUID.fromString(js.Dynamic.global.crypto.randomUUID().toString).nn
 
-  /** Trims free text and collapses blank strings to `None` (an empty value clears the field). */
-  private def normalizeStr(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
-
   private val chipBase = "rounded-full px-3 py-1 text-xs font-medium border transition-colors"
   private def chipCls(active: Boolean): String =
     if active then s"$chipBase bg-slate-900 text-white border-slate-900"
@@ -58,7 +55,10 @@ object OrdersPage:
     case "urgent" => badge("Urgente", "bg-rose-50 text-rose-700 border-rose-200")
     case _ => badge("Normale", "bg-slate-50 text-slate-600 border-slate-200")
 
-  /** State for the inline add-manufacturing form. `taskEmployees` mirrors the create-form per-task employee overrides for catalog mode. */
+  /**
+   * State for the inline add-manufacturing form. `taskEmployees` mirrors the create-form per-task employee overrides for catalog mode; `quantity` is
+   * the typed multiplier ×N of a catalog manufacturing.
+   */
   private case class AddMfgState(
       mode: String,
       catalogId: String,
@@ -69,9 +69,30 @@ object OrdersPage:
       hours: String,
       employee: String,
       taskEmployees: Map[String, String],
+      quantity: String = "1",
   )
   private object AddMfgState:
     val empty: AddMfgState = AddMfgState("custom", "", "", "", "", "", "8:00", "", Map.empty)
+
+  /**
+   * The draft snapshot of the add-manufacturing form, resolved by the create-form rules ([[OrderDrafts.manufacturingFromDraft]]): a catalog one with
+   * its multiplier, a custom one with its single first task.
+   */
+  private def addMfgSnapshot(s: AddMfgState, materials: List[MaterialDrafts.Row]): OrderDrafts.MfgSnapshot =
+    if s.mode == "catalog" then
+      OrderDrafts.MfgSnapshot(
+        0,
+        OrderDrafts.MfgCoreState("catalog", s.catalogId, "", s.date, "", s.employee, Set.empty, s.taskEmployees, s.quantity),
+        Nil,
+        materials,
+      )
+    else
+      OrderDrafts.MfgSnapshot(
+        0,
+        OrderDrafts.MfgCoreState("custom", "", s.code, s.date, s.description, s.employee, Set.empty, Map.empty),
+        List(OrderDrafts.TaskState(s.taskId, s.hours, Set.empty, "")),
+        materials,
+      )
 
   /** State for the inline add-task form fields. */
   private case class AddTaskState(taskId: String, hours: String, employee: String)
@@ -190,9 +211,47 @@ object OrdersPage:
     val showAddMfg = Var(false)
     val addMfgState = Var(AddMfgState.empty)
 
+    // Material lines of the manufacturing being added, and the materials they are checked against (written by the editor once loaded).
+    val addMfgMaterials = Var(List.empty[MaterialDrafts.Row])
+    val addMfgContext = Var(MaterialDrafts.Context.empty)
+    var addMfgKeys = 0
+    def nextAddMfgKey(): Int =
+      addMfgKeys += 1
+      addMfgKeys
+
     def resetAddMfg(): Unit =
       showAddMfg.set(false)
       addMfgState.set(AddMfgState.empty)
+      addMfgMaterials.set(Nil)
+
+    /** A new mode: the untouched lines prefilled from the template go when leaving catalog mode, and come back when returning to it. */
+    def setAddMfgMode(mode: String): Unit =
+      val s = addMfgState.now()
+      if mode != s.mode then
+        addMfgState.update(_.copy(mode = mode))
+        addMfgMaterials.update(rows =>
+          OrderDrafts.materialsForMode(
+            rows,
+            mode,
+            catalogById(s.catalogId),
+            OrderDrafts.parseQuantity(s.quantity).getOrElse(1),
+            () => nextAddMfgKey(),
+          ),
+        )
+
+    /** A new template: per-task employees from its defaults, and its per-unit materials × N (the lines added or touched by hand stay). */
+    def setAddMfgCatalog(rawId: String): Unit =
+      val s = addMfgState.now()
+      if rawId != s.catalogId then
+        addMfgState.update(_.copy(catalogId = rawId, taskEmployees = defaultTaskEmployees(rawId)))
+        addMfgMaterials.update(rows =>
+          OrderDrafts.withCatalogMaterials(rows, catalogById(rawId), OrderDrafts.parseQuantity(s.quantity).getOrElse(1), () => nextAddMfgKey()),
+        )
+
+    /** A new multiplier: the material lines not edited by hand follow it. */
+    def setAddMfgQuantity(text: String): Unit =
+      addMfgState.update(_.copy(quantity = text))
+      OrderDrafts.parseQuantity(text).foreach(times => addMfgMaterials.update(MaterialDrafts.rescale(_, times)))
 
     // Inline "add task" form (targets the manufacturing whose id is held here)
     val addTaskMfgId = Var(Option.empty[UUID])
@@ -348,33 +407,21 @@ object OrdersPage:
 
     def submitAddMfg(): Unit = editing.now().foreach { order =>
       val s = addMfgState.now()
-      if s.mode == "catalog" then
-        catalogById(s.catalogId) match
-          case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil))
-          case Some(template) =>
-            applyStructural(
-              ApiClient.addManufacturing(order.id, OrderDrafts.fromCatalog(template, s.date, s.employee, s.taskEmployees, () => randomUuid())),
-            )
+      def invalid(message: String): Unit = showError(editError, "Modifica ordine")(ApiError("invalid-form", message, Nil))
+      if s.mode == "catalog" && catalogById(s.catalogId).isEmpty then invalid("Seleziona una lavorazione a catalogo valida.")
+      else if s.mode == "catalog" && OrderDrafts.parseQuantity(s.quantity).isEmpty then
+        invalid(s"Quantità non valida: indica un numero intero da 1 a ${OrderDrafts.maxQuantity}.")
+      else if s.mode != "catalog" && parseUuid(s.taskId).isEmpty then invalid("Seleziona un task valido per la nuova lavorazione.")
       else
-        parseUuid(s.taskId) match
-          case None => showError(editError, "Modifica ordine")(ApiError("invalid-form", "Seleziona un task valido per la nuova lavorazione.", Nil))
-          case Some(taskId) =>
-            val task = ScheduledTaskDto(randomUuid(), taskId, "pending", Formats.parseDuration(s.hours).getOrElse(0), Some(0), None)
-            val dto = ManufacturingDto(
-              s.code.trim.nn,
-              Formats.toIso(s.date),
-              "not_started",
-              List(task),
-              Nil,
-              None,
-              None,
-              None,
-              None,
-              normalizeStr(s.description),
-              parseUuid(s.employee),
-            )
-            applyStructural(ApiClient.addManufacturing(order.id, dto))
-      end if
+        OrderDrafts.manufacturingFromDraft(
+          addMfgSnapshot(s, addMfgMaterials.now()),
+          s.date,
+          catalogById,
+          addMfgContext.now(),
+          () => randomUuid(),
+        ) match
+          case Left(err) => showError(editError, "Modifica ordine")(err)
+          case Right(dto) => applyStructural(ApiClient.addManufacturing(order.id, dto))
     }
 
     def submitAddTask(mfgId: UUID): Unit = editing.now().foreach { order =>
@@ -606,7 +653,11 @@ object OrdersPage:
           cls := "rounded-lg border border-slate-200 p-3",
           div(
             cls := "mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2",
-            div(cls := "font-medium text-slate-800", m.code),
+            div(
+              cls := "flex items-center gap-2",
+              span(cls := "font-medium text-slate-800", m.code),
+              OrderCreateView.quantityBadge(m.quantity),
+            ),
             div(
               cls := "flex items-center gap-2",
               span(cls := "text-xs text-slate-400", Formats.date(m.completionDate)),
@@ -688,6 +739,23 @@ object OrdersPage:
           else emptyNode,
         )
 
+      // Stock warnings of the manufacturing being added: the order is left out of the server's demand, so the lines of its open manufacturings are
+      // added back to the new ones (a completed manufacturing has already unloaded its materials).
+      val addMfgWarnings: Signal[Map[UUID, OrderDrafts.StockWarning]] =
+        val otherRows = order.manufacturings.filter(_.status != "completed").flatMap(other => MaterialDrafts.rowsOf(other.materials, () => 0))
+        addMfgMaterials.signal.map(_.exists(row => !MaterialDrafts.isBlank(row))).distinct.flatMapSwitch { any =>
+          if any then
+            loadable(AppBus.ordersTicks.combineWith(AppBus.warehouseTicks))(() => ApiClient.materialRequirements(Some(order.id)))
+              .combineWith(
+                addMfgMaterials.signal,
+              )
+              .map {
+                case (Some(Right(response)), rows) => OrderDrafts.stockWarnings(rows ++ otherRows, response.materials)
+                case _ => Map.empty
+              }
+          else Signal.fromValue(Map.empty)
+        }
+
       def addMfgForm: HtmlElement =
         div(
           cls := "mt-2",
@@ -699,11 +767,7 @@ object OrdersPage:
                   cls := "grid grid-cols-1 gap-2 sm:grid-cols-2",
                   field(
                     "Tipo",
-                    staticSelect(
-                      addMfgState.signal.map(_.mode),
-                      Observer[String](v => addMfgState.update(_.copy(mode = v))),
-                      manufacturingModeOptions,
-                    ),
+                    staticSelect(addMfgState.signal.map(_.mode), Observer[String](setAddMfgMode), manufacturingModeOptions),
                   ),
                   field(
                     "Completamento",
@@ -723,11 +787,17 @@ object OrdersPage:
                         "Lavorazione catalogo",
                         selectInput(
                           addMfgState.signal.map(_.catalogId),
-                          // Selecting a template also prefills the per-task employees from the catalog defaults.
-                          Observer[String](v => addMfgState.update(_.copy(catalogId = v, taskEmployees = defaultTaskEmployees(v)))),
+                          // Selecting a template also prefills the per-task employees and the per-unit materials × N.
+                          Observer[String](setAddMfgCatalog),
                           manufacturingCatalogOptions,
                         ),
                       ),
+                      field(
+                        "Quantità (×N)",
+                        textInput(addMfgState.signal.map(_.quantity), Observer[String](setAddMfgQuantity), "1")
+                          .amend(inputMode := "numeric", maxLength := 3),
+                      ),
+                      hint("Quante volte si esegue la lavorazione: durate e materiali non modificati a mano si moltiplicano."),
                       OrderCreateView.catalogPreview(addMfgState.signal.map(_.catalogId), manufacturingCatalogs.signal),
                       OrderCreateView.catalogTaskEmployeeOverrides(
                         addMfgState.signal.map(_.catalogId),
@@ -769,6 +839,7 @@ object OrdersPage:
                       ),
                     )
                 },
+                MaterialsEditor.draftEditor(addMfgMaterials, () => nextAddMfgKey(), addMfgContext.writer, "om-add-mfg-materials", addMfgWarnings),
                 div(
                   cls := "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
                   button(

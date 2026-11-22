@@ -133,6 +133,22 @@ object Dtos:
   /** Per-task duration override (minutes) of the template; a task without an entry falls back to the task-catalog duration. */
   final case class TaskDurationOverrideDto(taskId: UUID, minutes: Int)
 
+  /** A warehouse material consumed by **one** unit of the template: `quantity` is a decimal string (at most 3 decimals) in the material's unit. */
+  final case class CatalogMaterialDto(materialId: UUID, quantity: String)
+
+  /**
+   * A per-unit material of the template as read back, with the material master data as the warehouse knows it now (absent for a material it no longer
+   * knows; `unit` is the wire name).
+   */
+  final case class CatalogMaterialResponse(
+      materialId: UUID,
+      internalCode: Option[String],
+      description: Option[String],
+      unit: Option[String],
+      archived: Boolean,
+      quantity: String,
+  )
+
   final case class ManufacturingCatalogRequest(
       code: String,
       name: String,
@@ -141,6 +157,7 @@ object Dtos:
       dependencies: List[ManufacturingCatalogDependencyDto],
       defaultEmployees: Option[List[TaskDefaultEmployeeDto]] = None,
       taskDurations: Option[List[TaskDurationOverrideDto]] = None,
+      materials: Option[List[CatalogMaterialDto]] = None,
   )
 
   final case class ManufacturingCatalogResponse(
@@ -154,6 +171,7 @@ object Dtos:
       totalRequiredMinutes: Int,
       defaultEmployees: List[TaskDefaultEmployeeDto] = Nil,
       taskDurations: List[TaskDurationOverrideDto] = Nil,
+      materials: List[CatalogMaterialResponse] = Nil,
   )
 
   // ---- Orders ------------------------------------------------------------------------------------
@@ -201,7 +219,11 @@ object Dtos:
       lineCost: String,
   )
 
-  /** A manufacturing of an order creation / add-manufacturing request; `materials` may be omitted (no materials). */
+  /**
+   * A manufacturing of an order creation / add-manufacturing request; `materials` may be omitted (no materials). `quantity` is the multiplier ×N (1
+   * to 999, absent = 1): informative only, the task minutes and the material quantities must already be the totals for the N units (the server never
+   * rescales them).
+   */
   final case class ManufacturingDto(
       code: String,
       completionDate: String,
@@ -215,6 +237,7 @@ object Dtos:
       description: Option[String] = None,
       preferredEmployeeId: Option[UUID] = None,
       materials: Option[List[MaterialLineDto]] = None,
+      quantity: Option[Int] = None,
   )
 
   final case class ManufacturingResponse(
@@ -231,6 +254,7 @@ object Dtos:
       preferredEmployeeId: Option[UUID] = None,
       materials: List[MaterialLineResponse] = Nil,
       materialsCost: String = "0.00",
+      quantity: Int = 1,
   )
 
   final case class SetPreferredEmployeeRequest(employeeId: Option[UUID])
@@ -626,6 +650,48 @@ object Dtos:
   /** `GET /warehouse/supplier-spend?from&to`. */
   final case class SupplierSpendReportResponse(from: String, to: String, total: String, suppliers: List[SupplierSpendResponse])
 
+  // ---- Warehouse: material requirements ---------------------------------------------------------
+
+  /** Stock today, demand of the open orders and what is left of one material (`stock`/`available` may be negative; 3-decimal strings). */
+  final case class MaterialRequirementResponse(
+      materialId: UUID,
+      internalCode: String,
+      description: String,
+      unit: String,
+      stock: String,
+      committed: String,
+      available: String,
+  )
+
+  /** A manufacturing the stock of a material cannot cover: `missing` (at most `required`) has to be ordered. */
+  final case class MaterialShortageResponse(
+      orderId: UUID,
+      orderNumber: String,
+      manufacturingId: UUID,
+      manufacturingCode: String,
+      materialId: UUID,
+      required: String,
+      missing: String,
+  )
+
+  /** A material line of an open order naming a material the warehouse does not know. */
+  final case class UnknownMaterialDemandResponse(
+      orderId: UUID,
+      orderNumber: String,
+      manufacturingId: UUID,
+      manufacturingCode: String,
+      materialId: UUID,
+      required: String,
+  )
+
+  /** `GET /warehouse/material-requirements?excludeOrder=`: the requirements of the open orders on day `at`. */
+  final case class MaterialRequirementsResponse(
+      at: String,
+      materials: List[MaterialRequirementResponse],
+      shortages: List[MaterialShortageResponse],
+      unknownMaterials: List[UnknownMaterialDemandResponse],
+  )
+
   // ---- Codecs (lazy givens, derivation order-independent) ----------------------------------------
 
   /**
@@ -653,6 +719,8 @@ object Dtos:
   given Codec[ManufacturingCatalogDependencyDto] = deriveCodec
   given Codec[TaskDefaultEmployeeDto] = deriveCodec
   given Codec[TaskDurationOverrideDto] = deriveCodec
+  given Codec[CatalogMaterialDto] = deriveCodec
+  given Codec[CatalogMaterialResponse] = deriveCodec
   given Codec[ManufacturingCatalogRequest] = deriveCodec
   given Codec[ManufacturingCatalogResponse] = ConfiguredCodec.derived(using withDefaults)
 
@@ -725,4 +793,8 @@ object Dtos:
   given Codec[MpnSpendResponse] = deriveCodec
   given Codec[SupplierSpendResponse] = deriveCodec
   given Codec[SupplierSpendReportResponse] = deriveCodec
+  given Codec[MaterialRequirementResponse] = deriveCodec
+  given Codec[MaterialShortageResponse] = deriveCodec
+  given Codec[UnknownMaterialDemandResponse] = deriveCodec
+  given Codec[MaterialRequirementsResponse] = deriveCodec
 end Dtos

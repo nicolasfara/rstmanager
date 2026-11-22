@@ -10,13 +10,20 @@ import io.circe.{ Decoder, Json, JsonObject }
  * Versions:
  *   - v1: per-task effort overrides are `taskHours`, in whole hours.
  *   - v2: they are `taskDurations`, in minutes.
+ *   - v3: the template carries its per-unit `materials` (material, quantity in thousandths). Older rows get `"materials": []`.
  *
  * Rows written before the overrides (or the default employees) existed lack the field and are read as v2 with no overrides.
  */
 object ManufacturingEventSchema extends DerivedEventSchema[ManufacturingEvent](using WorkCodecs.manufacturingEventData):
-  val currentVersion: Int = 2
+  val currentVersion: Int = 3
 
-  val upcasters: Map[Int, EventEnvelope => Decoder.Result[EventEnvelope]] = Map(1 -> taskHoursToMinutes)
+  val upcasters: Map[Int, EventEnvelope => Decoder.Result[EventEnvelope]] = Map(
+    1 -> taskHoursToMinutes,
+    2 -> Upcasts.addFieldWhere(2, isTemplate, "materials", Json.arr()),
+  )
+
+  /** A catalog template object: the only one with both its task ids and its dependency graph. */
+  private def isTemplate(data: JsonObject): Boolean = data.contains("taskIds") && data.contains("dependencies")
 
   def legacyVersion(tag: String, data: JsonObject): Int =
     if data("manufacturing").flatMap(_.asObject).exists(_.contains("taskHours")) then 1 else 2

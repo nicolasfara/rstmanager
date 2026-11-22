@@ -10,6 +10,7 @@ import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messages, FieldIssue
 /**
  * Pure (DOM-free) state of the manufacturing-catalog create/edit form: loading a stored template, request building, the live total duration and
  * field-addressed validation. Task rows are identified by a stable `key` (injected by the caller), so their issues and DOM ids survive reordering.
+ * The per-unit materials ("Materiali per unità") reuse the rows and checks of [[MaterialDrafts]] without the price.
  */
 object ManufacturingCatalogForm:
 
@@ -23,6 +24,7 @@ object ManufacturingCatalogForm:
     case Tasks
     case RowTask(key: Int)
     case RowDuration(key: Int)
+    case Materials
 
   /** DOM id of the task select of row `key`. */
   def rowTaskId(key: Int): String = s"mfg-row-$key-task"
@@ -33,6 +35,9 @@ object ManufacturingCatalogForm:
   /** DOM id of the task block (its inline error and touch tracking). */
   val tasksId = "mfg-tasks"
 
+  /** DOM id of the materials block (target of a material issue). */
+  val materialsId = "mfg-materials"
+
   /** DOM id of the control of `field` (label `for`, inline error anchor). */
   def fieldId(field: Field): String = field match
     case Field.Code => "mfg-code"
@@ -40,6 +45,7 @@ object ManufacturingCatalogForm:
     case Field.Tasks => tasksId
     case Field.RowTask(key) => rowTaskId(key)
     case Field.RowDuration(key) => rowDurationId(key)
+    case Field.Materials => materialsId
 
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
@@ -50,6 +56,7 @@ object ManufacturingCatalogForm:
       name: String,
       description: String,
       taskRows: List[TaskRow],
+      materials: List[MaterialDrafts.Row] = Nil,
   ) derives CanEqual:
     /**
      * The issues in form order: code, name, then the task block. With no task picked at all there is a single "pick a task" issue; otherwise each row
@@ -83,14 +90,27 @@ object ManufacturingCatalogForm:
 
     def errors: List[String] = issues.messages
 
+    /**
+     * The issues of the per-unit materials checked against `context` (see [[MaterialDrafts.quantityRequest]]); they always block the submit. While
+     * the warehouse materials are not `loaded` (loading, or the load failed) a line that cannot be checked is preceded by an issue saying so; the
+     * stored lines of the template stay valid, since `context` knows them.
+     */
+    def materialIssues(context: MaterialDrafts.Context, loaded: Boolean): List[FieldIssue[Field]] =
+      val lines = MaterialDrafts.quantityErrors(materials, context).map(message => FieldIssue(Field.Materials, s"Materiali — $message"))
+      val notLoaded = Option.when(!loaded && lines.nonEmpty)(
+        FieldIssue(Field.Materials, "Materiali — elenco del magazzino non disponibile: attendi il caricamento o ricarica la pagina prima di salvare"),
+      )
+      notLoaded.toList ++ lines
+
     /** Sum of the valid durations of the rows with a task (a malformed duration counts as 0 until fixed). */
     def totalMinutes: Int = taskRows.filter(_.taskId.nonEmpty).flatMap(row => Formats.parseDuration(row.hours)).sum
 
     /**
      * The request for the current state. `catalogMinutes` (task id -> catalog duration) decides the overrides: a duration is sent only when it
-     * differs from the catalog task's, so untouched tasks keep following the catalog.
+     * differs from the catalog task's, so untouched tasks keep following the catalog. The per-unit materials are always sent explicitly (an empty
+     * list when every line was removed: an absent list keeps the stored ones on update); invalid lines give their messages instead of a request.
      */
-    def request(catalogMinutes: Map[String, Int]): ManufacturingCatalogRequest =
+    def request(catalogMinutes: Map[String, Int], context: MaterialDrafts.Context): Either[List[String], ManufacturingCatalogRequest] =
       val selectedIds = taskRows.flatMap(row => parseUuid(row.taskId))
       val selectedStrings = selectedIds.map(_.toString).toSet
       val dependencies = taskRows.flatMap { row =>
@@ -112,15 +132,18 @@ object ManufacturingCatalogForm:
           if catalogMinutes.get(row.taskId).forall(_ != minutes)
         yield TaskDurationOverrideDto(taskId, minutes)
       }
-      ManufacturingCatalogRequest(
-        code.trim.nn,
-        name.trim.nn,
-        Some(description.trim.nn).filter(_.nonEmpty),
-        selectedIds,
-        dependencies,
-        Some(defaultEmployees),
-        Some(taskDurations),
-      )
+      MaterialDrafts.quantityRequest(materials, context).map { lines =>
+        ManufacturingCatalogRequest(
+          code.trim.nn,
+          name.trim.nn,
+          Some(description.trim.nn).filter(_.nonEmpty),
+          selectedIds,
+          dependencies,
+          Some(defaultEmployees),
+          Some(taskDurations),
+          Some(lines),
+        )
+      }
     end request
   end State
 
@@ -129,7 +152,9 @@ object ManufacturingCatalogForm:
 
   def emptyRow(key: Int): TaskRow = TaskRow(key, "", Set.empty, "", "")
 
-  /** Loads a stored template: one row per task (keys from `newKey`), its duration being the override or else the catalog task's. */
+  /**
+   * Loads a stored template: one row per task (keys from `newKey`), its duration being the override or else the catalog task's, and its materials.
+   */
   def fromResponse(manufacturing: ManufacturingCatalogResponse, newKey: () => Int): State =
     val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
     val defaultEmployeeMap = manufacturing.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap
@@ -146,6 +171,7 @@ object ManufacturingCatalogForm:
         val minutes = overrideMinutesMap.getOrElse(key, catalogMinutesMap.getOrElse(key, 0))
         TaskRow(newKey(), key, dependencyMap.getOrElse(key, Set.empty), defaultEmployeeMap.getOrElse(key, ""), Formats.duration(minutes))
       },
+      MaterialDrafts.rowsOfCatalog(manufacturing.materials, newKey),
     )
   end fromResponse
 end ManufacturingCatalogForm

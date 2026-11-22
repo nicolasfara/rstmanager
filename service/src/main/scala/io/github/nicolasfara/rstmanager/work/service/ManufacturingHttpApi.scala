@@ -5,9 +5,19 @@ import java.util.UUID
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
-import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ Manufacturing, ManufacturingDependencies, ManufacturingError, ManufacturingId }
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialApp
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialApp.StoredMaterial
+import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{
+  Manufacturing,
+  ManufacturingDependencies,
+  ManufacturingError,
+  ManufacturingId,
+  ManufacturingMaterial,
+}
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingDependencies.*
 import io.github.nicolasfara.rstmanager.work.domain.task.{ Task, TaskId }
+import io.github.nicolasfara.rstmanager.work.service.OrderDtos.MaterialCatalog
 import io.github.nicolasfara.rstmanager.work.service.TaskHttpApi.TaskResponse
 
 import cats.data.ValidatedNec
@@ -54,6 +64,37 @@ object ManufacturingHttpApi:
     val example: TaskDurationOverrideDto =
       TaskDurationOverrideDto(UUID.fromString("00000000-0000-0000-0000-000000000301").nn, 360)
 
+  /**
+   * A warehouse material consumed by **one** unit of the template: `quantity` is a decimal string with at most 3 decimals, in the material's unit of
+   * measure (whole for pieces and packs).
+   */
+  final case class CatalogMaterialDto(materialId: UUID, quantity: String)
+
+  object CatalogMaterialDto:
+    val example: CatalogMaterialDto = CatalogMaterialDto(UUID.fromString("00000000-0000-0000-0000-000000000c01").nn, "2.500")
+
+  /** A material of the template, with the material master data as the warehouse knows it now (none when it is not known). */
+  final case class CatalogMaterialResponse(
+      materialId: UUID,
+      internalCode: Option[String],
+      description: Option[String],
+      unit: Option[String],
+      archived: Boolean,
+      quantity: String,
+  )
+
+  object CatalogMaterialResponse:
+    def fromDomain(material: ManufacturingMaterial, materials: Map[MaterialId, StoredMaterial]): CatalogMaterialResponse =
+      val stored = materials.get(material.materialId)
+      CatalogMaterialResponse(
+        material.materialId.value,
+        stored.map(_.info.internalCode),
+        stored.map(_.info.description),
+        stored.map(_.info.unit.wireName),
+        stored.exists(_.archived),
+        material.quantity.toDecimalString,
+      )
+
   final case class ManufacturingRequest(
       code: String,
       name: String,
@@ -62,21 +103,39 @@ object ManufacturingHttpApi:
       dependencies: List[ManufacturingDependencyDto],
       defaultEmployees: Option[List[TaskDefaultEmployeeDto]] = None,
       taskDurations: Option[List[TaskDurationOverrideDto]] = None,
+      materials: Option[List[CatalogMaterialDto]] = None,
   ):
-    def toDomain(id: UUID): ValidatedNec[String, Manufacturing] =
+    /** The warehouse materials named by the material lines. */
+    def materialIds: List[MaterialId] = materials.getOrElse(Nil).map(line => MaterialId(line.materialId)).distinct
+
+    /**
+     * The template, with its materials checked against the warehouse `catalog` (see [[MaterialCatalog.resolveQuantities]]): a material of the
+     * `current` template may stay archived, a new one must be active. Absent `materials` keep the `current` ones as they are (none on a create); an
+     * empty list clears them.
+     */
+    def toDomain(id: UUID, catalog: MaterialCatalog, current: List[ManufacturingMaterial]): ValidatedNec[String, Manufacturing] =
       val dependencyGraph = dependencies.foldLeft(ManufacturingDependencies()) { (current, dependency) =>
         current.addTaskDependencies(TaskId(dependency.taskId), dependency.dependsOn.map(TaskId(_)).toSet)
       }
-      Manufacturing.createManufacturing(
-        ManufacturingId(id),
-        code,
-        name,
-        description,
-        taskIds.map(TaskId(_)),
-        dependencyGraph,
-        defaultEmployees.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> EmployeeId(entry.employeeId)).toMap,
-        taskDurations.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> entry.minutes).toMap,
-      )
+      val resolvedMaterials = materials.fold(current.validNec[String]) { lines =>
+        catalog
+          .resolveQuantities("materials", lines.map(line => line.materialId -> line.quantity), current.map(_.materialId).toSet)
+          .map(_.map(ManufacturingMaterial.apply))
+      }
+      resolvedMaterials.andThen { lines =>
+        Manufacturing.createManufacturing(
+          ManufacturingId(id),
+          code,
+          name,
+          description,
+          taskIds.map(TaskId(_)),
+          dependencyGraph,
+          defaultEmployees.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> EmployeeId(entry.employeeId)).toMap,
+          taskDurations.getOrElse(Nil).map(entry => TaskId(entry.taskId) -> entry.minutes).toMap,
+          lines,
+        )
+      }
+    end toDomain
   end ManufacturingRequest
 
   object ManufacturingRequest:
@@ -92,6 +151,7 @@ object ManufacturingHttpApi:
         List(ManufacturingDependencyDto.example),
         Some(List(TaskDefaultEmployeeDto.example)),
         Some(List(TaskDurationOverrideDto.example)),
+        Some(List(CatalogMaterialDto.example)),
       )
 
   final case class ManufacturingResponse(
@@ -105,10 +165,11 @@ object ManufacturingHttpApi:
       totalRequiredMinutes: Int,
       defaultEmployees: List[TaskDefaultEmployeeDto] = Nil,
       taskDurations: List[TaskDurationOverrideDto] = Nil,
+      materials: List[CatalogMaterialResponse] = Nil,
   )
 
   object ManufacturingResponse:
-    def fromDomain(manufacturing: Manufacturing, tasks: List[Task]): ManufacturingResponse =
+    def fromDomain(manufacturing: Manufacturing, tasks: List[Task], materials: Map[MaterialId, StoredMaterial]): ManufacturingResponse =
       val taskResponses = tasks.map(TaskResponse.fromDomain)
       // Effective per-task minutes, applying the manufacturing's override where present, falling back to the task-catalog duration.
       val minutesByTask = tasks.map(task => task.id -> manufacturing.durationForTask(task.id, task.requiredDuration).value).toMap
@@ -130,6 +191,7 @@ object ManufacturingHttpApi:
         manufacturing.taskIds.toList.flatMap(taskId =>
           manufacturing.taskDurations.get(taskId).map(duration => TaskDurationOverrideDto(taskId.value, duration.value)),
         ),
+        manufacturing.materials.map(CatalogMaterialResponse.fromDomain(_, materials)),
       )
     end fromDomain
   end ManufacturingResponse
@@ -144,11 +206,15 @@ object ManufacturingHttpApi:
   given Codec[ManufacturingDependencyDto] = deriveCodec
   given Codec[TaskDefaultEmployeeDto] = deriveCodec
   given Codec[TaskDurationOverrideDto] = deriveCodec
+  given Codec[CatalogMaterialDto] = deriveCodec
+  given Codec[CatalogMaterialResponse] = deriveCodec
   given Codec[ManufacturingRequest] = deriveCodec
   given Codec[ManufacturingResponse] = deriveCodec
   given Schema[ManufacturingDependencyDto] = Schema.derived
   given Schema[TaskDefaultEmployeeDto] = Schema.derived
   given Schema[TaskDurationOverrideDto] = Schema.derived
+  given Schema[CatalogMaterialDto] = Schema.derived
+  given Schema[CatalogMaterialResponse] = Schema.derived
   given Schema[ManufacturingRequest] = Schema.derived
   given Schema[ManufacturingResponse] = Schema.derived
 
@@ -189,62 +255,77 @@ object ManufacturingHttpApi:
 
   def endpoints: List[AnyEndpoint] = List(create, list, read, update, delete)
 
-  def routes(store: ManufacturingApp.Store, tasks: TaskApp.Store, security: ApiSecurity): List[ServerEndpoint[Any, IO]] = List(
-    security.secure(create, Role.Admin)(createLogic(store, tasks)),
-    security.secure(list, Role.Viewer)(_ => listLogic(store, tasks)),
-    security.secure(read, Role.Viewer)(readLogic(store, tasks)),
-    security.secure(update, Role.Admin)(updateLogic(store, tasks)),
-    security.secure(delete, Role.Admin)(deleteLogic(store)),
-  )
+  /** The catalog backend plus the tasks and warehouse materials the templates reference. */
+  final case class Catalog(store: ManufacturingApp.Store, tasks: TaskApp.Store, materials: MaterialApp.Store)
 
-  private def createLogic(store: ManufacturingApp.Store, tasks: TaskApp.Store)(
-      request: ManufacturingRequest,
-  ): IO[Either[ApiFailure, ManufacturingResponse]] =
+  def routes(
+      store: ManufacturingApp.Store,
+      tasks: TaskApp.Store,
+      materials: MaterialApp.Store,
+      security: ApiSecurity,
+  ): List[ServerEndpoint[Any, IO]] =
+    val catalog = Catalog(store, tasks, materials)
+    List(
+      security.secure(create, Role.Admin)(createLogic(catalog)),
+      security.secure(list, Role.Viewer)(_ => listLogic(catalog)),
+      security.secure(read, Role.Viewer)(readLogic(catalog)),
+      security.secure(update, Role.Admin)(updateLogic(catalog)),
+      security.secure(delete, Role.Admin)(deleteLogic(store)),
+    )
+
+  private def createLogic(catalog: Catalog)(request: ManufacturingRequest): IO[Either[ApiFailure, ManufacturingResponse]] =
     IO(UUID.randomUUID().nn).flatMap { id =>
-      request.toDomain(id).toEither match
-        case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-        case Right(manufacturing) =>
-          validateTaskIds(tasks, manufacturing.taskIds.toList).flatMap {
-            case Some(failure) => IO.pure(failure.asLeft)
-            case None =>
-              ManufacturingApp.create(store, manufacturing).attempt.flatMap {
-                case Left(error) => IO.pure(ApiError.internal(error).asLeft)
-                case Right(Left(error)) => IO.pure(conflict(error).asLeft)
-                case Right(Right(())) => hydrate(tasks, manufacturing)
-              }
-          }
+      validated(catalog, request, id, Nil) { manufacturing =>
+        ManufacturingApp.create(catalog.store, manufacturing).attempt.flatMap {
+          case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+          case Right(Left(error)) => IO.pure(conflict(error).asLeft)
+          case Right(Right(())) => hydrate(catalog, manufacturing)
+        }
+      }
     }
 
-  private def listLogic(store: ManufacturingApp.Store, tasks: TaskApp.Store): IO[Either[ApiFailure, List[ManufacturingResponse]]] =
-    ManufacturingApp.list(store).attempt.flatMap {
+  private def listLogic(catalog: Catalog): IO[Either[ApiFailure, List[ManufacturingResponse]]] =
+    ManufacturingApp.list(catalog.store).attempt.flatMap {
       case Left(error) => IO.pure(ApiError.internal(error).asLeft)
-      case Right(manufacturings) => manufacturings.traverse(hydrate(tasks, _)).map(_.sequence)
+      case Right(manufacturings) =>
+        loadMaterials(catalog, manufacturings.flatMap(_.materials.map(_.materialId))).flatMap {
+          case Left(failure) => IO.pure(failure.asLeft)
+          case Right(materials) => manufacturings.traverse(hydrateWith(catalog, _, materials)).map(_.sequence)
+        }
     }
 
-  private def readLogic(store: ManufacturingApp.Store, tasks: TaskApp.Store)(id: UUID): IO[Either[ApiFailure, ManufacturingResponse]] =
-    ManufacturingApp.get(store, ManufacturingId(id)).attempt.flatMap {
+  private def readLogic(catalog: Catalog)(id: UUID): IO[Either[ApiFailure, ManufacturingResponse]] =
+    ManufacturingApp.get(catalog.store, ManufacturingId(id)).attempt.flatMap {
       case Left(error) => IO.pure(ApiError.internal(error).asLeft)
-      case Right(Some(manufacturing)) => hydrate(tasks, manufacturing)
+      case Right(Some(manufacturing)) => hydrate(catalog, manufacturing)
       case Right(None) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
     }
 
-  private def updateLogic(
-      store: ManufacturingApp.Store,
-      tasks: TaskApp.Store,
-  )(id: UUID, request: ManufacturingRequest): IO[Either[ApiFailure, ManufacturingResponse]] =
-    request.toDomain(id).toEither match
-      case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
-      case Right(manufacturing) =>
-        validateTaskIds(tasks, manufacturing.taskIds.toList).flatMap {
-          case Some(failure) => IO.pure(failure.asLeft)
-          case None =>
-            ManufacturingApp.update(store, manufacturing).attempt.flatMap {
-              case Left(error) => IO.pure(ApiError.internal(error).asLeft)
-              case Right(Left(ManufacturingError.ManufacturingNotFound)) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
-              case Right(Left(error)) => IO.pure(conflict(error).asLeft)
-              case Right(Right(())) => hydrate(tasks, manufacturing)
-            }
+  /** Replaces the template; materials it already has may stay archived (see [[ManufacturingRequest.toDomain]]). */
+  private def updateLogic(catalog: Catalog)(id: UUID, request: ManufacturingRequest): IO[Either[ApiFailure, ManufacturingResponse]] =
+    updateExisting(id, ManufacturingApp.get(catalog.store, ManufacturingId(id))) { current =>
+      validated(catalog, request, id, current.materials) { manufacturing =>
+        ManufacturingApp.update(catalog.store, manufacturing).attempt.flatMap {
+          case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+          case Right(Left(ManufacturingError.ManufacturingNotFound)) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
+          case Right(Left(error)) => IO.pure(conflict(error).asLeft)
+          case Right(Right(())) => hydrate(catalog, manufacturing)
         }
+      }
+    }
+
+  /**
+   * Runs `replace` on the stored template `id` read by `load`: a missing template is a 404 at once, before the request is validated (so an unknown or
+   * archived material in it never turns the 404 into a 400), and a failing read a 500.
+   */
+  private[service] def updateExisting[R](id: UUID, load: IO[Option[Manufacturing]])(
+      replace: Manufacturing => IO[Either[ApiFailure, R]],
+  ): IO[Either[ApiFailure, R]] =
+    load.attempt.flatMap {
+      case Left(error) => IO.pure(ApiError.internal(error).asLeft)
+      case Right(None) => IO.pure(ApiError.notFound("Manufacturing", id.toString).asLeft)
+      case Right(Some(current)) => replace(current)
+    }
 
   private def deleteLogic(store: ManufacturingApp.Store)(id: UUID): IO[Either[ApiFailure, Unit]] =
     ManufacturingApp.delete(store, ManufacturingId(id)).attempt.map {
@@ -254,12 +335,43 @@ object ManufacturingHttpApi:
       case Right(Right(())) => ().asRight
     }
 
-  private def hydrate(tasks: TaskApp.Store, manufacturing: Manufacturing): IO[Either[ApiFailure, ManufacturingResponse]] =
+  /** Runs `body` with the template of `request`, once its fields, its materials (against the warehouse) and its task ids are valid. */
+  private def validated(catalog: Catalog, request: ManufacturingRequest, id: UUID, current: List[ManufacturingMaterial])(
+      body: Manufacturing => IO[Either[ApiFailure, ManufacturingResponse]],
+  ): IO[Either[ApiFailure, ManufacturingResponse]] =
+    loadMaterials(catalog, request.materialIds).flatMap {
+      case Left(failure) => IO.pure(failure.asLeft)
+      case Right(materials) =>
+        request.toDomain(id, MaterialCatalog(materials), current).toEither match
+          case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
+          case Right(manufacturing) =>
+            validateTaskIds(catalog.tasks, manufacturing.taskIds.toList).flatMap {
+              case Some(failure) => IO.pure(failure.asLeft)
+              case None => body(manufacturing)
+            }
+    }
+
+  /** The warehouse materials with these ids, active or archived; ids of unknown materials are left out. */
+  private def loadMaterials(catalog: Catalog, ids: List[MaterialId]): IO[Either[ApiFailure, Map[MaterialId, StoredMaterial]]] =
+    if ids.isEmpty then IO.pure(Map.empty.asRight)
+    else MaterialApp.findMany(catalog.materials, ids.distinct).attempt.map(_.leftMap(ApiError.internal))
+
+  private def hydrate(catalog: Catalog, manufacturing: Manufacturing): IO[Either[ApiFailure, ManufacturingResponse]] =
+    loadMaterials(catalog, manufacturing.materials.map(_.materialId)).flatMap {
+      case Left(failure) => IO.pure(failure.asLeft)
+      case Right(materials) => hydrateWith(catalog, manufacturing, materials)
+    }
+
+  private def hydrateWith(
+      catalog: Catalog,
+      manufacturing: Manufacturing,
+      materials: Map[MaterialId, StoredMaterial],
+  ): IO[Either[ApiFailure, ManufacturingResponse]] =
     val ids = manufacturing.taskIds.toList
-    TaskApp.getMany(tasks, ids).map(found => ids.map(id => id -> found.get(id))).map { pairs =>
+    TaskApp.getMany(catalog.tasks, ids).map(found => ids.map(id => id -> found.get(id))).map { pairs =>
       val missing = pairs.collect { case (id, None) => id }
       if missing.nonEmpty then ApiError.notFound("Task", missing.mkString(", ")).asLeft
-      else ManufacturingResponse.fromDomain(manufacturing, pairs.collect { case (_, Some(task)) => task }).asRight
+      else ManufacturingResponse.fromDomain(manufacturing, pairs.collect { case (_, Some(task)) => task }, materials).asRight
     }
 
   private def validateTaskIds(tasks: TaskApp.Store, taskIds: List[TaskId]): IO[Option[ApiFailure]] =

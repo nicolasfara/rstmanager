@@ -4,6 +4,8 @@ import java.time.Instant
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+import io.github.nicolasfara.rstmanager.warehouse.domain.Quantity
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingAggregate.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingError.*
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingService.Command
@@ -25,6 +27,9 @@ class ManufacturingTest extends AnyFlatSpecLike:
 
   private val dependencies = ManufacturingDependencies().addTaskDependencies(assembly, Set(cutting))
 
+  private val profile = MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000c01").nn)
+  private val glass = MaterialId(UUID.fromString("00000000-0000-0000-0000-000000000c02").nn)
+
   private def validManufacturing(): Manufacturing =
     Manufacturing
       .createManufacturing(
@@ -36,6 +41,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
         dependencies,
         Map.empty,
         Map.empty,
+        Nil,
       )
       .toEither
       .toOption
@@ -56,7 +62,17 @@ class ManufacturingTest extends AnyFlatSpecLike:
   "Manufacturing.createManufacturing" should "accept a valid non-empty task composition with dependencies" in:
     val result =
       Manufacturing
-        .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), dependencies, Map.empty, Map.empty)
+        .createManufacturing(
+          manufacturingId,
+          "MFG-TEST",
+          "Serramento standard",
+          None,
+          List(cutting, assembly),
+          dependencies,
+          Map.empty,
+          Map.empty,
+          Nil,
+        )
 
     result.isValid shouldEqual true
     result.foreach { manufacturing =>
@@ -67,7 +83,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
 
   it should "reject an empty task composition" in:
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies(), Map.empty, Map.empty)
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, Nil, ManufacturingDependencies(), Map.empty, Map.empty, Nil)
       .isValid shouldEqual false
 
   it should "reject duplicate task ids" in:
@@ -81,6 +97,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
         ManufacturingDependencies(),
         Map.empty,
         Map.empty,
+        Nil,
       )
       .isValid shouldEqual false
 
@@ -88,7 +105,17 @@ class ManufacturingTest extends AnyFlatSpecLike:
     val outsideDependency = ManufacturingDependencies().addTaskDependencies(assembly, Set(finishing))
 
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), outsideDependency, Map.empty, Map.empty)
+      .createManufacturing(
+        manufacturingId,
+        "MFG-TEST",
+        "Serramento standard",
+        None,
+        List(cutting, assembly),
+        outsideDependency,
+        Map.empty,
+        Map.empty,
+        Nil,
+      )
       .isValid shouldEqual false
 
   it should "accept default employees referencing tasks of the composition" in:
@@ -102,6 +129,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
       dependencies,
       Map(cutting -> employee),
       Map.empty,
+      Nil,
     )
 
     result.isValid shouldEqual true
@@ -120,6 +148,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
         dependencies,
         Map(finishing -> employee),
         Map.empty,
+        Nil,
       )
       .isValid shouldEqual false
 
@@ -133,6 +162,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
       dependencies,
       Map.empty,
       Map(cutting -> 12),
+      Nil,
     )
 
     result.isValid shouldEqual true
@@ -153,6 +183,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
         dependencies,
         Map.empty,
         Map(finishing -> 8),
+        Nil,
       )
       .isValid shouldEqual false
 
@@ -167,6 +198,7 @@ class ManufacturingTest extends AnyFlatSpecLike:
         dependencies,
         Map.empty,
         Map(cutting -> -1),
+        Nil,
       )
       .isValid shouldEqual false
 
@@ -176,8 +208,38 @@ class ManufacturingTest extends AnyFlatSpecLike:
       .addTaskDependencies(assembly, Set(cutting))
 
     Manufacturing
-      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle, Map.empty, Map.empty)
+      .createManufacturing(manufacturingId, "MFG-TEST", "Serramento standard", None, List(cutting, assembly), cycle, Map.empty, Map.empty, Nil)
       .isValid shouldEqual false
+
+  private def withMaterials(materials: List[ManufacturingMaterial]) =
+    Manufacturing.createManufacturing(
+      manufacturingId,
+      "MFG-TEST",
+      "Serramento standard",
+      None,
+      List(cutting, assembly),
+      dependencies,
+      Map.empty,
+      Map.empty,
+      materials,
+    )
+
+  it should "accept distinct materials with positive quantities per unit" in:
+    val materials = List(ManufacturingMaterial(profile, Quantity(2500L)), ManufacturingMaterial(glass, Quantity(1000L)))
+    withMaterials(materials).toOption.map(_.materials) shouldEqual Some(materials)
+
+  it should "reject a material listed twice and a zero quantity, reporting both" in:
+    val result = withMaterials(
+      List(
+        ManufacturingMaterial(profile, Quantity(1000L)),
+        ManufacturingMaterial(profile, Quantity(2000L)),
+        ManufacturingMaterial(glass, Quantity.zero),
+      ),
+    )
+    result.fold(_.toChain.toList, _ => Nil) shouldEqual List(
+      s"Materials must appear in one line only (with the total quantity per unit): ${profile.value}",
+      s"Material quantities must be positive: ${glass.value}",
+    )
 
   "ManufacturingService" should "create a catalog manufacturing through the event-sourced service" in:
     val manufacturing = validManufacturing()

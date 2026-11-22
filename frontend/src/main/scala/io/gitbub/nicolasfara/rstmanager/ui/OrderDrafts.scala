@@ -2,6 +2,7 @@ package io.gitbub.nicolasfara.rstmanager.ui
 
 import java.util.UUID
 
+import scala.math.BigDecimal.RoundingMode
 import scala.util.Try
 
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
@@ -15,11 +16,11 @@ import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
 object OrderDrafts:
 
   /** Immutable state of one task draft in the create form. `dependsOn` holds template-task id strings. */
-  final case class TaskState(taskId: String, hours: String, dependsOn: Set[String], employeeId: String)
+  final case class TaskState(taskId: String, hours: String, dependsOn: Set[String], employeeId: String) derives CanEqual
 
   /**
    * Immutable state of the non-list fields of a manufacturing draft. `taskEmployees` holds, for catalog mode, the per-task preferred employee
-   * (template-task id -> employee id). `dependsOn` holds sibling draft key strings.
+   * (template-task id -> employee id). `dependsOn` holds sibling draft key strings. `quantity` is the typed multiplier ×N (see [[quantityOf]]).
    */
   final case class MfgCoreState(
       mode: String,
@@ -30,6 +31,7 @@ object OrderDrafts:
       employeeId: String,
       dependsOn: Set[String],
       taskEmployees: Map[String, String],
+      quantity: String = "1",
   )
 
   /**
@@ -43,6 +45,62 @@ object OrderDrafts:
   /** Trims free text and collapses blank strings to `None` (an empty value clears the field). */
   private def normalizeStr(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)
 
+  // ---- Multiplier ×N -----------------------------------------------------------------------------
+
+  /** Largest multiplier ×N the server accepts. */
+  val maxQuantity: Int = 999
+
+  /** The multiplier typed in `text`: a whole number from 1 to [[maxQuantity]]; `None` otherwise. */
+  def parseQuantity(text: String): Option[Int] = text.trim.nn.toIntOption.filter(n => n >= 1 && n <= maxQuantity)
+
+  /** The multiplier of a draft, 1 while the typed one is not valid (the draft is then blocked by [[manufacturingIssues]]). */
+  def quantityOf(core: MfgCoreState): Int = parseQuantity(core.quantity).getOrElse(1)
+
+  /**
+   * The material rows of a draft once the catalog template `template` is picked with multiplier `times` (`None`: the draft leaves catalog mode): the
+   * lines the user added or touched (material, quantity or price) stay, the untouched ones prefilled from a previous template go, and each per-unit
+   * material of the template not already in a kept row is added as `quantity × times` (without price: the current customer price is frozen on save).
+   * Archived or unknown materials of the template are not prefilled (see [[unavailableCatalogMaterials]]).
+   */
+  def withCatalogMaterials(
+      rows: List[MaterialDrafts.Row],
+      template: Option[ManufacturingCatalogResponse],
+      times: Int,
+      newKey: () => Int,
+  ): List[MaterialDrafts.Row] =
+    val kept = rows.filter(row => !row.isUntouchedPrefill && !MaterialDrafts.isBlank(row))
+    val keptIds = kept.map(_.materialId.trim.nn).toSet
+    val prefilled = template.toList.flatMap(_.materials).filter(line => isPrefillable(line) && !keptIds.contains(line.materialId.toString)).map {
+      line => MaterialDrafts.scaledRow(newKey(), line.materialId.toString, line.quantity, times)
+    }
+    kept ++ prefilled
+
+  /**
+   * The material rows of a draft switched to `mode`: leaving catalog mode drops the untouched lines prefilled from the template; entering it
+   * (re)applies the selected `template` × `times` (see [[withCatalogMaterials]]).
+   */
+  def materialsForMode(
+      rows: List[MaterialDrafts.Row],
+      mode: String,
+      template: Option[ManufacturingCatalogResponse],
+      times: Int,
+      newKey: () => Int,
+  ): List[MaterialDrafts.Row] =
+    withCatalogMaterials(rows, if mode == "catalog" then template else None, times, newKey)
+
+  private def isPrefillable(line: CatalogMaterialResponse): Boolean = !line.archived && line.internalCode.isDefined
+
+  /** The per-unit materials of a template that are not prefilled into an order because they are archived or no longer in the warehouse. */
+  def unavailableCatalogMaterials(template: ManufacturingCatalogResponse): List[CatalogMaterialResponse] =
+    template.materials.filterNot(isPrefillable)
+
+  /**
+   * A custom task row once the multiplier is `times`: a duration that still follows the picked task (not `edited`) becomes the task-catalog
+   * `catalogMinutes × times`; an edited one is kept as typed.
+   */
+  def followTask(state: TaskState, edited: Boolean, catalogMinutes: Option[Int], times: Int): TaskState =
+    if edited then state else catalogMinutes.fold(state)(minutes => state.copy(hours = Formats.duration(minutes * times)))
+
   /**
    * The template tasks with their effective duration (minutes): the per-task override configured on the catalog template, else the task-catalog
    * duration. Shared by [[fromCatalog]] and the totals, so the preview always matches what is sent.
@@ -51,12 +109,26 @@ object OrderDrafts:
     val durationOverride = template.taskDurations.map(entry => entry.taskId -> entry.minutes).toMap
     template.tasks.map(task => task -> durationOverride.getOrElse(task.id, task.requiredMinutes))
 
-  /** Builds a manufacturing from a catalog template, prefilling tasks/dependencies and the per-task employees. */
+  /** Builds a manufacturing done once from a catalog template (see the overload with the multiplier). */
   def fromCatalog(
       template: ManufacturingCatalogResponse,
       completionDate: String,
       employeeId: String,
       taskEmployees: Map[String, String],
+      newId: () => UUID,
+  ): ManufacturingDto =
+    fromCatalog(template, completionDate, employeeId, taskEmployees, 1, newId)
+
+  /**
+   * Builds a manufacturing from a catalog template, prefilling tasks/dependencies and the per-task employees. The task minutes are the effective
+   * durations × `times` (the server never rescales them) and `quantity` carries the multiplier.
+   */
+  def fromCatalog(
+      template: ManufacturingCatalogResponse,
+      completionDate: String,
+      employeeId: String,
+      taskEmployees: Map[String, String],
+      times: Int,
       newId: () => UUID,
   ): ManufacturingDto =
     ManufacturingDto(
@@ -68,7 +140,7 @@ object OrderDrafts:
           newId(),
           task.id,
           "pending",
-          minutes,
+          minutes * times,
           Some(0),
           None,
           taskEmployees.get(task.id.toString).flatMap(parseUuid),
@@ -81,12 +153,14 @@ object OrderDrafts:
       None,
       template.description,
       parseUuid(employeeId),
+      None,
+      Some(times),
     )
   end fromCatalog
 
   /**
    * Builds a manufacturing from a custom draft: only tasks with a valid id survive, and dependencies are kept only between tasks that made it into
-   * the manufacturing (self-edges dropped).
+   * the manufacturing (self-edges dropped). The durations are sent as shown (already the totals for the multiplier, see [[followTask]]).
    */
   def fromCustom(core: MfgCoreState, tasks: List[TaskState], completionDate: String, newId: () => UUID): ManufacturingDto =
     val scheduled = tasks.flatMap { ts =>
@@ -113,6 +187,8 @@ object OrderDrafts:
       None,
       normalizeStr(core.description),
       parseUuid(core.employeeId),
+      None,
+      Some(quantityOf(core)),
     )
   end fromCustom
 
@@ -142,7 +218,7 @@ object OrderDrafts:
       if core.mode == "catalog" then
         catalog(core.catalogId)
           .toRight(ApiError("invalid-form", "Seleziona una lavorazione a catalogo valida.", Nil))
-          .map(template => fromCatalog(template, completionDate, core.employeeId, core.taskEmployees, newId))
+          .map(template => fromCatalog(template, completionDate, core.employeeId, core.taskEmployees, quantityOf(core), newId))
       else Right(fromCustom(core, snapshot.tasks, completionDate, newId))
     manufacturing.flatMap(withMaterials(_, snapshot.materials, materials))
 
@@ -286,7 +362,7 @@ object OrderDrafts:
 
   /** Manufacturing-level fields that can carry an issue. */
   enum MfgField derives CanEqual:
-    case Catalog, Code, Tasks, Materials
+    case Catalog, Code, Quantity, Tasks, Materials
 
   /** Fields of a custom manufacturing's task row that can carry an issue. */
   enum TaskField derives CanEqual:
@@ -319,7 +395,7 @@ object OrderDrafts:
   /**
    * The issues of the manufacturing at 0-based `index`: a catalog one needs a resolvable template; a custom one a code, at least one task, and per
    * task row a selected task (not repeated in the same manufacturing), a readable duration (0 allowed). Then the material line messages, suppressed
-   * while `materials` is still empty (not loaded yet) although lines were entered.
+   * while `materials` is still empty (not loaded yet) although lines were entered. Both modes need a multiplier ×N from 1 to [[maxQuantity]].
    */
   def manufacturingIssues(
       snapshot: MfgSnapshot,
@@ -356,6 +432,9 @@ object OrderDrafts:
           taskIssue.toList ++ durationIssue
         }
         code ++ noTasks ++ rows
+    val quantity = Option
+      .when(parseQuantity(core.quantity).isEmpty)(at(MfgField.Quantity, s"quantità non valida: indica un numero intero da 1 a $maxQuantity"))
+      .toList
     val loading = materials.materials.isEmpty && snapshot.materials.exists(row => !MaterialDrafts.isBlank(row))
     val materialIssues =
       if loading then Nil
@@ -363,7 +442,7 @@ object OrderDrafts:
         MaterialDrafts
           .errors(snapshot.materials, materials)
           .map(message => Issue(IssueTarget.Manufacturing(key, MfgField.Materials), s"$prefix, materiali — $message"))
-    structural ++ materialIssues
+    structural ++ quantity ++ materialIssues
   end manufacturingIssues
 
   /** Every issue of the draft, in display order: header, then the missing-manufacturings one, then each manufacturing in sequence. */
@@ -384,15 +463,15 @@ object OrderDrafts:
   final case class MfgTotals(tasks: Int, minutes: Int, materialsCost: String) derives CanEqual
 
   /**
-   * Totals of one manufacturing draft: a catalog one counts the template tasks with their effective (overridden) durations, nothing while the
-   * template is unresolved; a custom one counts the rows with a selected task and their readable durations.
+   * Totals of one manufacturing draft: a catalog one counts the template tasks with their effective (overridden) durations × N, nothing while the
+   * template is unresolved; a custom one counts the rows with a selected task and their readable durations (already the totals for N).
    */
   def mfgTotals(snapshot: MfgSnapshot, catalog: String => Option[ManufacturingCatalogResponse], materials: MaterialDrafts.Context): MfgTotals =
     val (tasks, minutes) =
       if snapshot.core.mode == "catalog" then
         catalog(snapshot.core.catalogId).fold((0, 0)) { template =>
           val durations = catalogMinutes(template).map(_._2)
-          (durations.size, durations.sum)
+          (durations.size, durations.sum * quantityOf(snapshot.core))
         }
       else
         val selected = snapshot.tasks.filter(task => parseUuid(task.taskId.trim.nn).isDefined)
@@ -407,4 +486,54 @@ object OrderDrafts:
   ): MfgTotals =
     val each = snapshots.map(mfgTotals(_, catalog, materials))
     MfgTotals(each.map(_.tasks).sum, each.map(_.minutes).sum, MaterialDrafts.totalCost(snapshots.flatMap(_.materials), materials))
+
+  // ---- Stock warnings ----------------------------------------------------------------------------
+
+  /**
+   * A material the draft lines need more of than is available (stock minus what the other open orders commit): `required` is the total of the lines,
+   * `missing` what has to be ordered (all of `required` when `available` is not positive). Quantities are canonical (3 decimals).
+   */
+  final case class StockWarning(
+      materialId: UUID,
+      internalCode: String,
+      unit: String,
+      available: String,
+      required: String,
+      missing: String,
+  ) derives CanEqual
+
+  private def canonical(value: BigDecimal): String = value.setScale(MaterialDrafts.quantityScale, RoundingMode.HALF_UP).bigDecimal.toPlainString.nn
+
+  /**
+   * The non-blocking stock warnings of `rows` (every line of the draft, across all its manufacturings, since the same material may appear in
+   * several): the readable quantities are summed per material and compared with its `available` figure in `requirements`. A material missing from
+   * `requirements` (not loaded yet, unknown) gets no warning.
+   */
+  def stockWarnings(rows: List[MaterialDrafts.Row], requirements: List[MaterialRequirementResponse]): Map[UUID, StockWarning] =
+    val demand = rows
+      .filterNot(MaterialDrafts.isBlank)
+      .flatMap(row => parseUuid(row.materialId.trim.nn).zip(WarehouseFormats.parseDecimal(row.quantity, MaterialDrafts.quantityScale)))
+      .groupMapReduce(_._1)((_, quantity) => BigDecimal(quantity))(_ + _)
+    requirements.flatMap { requirement =>
+      for
+        required <- demand.get(requirement.materialId)
+        available <- Try(BigDecimal(requirement.available)).toOption
+        if required.signum > 0 && required > available
+      yield
+        val missing = required.min(required - available)
+        requirement.materialId -> StockWarning(
+          requirement.materialId,
+          requirement.internalCode,
+          requirement.unit,
+          canonical(available),
+          canonical(required),
+          canonical(missing),
+        )
+    }.toMap
+  end stockWarnings
+
+  /** Italian text of a warning: "Disponibili X {unità}, richiesti Y: mancano Z — da ordinare". */
+  def stockWarningText(warning: StockWarning): String =
+    def qty(value: String): String = WarehouseFormats.formatQty(value, warning.unit)
+    s"Disponibili ${qty(warning.available)}, richiesti ${qty(warning.required)}: mancano ${qty(warning.missing)} — da ordinare"
 end OrderDrafts

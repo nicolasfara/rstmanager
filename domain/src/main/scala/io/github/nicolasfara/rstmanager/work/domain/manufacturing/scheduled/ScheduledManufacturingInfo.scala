@@ -10,6 +10,7 @@ import io.github.nicolasfara.rstmanager.work.domain.task.scheduled.{ ScheduledTa
 import cats.data.NonEmptyList
 import com.github.nscala_time.time.Imports.DateTime
 import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 
 /** Unique identifier of a manufacturing scheduled inside an order: a distinct type, so it cannot be mixed up with the other identifiers. */
 opaque type ScheduledManufacturingId = UUID
@@ -23,6 +24,12 @@ object ScheduledManufacturingId:
     def value: UUID = id
 
   given CanEqual[ScheduledManufacturingId, ScheduledManufacturingId] = CanEqual.derived
+
+/**
+ * Refined constraint for how many times a manufacturing is executed inside an order (its multiplier ×N): `1` to `999`. The upper bound keeps the
+ * scaled task minutes and material quantities far from overflowing.
+ */
+type ManufacturingQuantity = DescribedAs[GreaterEqual[1] & LessEqual[999], "La quantità della lavorazione deve essere compresa fra 1 e 999"]
 
 /**
  * Data shared by all scheduled manufacturing states.
@@ -45,6 +52,9 @@ object ScheduledManufacturingId:
  *   Preferred employee for individual scheduled tasks (keyed by scheduled task instance id); takes precedence over `preferredEmployeeId`.
  * @param materials
  *   Warehouse materials the manufacturing uses, at most one line per material, each with its frozen customer price.
+ * @param quantity
+ *   How many times the manufacturing is executed (×N). It is informative only: the task durations and the material quantities are already the totals
+ *   for the N units (scaled by whoever builds the request), so it is never multiplied again.
  */
 final case class ScheduledManufacturingInfo(
     id: ScheduledManufacturingId,
@@ -56,6 +66,7 @@ final case class ScheduledManufacturingInfo(
     preferredEmployeeId: Option[EmployeeId] = None,
     taskPreferredEmployees: Map[ScheduledTaskId, EmployeeId] = Map.empty,
     materials: List[ScheduledMaterial] = Nil,
+    quantity: Int :| ManufacturingQuantity = 1,
 ):
   /** Planner-effective preferred employee for one scheduled task: its own preference, falling back to the manufacturing-wide one. */
   def preferredEmployeeForTask(taskId: ScheduledTaskId): Option[EmployeeId] =

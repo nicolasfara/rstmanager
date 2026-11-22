@@ -115,6 +115,13 @@ object PlanningPage:
     val employeesData = loadable(AppBus.employeesTicks)(() => ApiClient.listEmployees())
     val customersData = loadable(AppBus.customersTicks)(() => ApiClient.listCustomers())
     val tasksData = loadable(AppBus.tasksTicks)(() => ApiClient.listTasks())
+    // Material requirements of the open orders: they change with the orders (demand) and with the warehouse (stock, consumption of completed work).
+    val requirementsData =
+      loadable(AppBus.ordersTicks.combineWith(AppBus.warehouseTicks))(() => ApiClient.materialRequirements(None))
+    val shortagesBySlice: Signal[Map[(UUID, UUID), List[MaterialShortages.SliceShortage]]] = requirementsData.map {
+      case Some(Right(response)) => MaterialShortages.bySlice(response)
+      case _ => Map.empty
+    }
     val closuresList: Signal[List[ClosureResponse]] = loadable(AppBus.calendarTicks)(() => ApiClient.listClosures()).map {
       case Some(Right(list)) => list
       case _ => Nil
@@ -349,6 +356,28 @@ object PlanningPage:
       )
 
     // ---- Board -----------------------------------------------------------------------------------
+    /** The "material to order" cart icon of a slice short of material, `label` naming the materials and what is missing. */
+    def cartIcon(label: String): HtmlElement =
+      span(
+        cls := "inline-flex shrink-0 items-center rounded-full bg-amber-100 p-0.5 text-amber-700",
+        role := "img",
+        title := label,
+        aria.label := label,
+        svg.svg(
+          svg.cls := "h-3.5 w-3.5",
+          svg.viewBox := "0 0 24 24",
+          svg.fill := "none",
+          svg.stroke := "currentColor",
+          svg.strokeWidth := "2",
+          svg.strokeLineCap := "round",
+          svg.strokeLineJoin := "round",
+          aria.hidden := true,
+          svg.circle(svg.cx := "9", svg.cy := "20", svg.r := "1.5"),
+          svg.circle(svg.cx := "18", svg.cy := "20", svg.r := "1.5"),
+          svg.path(svg.d := "M2 3h3l2.7 12.1a1 1 0 0 0 1 .9h9.6a1 1 0 0 0 1-.8L21 7H6"),
+        ),
+      )
+
     def sliceCard(slice: ScheduledTaskSliceDto): HtmlElement =
       // Urgency (card colour + badge) derived from the slice day vs its manufacturing deadline.
       val urgency: Signal[Urgency] =
@@ -386,7 +415,11 @@ object PlanningPage:
         cls <-- urgency.map(_.cardCls),
         role := "button",
         tabIndex := 0,
-        aria.label <-- manufacturingCode.combineWith(taskName).map((code, task) => s"Lavorazione $code, task $task: aggiorna avanzamento"),
+        // The cart icon inside is not read out (the label replaces the content), so the shortage is part of the label.
+        aria.label <-- manufacturingCode.combineWith(taskName, shortagesBySlice.map(_.get((slice.orderId, slice.manufacturingId)))).map {
+          (code, task, shortages) =>
+            s"Lavorazione $code, task $task: aggiorna avanzamento" + shortages.fold("")(list => s". ${MaterialShortages.sliceTitle(list)}")
+        },
         onClick.compose(_.sample(editAndPref)) --> openSlice,
         onKeyDown.filter(e => e.key == "Enter" || e.key == " ").preventDefault.compose(_.sample(editAndPref)) --> openSlice,
         // Order number (context) + urgency badge vs the manufacturing deadline
@@ -396,10 +429,16 @@ object PlanningPage:
             cls := "truncate text-[11px] font-medium uppercase tracking-wide text-slate-500",
             child.text <-- orderNames.map(names => s"Ordine ${names.getOrElse(slice.orderId, Formats.shortId(slice.orderId))}"),
           ),
-          child <-- urgency.map { u =>
-            if u.label.isEmpty then emptyNode
-            else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", title <-- deadlineHint, u.label)
-          },
+          span(
+            cls := "flex shrink-0 items-center gap-1",
+            child.maybe <-- shortagesBySlice.map(
+              _.get((slice.orderId, slice.manufacturingId)).map(list => cartIcon(MaterialShortages.sliceTitle(list))),
+            ),
+            child <-- urgency.map { u =>
+              if u.label.isEmpty then emptyNode
+              else span(cls := s"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${u.labelCls}", title <-- deadlineHint, u.label)
+            },
+          ),
         ),
         // Customer of the order, on its own line so it is never cut off
         child.maybe <-- customerName.map(
@@ -906,6 +945,15 @@ object PlanningPage:
         cls := "grid gap-3 md:grid-cols-2",
         panel("Task non pianificabili", unplannedItems, "text-rose-600"),
         panel("Avvisi", warnings.map(_.message), "text-slate-500"),
+        child <-- requirementsData.map {
+          case Some(Right(response)) =>
+            panel(
+              "Materiali da ordinare",
+              MaterialShortages.toOrder(response).map(MaterialShortages.toOrderText) ++ MaterialShortages.unknownTexts(response),
+              "text-amber-700",
+            )
+          case _ => emptyNode
+        },
       )
 
     // ---- Order simulator ---------------------------------------------------------------------------

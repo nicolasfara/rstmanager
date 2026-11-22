@@ -3,6 +3,8 @@ package io.github.nicolasfara.rstmanager.work.domain.manufacturing
 import java.util.UUID
 
 import io.github.nicolasfara.rstmanager.hr.domain.EmployeeId
+import io.github.nicolasfara.rstmanager.warehouse.domain.Quantity
+import io.github.nicolasfara.rstmanager.warehouse.domain.material.MaterialId
 import io.github.nicolasfara.rstmanager.work.domain.task.{ TaskDuration, TaskId }
 
 import cats.data.*
@@ -35,6 +37,16 @@ type ManufacturingName = DescribedAs[Not[Empty], "The manufacturing name cannot 
 type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing description, if provided, cannot be empty"]
 
 /**
+ * A warehouse material a catalog manufacturing consumes for **one** unit of work: scheduling it ×N inside an order proposes `N × quantity`.
+ *
+ * @param materialId
+ *   Warehouse material consumed.
+ * @param quantity
+ *   Amount used by one unit, in thousandths of the material's unit of measure; [[Manufacturing.createManufacturing]] requires it to be positive.
+ */
+final case class ManufacturingMaterial(materialId: MaterialId, quantity: Quantity) derives CanEqual
+
+/**
  * Manufacturing catalog template composed of live references to catalog tasks.
  *
  * @param id
@@ -54,6 +66,9 @@ type ManufacturingDescription = DescribedAs[Not[Empty], "The manufacturing descr
  * @param taskDurations
  *   Per-task override of the effort (in minutes) proposed when the manufacturing is scheduled inside an order; a task without an entry falls back to
  *   the duration declared in the task catalog. Keys must reference `taskIds`.
+ * @param materials
+ *   Warehouse materials consumed by one unit of the manufacturing, at most one line per material, each with a positive quantity. Whether the
+ *   materials exist in the warehouse is checked by the service.
  */
 final case class Manufacturing(
     id: ManufacturingId,
@@ -64,6 +79,7 @@ final case class Manufacturing(
     dependencies: ManufacturingDependencies,
     defaultEmployees: Map[TaskId, EmployeeId] = Map.empty,
     taskDurations: Map[TaskId, TaskDuration] = Map.empty,
+    materials: List[ManufacturingMaterial] = Nil,
 ):
   /** Expected effort (minutes) for one task: the catalog override if present, otherwise the task's own required duration from the task catalog. */
   def durationForTask(taskId: TaskId, catalogDuration: TaskDuration): TaskDuration = taskDurations.getOrElse(taskId, catalogDuration)
@@ -79,6 +95,7 @@ object Manufacturing:
       dependencies: ManufacturingDependencies,
       defaultEmployees: Map[TaskId, EmployeeId],
       taskDurations: Map[TaskId, Int],
+      materials: List[ManufacturingMaterial],
   ): ValidatedNec[String, Manufacturing] =
     (
       Validated.validNec(id),
@@ -89,7 +106,8 @@ object Manufacturing:
       validateDependencies(taskIds, dependencies),
       validateDefaultEmployees(taskIds, defaultEmployees),
       validateTaskDurations(taskIds, taskDurations),
-    ).mapN(Manufacturing(_, _, _, _, _, _, _, _))
+      validateMaterials(materials),
+    ).mapN(Manufacturing(_, _, _, _, _, _, _, _, _))
 
   private def validateTaskIds(taskIds: List[TaskId]): ValidatedNec[String, NonEmptyList[TaskId]] =
     val duplicateIds = taskIds.groupBy(identity).collect { case (id, ids) if ids.size > 1 => id }.toList
@@ -127,4 +145,14 @@ object Manufacturing:
       else s"Task duration overrides reference task ids that are not part of this manufacturing: ${outside.mkString(", ")}".invalidNec
     val refined = taskDurations.toList.traverse { case (taskId, minutes) => TaskDuration.validatedNec(minutes).map(taskId -> _) }.map(_.toMap)
     (membership, refined).mapN((_, durationMap) => durationMap)
+
+  /** Each material appears in one line only (its quantity is the total per unit) and every quantity is positive. */
+  private def validateMaterials(materials: List[ManufacturingMaterial]): ValidatedNec[String, List[ManufacturingMaterial]] =
+    val repeated = materials.groupBy(_.materialId).collect { case (id, lines) if lines.size > 1 => id.value.toString }.toList.sorted
+    val zero = materials.filter(_.quantity.value <= 0L).map(_.materialId.value.toString).distinct.sorted
+    (
+      if repeated.isEmpty then ().validNec
+      else s"Materials must appear in one line only (with the total quantity per unit): ${repeated.mkString(", ")}".invalidNec,
+      if zero.isEmpty then ().validNec else s"Material quantities must be positive: ${zero.mkString(", ")}".invalidNec,
+    ).mapN((_, _) => materials)
 end Manufacturing

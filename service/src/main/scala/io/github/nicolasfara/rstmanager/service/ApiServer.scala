@@ -9,6 +9,7 @@ import io.github.nicolasfara.rstmanager.warehouse.service.{
   DeliveryNoteHttpApi,
   MaterialApp,
   MaterialHttpApi,
+  MaterialRequirementsHttpApi,
   StockHttpApi,
   SupplierApp,
   SupplierHttpApi,
@@ -45,12 +46,13 @@ object ApiServer:
         CompanyCalendarHttpApi.routes(calendar, security) ++
         CustomerHttpApi.routes(customers, security) ++
         TaskHttpApi.routes(tasks, manufacturings, security) ++
-        ManufacturingHttpApi.routes(manufacturings, tasks, security) ++
+        ManufacturingHttpApi.routes(manufacturings, tasks, materials, security) ++
         OrderHttpApi.routes(orders, customers, tasks, employees, materials, security) ++
         SupplierHttpApi.routes(suppliers, materials, security) ++
         MaterialHttpApi.routes(materials, suppliers, security) ++
         StockHttpApi.routes(materials, suppliers, orders, security) ++
         WarehouseReportsHttpApi.routes(materials, suppliers, orders, security) ++
+        MaterialRequirementsHttpApi.routes(orders, materials, security) ++
         DeliveryNoteHttpApi.routes(deliveryNotes, materials, suppliers, deliveryNoteReconciler, security) ++
         PlanningRoutes.serverEndpoints(planningBackend, planningGateway, manufacturings, tasks, security)
 

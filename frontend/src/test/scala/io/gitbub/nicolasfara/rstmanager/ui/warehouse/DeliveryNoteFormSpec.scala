@@ -365,4 +365,27 @@ final class DeliveryNoteFormSpec extends AnyFunSuite with Matchers:
     val gone = uuid("00000000-0000-0000-0000-0000000000c3")
     DeliveryNoteForm.supplierOptions(suppliers, Some(gone -> "Vecchio")).lastOption shouldBe Some(gone.toString -> "Vecchio (eliminato)")
     DeliveryNoteForm.supplierOptions(suppliers, Some(supplierA -> "alfa")).size shouldBe 2
+
+  // ---- editor page summary -----------------------------------------------------------------------
+
+  test("filledCount counts only the lines something was entered in, and linesText names them"):
+    val state = DeliveryNoteForm.empty(today).addRow.addRow
+    state.filledCount shouldBe 0
+    state.updateRow(1)(_.copy(quantity = "2")).filledCount shouldBe 1
+    DeliveryNoteForm.fromResponse(response, ctx, today).filledCount shouldBe 3
+    DeliveryNoteForm.linesText(1) shouldBe "1 riga"
+    DeliveryNoteForm.linesText(0) shouldBe "0 righe"
+    DeliveryNoteForm.linesText(3) shouldBe "3 righe"
+
+  test("supplierName looks the selected supplier up among the select options"):
+    val options = List(supplierA.toString -> "alfa", supplierB.toString -> "Zeta")
+    DeliveryNoteForm.supplierName(supplierB.toString, options) shouldBe Some("Zeta")
+    DeliveryNoteForm.supplierName(s" ${supplierA.toString} ", options) shouldBe Some("alfa")
+    DeliveryNoteForm.supplierName("", options) shouldBe None
+
+  test("cancelledIn: only a listed note with the cancelled status counts, not one outside the filter"):
+    DeliveryNoteForm.cancelledIn(noteId, List(response)) shouldBe false
+    DeliveryNoteForm.cancelledIn(noteId, List(response.copy(status = "cancelled"))) shouldBe true
+    DeliveryNoteForm.cancelledIn(noteId, Nil) shouldBe false
+    DeliveryNoteForm.cancelledIn(noteId, List(response.copy(id = uuid("00000000-0000-0000-0000-0000000000d2"), status = "cancelled"))) shouldBe false
 end DeliveryNoteFormSpec

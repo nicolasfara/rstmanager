@@ -39,7 +39,7 @@ object TaskFormView:
     // Once the record is gone the draft cannot be saved, so it no longer counts as unsaved work (`None`): leaving does not ask.
     val draft = DraftGuard[Option[TaskForm.State]](
       () => Option.unless(gone.now())(form.now()),
-      _ => RegistryPage.discardTitle(editingName, "il nuovo task"),
+      _ => DraftGuard.discardTitle(editingName, "il nuovo task"),
     )
     val leave = () => draft.discardThen(onExit)
     val isDirty = form.signal.combineWith(gone.signal).map(_ => draft.isDirtyNow)
@@ -137,7 +137,7 @@ object TaskFormView:
     )(
       draft.bind,
       draft.dialog,
-      RegistryPage.trackGone(tasks, initial.editingId, _.id, gone)(() => draft.markClean()),
+      DraftGuard.trackGone(tasks, initial.editingId, _.id, gone)(() => draft.markClean()),
       formColumn(
         datiTask,
         stickyActionBar(

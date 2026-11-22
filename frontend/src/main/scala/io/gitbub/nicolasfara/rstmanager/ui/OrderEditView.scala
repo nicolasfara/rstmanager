@@ -128,8 +128,9 @@ object OrderEditView:
     val tasksById = Var(Map.empty[String, TaskResponse])
     val cardTouches = mutable.Map.empty[Int, FormTouch]
 
-    val gone: Signal[Boolean] = deps.knownOrderIds.map(_.exists(ids => !ids.contains(orderId))).distinct
-    var goneNow = false
+    // Sticky for this opening (see DraftGuard.trackGone).
+    val goneFlag = Var(false)
+    val gone: Signal[Boolean] = goneFlag.signal
 
     def catalogById(rawId: String): Option[ManufacturingCatalogResponse] = OrderMfgDraftCard.catalogLookup(catalogs.now())(rawId)
 
@@ -188,7 +189,7 @@ object OrderEditView:
     val stockFootnote = "Avviso non bloccante: le modifiche si possono salvare comunque."
 
     def isDirty(): Boolean =
-      editable && !goneNow &&
+      editable && !goneFlag.now() &&
         (OrderEditDraft.isDirty(draft.now()) ||
           snapshotsOfNew().exists(s => !OrderCreateModel.isBlankDraft(s)) ||
           addingTask.now().exists(_.draft.state.now().taskId.trim.nn.nonEmpty))
@@ -233,7 +234,7 @@ object OrderEditView:
     // ---- Save --------------------------------------------------------------------------------------
 
     def save(): Unit =
-      if !busy.now() && !goneNow then
+      if !busy.now() && !goneFlag.now() then
         currentIssues() match
           case first :: _ =>
             touch.attemptSubmit()
@@ -270,7 +271,7 @@ object OrderEditView:
 
     /** Runs one immediate structural request: on success merges the response into the draft, reports the mutation and runs `onDone`. */
     def structural(errorKey: String, context: String)(request: => Future[ApiClient.Result[OrderResponse]])(onDone: OrderResponse => Unit): Unit =
-      if !busy.now() && !goneNow then
+      if !busy.now() && !goneFlag.now() then
         busy.set(true)
         cardErrors.update(_ - errorKey)
         request.foreach { result =>
@@ -704,7 +705,7 @@ object OrderEditView:
           cls := "space-y-5",
           div(
             cls := OrderFormView.headerGridCls,
-            readField("Descrizione", OrderFormView.orDash(m.description.getOrElse(""))),
+            readField("Descrizione", orDash(m.description.getOrElse(""))),
             readField("Deadline lavorazione", Formats.date(m.completionDate)),
             readField("Stato", statusBadge(m.status)),
             readField("Dipendente preferito", child.text <-- employeeLabel.map(_(m.preferredEmployeeId.fold("")(_.toString)))),
@@ -803,7 +804,7 @@ object OrderEditView:
             readField("Deadline fine lavorazione", initial.promisedDeliveryDate.fold("—")(Formats.date)),
             readField("Priorità", OrderFormView.priorityBadge(initial.priority)),
             readField("Costo materiali", WarehouseFormats.formatEuro(initial.materialsCost)),
-            div(cls := "sm:col-span-2", readField("Descrizione ordine", OrderFormView.orDash(initial.description.getOrElse("")))),
+            div(cls := "sm:col-span-2", readField("Descrizione ordine", orDash(initial.description.getOrElse("")))),
           ),
         )
 
@@ -900,8 +901,8 @@ object OrderEditView:
     val summary = OrderFormView.Summary(
       Signal.fromValue(number),
       customerName,
-      Signal.fromValue(OrderFormView.orDash(DayText.long(deliveryDay))),
-      draft.signal.map(d => OrderFormView.orDash(DayText.long(d.header.deadline))),
+      Signal.fromValue(orDash(DayText.long(deliveryDay))),
+      draft.signal.map(d => orDash(DayText.long(d.header.deadline))),
       draft.signal.map(d => OrderFormView.priorityLabel(d.header.priority)),
       draft.signal.map(_.order.manufacturings.size),
       draft.signal.map(_.order.manufacturings.flatMap(_.tasks).map(_.expectedMinutes).sum),
@@ -929,7 +930,7 @@ object OrderEditView:
       else OrderFormView.sidebar(summary)()
 
     val mobileBar =
-      OrderFormView.mobileBar(
+      mobileSubmitBar(
         child <-- changes.map(_.headOption).combineWith(changes.map(_.size)).distinct.map { (first, count) =>
           first match
             case None => span(cls := "text-slate-500", "Nessuna modifica")
@@ -942,7 +943,7 @@ object OrderEditView:
                 onClick --> (_ => reveal(change.field)),
               )
         },
-        OrderFormView.issueBadge(issues.map(_.size).distinct, () => currentIssues().headOption.foreach(issue => reveal(issue.field))),
+        issueBadge(issues.map(_.size).distinct, () => currentIssues().headOption.foreach(issue => reveal(issue.field))),
         "Salva modifiche",
         "Salvataggio…",
         saving.signal,
@@ -1025,7 +1026,7 @@ object OrderEditView:
         initialFocus = PageFocus.Title,
       ),
     )(
-      gone --> (isGone => goneNow = isGone),
+      DraftGuard.trackGone(deps.knownOrderIds.map(_.exists(ids => !ids.contains(orderId))), goneFlag)(() => ()),
       deps.catalogs --> catalogs.writer,
       deps.tasks --> (list => tasksById.set(list.map(task => task.id.toString -> task).toMap)),
       if editable then

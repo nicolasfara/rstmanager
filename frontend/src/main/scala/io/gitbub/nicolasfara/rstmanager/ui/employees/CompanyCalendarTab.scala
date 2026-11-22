@@ -49,7 +49,7 @@ object CompanyCalendarTab:
           Notifications.success(s"Chiusura ${c.reason} eliminata")
           AppBus.mutatedCalendar()
         case Left(err) =>
-          showError(pageError, "Eliminazione chiusura aziendale")(err)
+          showBannerError(pageError, "Eliminazione chiusura aziendale")(err)
           FormFocus.focus(listErrorId)
       }
 
@@ -80,23 +80,14 @@ object CompanyCalendarTab:
 
       // The closure being edited disappeared from a successful reload (deleted elsewhere): it cannot be saved, and leaving does not ask.
       val gone = Var(false)
-      val goneNow: Signal[Boolean] = target match
-        case ClosureTarget.New => Signal.fromValue(false)
-        case ClosureTarget.Edit(c) =>
-          data.map {
-            case Some(Right(list)) => !list.exists(_.id == c.id)
-            case _ => false
-          }
 
-      def closeIfOpen(): Unit = if view.current.now() == Some(target) then view.close()
-
-      val leave: () => Unit = () => if gone.now() then closeIfOpen() else draft.discardThen(() => closeIfOpen())
+      val leave: () => Unit = () => if gone.now() then view.closeIfShowing(target) else draft.discardThen(() => view.closeIfShowing(target))
 
       // Always clickable: an invalid form reveals every error and focuses the first one; a pristine edit leaves without a request.
       def submit(): Unit =
         val current = form.now()
         if !submitting.now() && !gone.now() then
-          if current.editingId.isDefined && !draft.isDirtyNow then closeIfOpen()
+          if current.editingId.isDefined && !draft.isDirtyNow then view.closeIfShowing(target)
           else
             current.firstIssueOnScreen match
               case Some(first) =>
@@ -115,7 +106,7 @@ object CompanyCalendarTab:
                       draft.markClean()
                       Notifications.success(s"Chiusura ${current.reason.trim} ${if current.editingId.isDefined then "salvata" else "creata"}")
                       AppBus.mutatedCalendar()
-                      closeIfOpen()
+                      view.closeIfShowing(target)
                     case Left(err) =>
                       showError(submitError, "Salvataggio chiusura aziendale")(err)
                       FormFocus.focus(ClosureForm.submitErrorId)
@@ -173,11 +164,7 @@ object CompanyCalendarTab:
       )(
         draft.bind,
         draft.dialog,
-        goneNow --> { isGone =>
-          if isGone && !gone.now() then
-            gone.set(true)
-            draft.markClean()
-        },
+        DraftGuard.trackGone(data, initial.editingId, _.id, gone)(() => draft.markClean()),
         formColumn(
           formSection("Chiusura", "I giorni in cui l'azienda è chiusa: un periodo, oppure un giorno che si ripete ogni anno.")(
             Components.field(FieldSpec("Tipo", "closure-kind"))(bind =>

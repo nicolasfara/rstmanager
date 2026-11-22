@@ -60,7 +60,7 @@ object MaterialsTab:
       lastImport.set(Some(summary))
       Notifications.success(MaterialImport.confirmationText(summary))
       // The user may have left the page during the upload (and opened another one): close only the import page.
-      if view.current.now().contains(MaterialTarget.Import) then view.close()
+      view.closeIfShowing(MaterialTarget.Import)
 
     def renderPage(target: MaterialTarget): HtmlElement = target match
       case MaterialTarget.New => MaterialFormView(None, materials, suppliers, () => view.close())

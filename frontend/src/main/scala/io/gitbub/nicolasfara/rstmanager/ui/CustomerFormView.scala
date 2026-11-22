@@ -34,7 +34,7 @@ object CustomerFormView:
     // Once the record is gone the draft cannot be saved, so it no longer counts as unsaved work (`None`): leaving does not ask.
     val draft = DraftGuard[Option[CustomerForm.State]](
       () => Option.unless(gone.now())(form.now()),
-      _ => RegistryPage.discardTitle(editingName, "il nuovo cliente"),
+      _ => DraftGuard.discardTitle(editingName, "il nuovo cliente"),
     )
     val leave = () => draft.discardThen(onExit)
     val isDirty = form.signal.combineWith(gone.signal).map(_ => draft.isDirtyNow)
@@ -199,7 +199,7 @@ object CustomerFormView:
     )(
       draft.bind,
       draft.dialog,
-      RegistryPage.trackGone(customers, initial.editingId, _.id, gone)(() => draft.markClean()),
+      DraftGuard.trackGone(customers, initial.editingId, _.id, gone)(() => draft.markClean()),
       formColumn(
         anagrafica,
         contatti,

@@ -7,17 +7,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
-import io.gitbub.nicolasfara.rstmanager.ui.{
-  AppBus,
-  DirtyTracker,
-  DraftGuard,
-  FormFocus,
-  FormTouch,
-  MaterialDrafts,
-  NavigationGuard,
-  Notifications,
-  WarehouseFormats,
-}
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, DirtyTracker, DraftGuard, FormFocus, FormTouch, MaterialDrafts, Notifications, WarehouseFormats }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.FieldIssue
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.DeliveryNoteForm.{ Context, Field, Row, RowField }
@@ -103,8 +93,6 @@ object DeliveryNoteEditor:
     case Field.Date | Field.Number | Field.Supplier => true
     case _ => false
 
-  private def orDash(text: String): String = if text.trim.nn.isEmpty then "—" else text
-
   private def form(
       target: Target,
       context: Var[Context],
@@ -120,10 +108,10 @@ object DeliveryNoteEditor:
     val state = Var(initial)
     val tracker = DirtyTracker(initial, state)
     val (leaveTitle, leaveMessage) = target match
-      case Target.New => ("Abbandonare il nuovo DDT?", "Il DDT non è stato registrato: i dati inseriti andranno persi.")
-      case Target.Edit(note) => (s"Scartare le modifiche al DDT n. ${note.number}?", "Le modifiche non salvate andranno perse.")
+      case Target.New => (DraftGuard.discardTitle(None, "il nuovo DDT"), "Il DDT non è stato registrato: i dati inseriti andranno persi.")
+      case Target.Edit(note) => (DraftGuard.discardTitle(Some(s"DDT n. ${note.number}"), "il nuovo DDT"), "Le modifiche non salvate andranno perse.")
     val draft = DraftGuard[DeliveryNoteForm.State](() => state.now(), _ => leaveTitle)
-    // Sticky for this opening: once a reload showed the note as cancelled, a later failed reload does not make it savable again.
+    // Sticky for this opening (see DraftGuard.trackGone).
     val gone = Var(false)
     val leave: () => Unit = () => if gone.now() then onExit() else draft.discardThen(onExit)
     val touch = FormTouch()
@@ -399,32 +387,17 @@ object DeliveryNoteEditor:
       )
 
     val mobileBar =
-      div(
-        cls := "flex items-center gap-3",
-        div(
-          cls := "min-w-0 flex-1",
+      mobileSubmitBar(
+        List(
           div(cls := "truncate text-xs text-slate-500", "Totale DDT · ", child.text <-- linesText),
           div(cls := "truncate text-sm font-semibold tabular-nums text-slate-900", child.text <-- totalText),
         ),
-        child.maybe <-- issues.map(_.size).distinct.map { count =>
-          Option.when(count > 0)(
-            button(
-              tpe := "button",
-              cls := "min-h-10 shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100",
-              aria.label := s"$count elementi da completare: vai al primo",
-              s"⚠ $count",
-              onClick --> (_ => state.now().issues(context.now()).headOption.foreach(reveal)),
-            ),
-          )
-        },
-        button(
-          tpe := "button",
-          cls := s"$btnPrimary min-h-10 shrink-0",
-          disabled <-- submitting.signal.combineWith(blocked).map((busy, reason) => busy || reason.isDefined),
-          aria.busy <-- submitting.signal,
-          child.text <-- submitting.signal.map(busy => if busy then busyLabel else submitLabel),
-          onClick --> (_ => submit()),
-        ),
+        issueBadge(issues.map(_.size).distinct, () => state.now().issues(context.now()).headOption.foreach(reveal)),
+        submitLabel,
+        busyLabel,
+        submitting.signal,
+        submitting.signal.combineWith(blocked).map((busy, reason) => busy || reason.isDefined),
+        () => submit(),
       )
 
     val goneNote: Modifier[HtmlElement] = target match
@@ -439,9 +412,9 @@ object DeliveryNoteEditor:
         )
 
     formPage(header(target, leave, goneNote))(
-      cancelled --> (isCancelled => if isCancelled then gone.set(true)),
+      DraftGuard.trackGone(cancelled, gone)(() => ()),
       // Leaving the page (top navigation, a tab switch, closing the tab) asks while dirty, except once the note cannot be saved anyway.
-      NavigationGuard.guard(leaveTitle, leaveMessage, () => draft.isDirtyNow && !gone.now()),
+      draft.bind(leaveTitle, leaveMessage, () => gone.now()),
       draft.dialog,
       summaryLayout(div(cls := "space-y-6", documentSection, linesSection, mobileFooter), sidebar, mobileBar),
     )

@@ -28,7 +28,7 @@ object SuppliersTab:
         case Right(_) =>
           Notifications.success(s"Fornitore ${supplier.name} eliminato")
           AppBus.mutatedWarehouse()
-        case Left(err) => showError(actionError, "Eliminazione fornitore")(err)
+        case Left(err) => showBannerError(actionError, "Eliminazione fornitore")(err)
       }
 
     val confirmDeleteModal =

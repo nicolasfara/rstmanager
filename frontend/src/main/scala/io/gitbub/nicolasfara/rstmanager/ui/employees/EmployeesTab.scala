@@ -73,7 +73,7 @@ object EmployeesTab:
           Notifications.success(s"Dipendente ${fullName(emp)} eliminato")
           AppBus.mutatedEmployees()
         case Left(err) =>
-          showError(pageError, "Eliminazione dipendente")(err)
+          showBannerError(pageError, "Eliminazione dipendente")(err)
           FormFocus.focus(listErrorId)
       }
 
@@ -113,23 +113,14 @@ object EmployeesTab:
 
       // The employee being edited disappeared from a successful reload (deleted elsewhere): it cannot be saved, and leaving does not ask.
       val gone = Var(false)
-      val goneNow: Signal[Boolean] = target match
-        case EmployeeTarget.New => Signal.fromValue(false)
-        case EmployeeTarget.Edit(emp, _) =>
-          data.map {
-            case Some(Right(list)) => !list.exists(_.id == emp.id)
-            case _ => false
-          }
 
-      def closeIfOpen(): Unit = if view.current.now() == Some(target) then view.close()
-
-      val leave: () => Unit = () => if gone.now() then closeIfOpen() else draft.discardThen(() => closeIfOpen())
+      val leave: () => Unit = () => if gone.now() then view.closeIfShowing(target) else draft.discardThen(() => view.closeIfShowing(target))
 
       // Always clickable: an invalid form reveals every error and focuses the first one; a pristine edit leaves without a request.
       def submit(): Unit =
         val current = form.now()
         if !submitting.now() && !gone.now() then
-          if !creating && !draft.isDirtyNow then closeIfOpen()
+          if !creating && !draft.isDirtyNow then view.closeIfShowing(target)
           else
             current.firstIssueOnScreen match
               case Some(first) =>
@@ -148,7 +139,7 @@ object EmployeesTab:
                       draft.markClean()
                       Notifications.success(s"Dipendente ${fullName(saved)} ${if creating then "creato" else "salvato"}")
                       AppBus.mutatedEmployees()
-                      closeIfOpen()
+                      view.closeIfShowing(target)
                     case Left(err) =>
                       showError(submitError, "Salvataggio dipendente")(err)
                       FormFocus.focus(EmployeeForm.submitErrorId)
@@ -330,11 +321,7 @@ object EmployeesTab:
       )(
         draft.bind,
         draft.dialog,
-        goneNow --> { isGone =>
-          if isGone && !gone.now() then
-            gone.set(true)
-            draft.markClean()
-        },
+        DraftGuard.trackGone(data, initial.editingId, _.id, gone)(() => draft.markClean()),
         formColumn(
           formSection("Anagrafica", "")(
             div(

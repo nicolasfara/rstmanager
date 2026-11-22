@@ -81,7 +81,7 @@ object ManufacturingFormView:
     // Once the record is gone the draft cannot be saved, so it no longer counts as unsaved work (`None`): leaving does not ask.
     val draft = DraftGuard[Option[ManufacturingCatalogForm.State]](
       () => Option.unless(gone.now())(form.now()),
-      _ => RegistryPage.discardTitle(editingName, "la nuova lavorazione"),
+      _ => DraftGuard.discardTitle(editingName, "la nuova lavorazione"),
     )
     val leave = () => draft.discardThen(onExit)
     val isDirty = form.signal.combineWith(gone.signal).map(_ => draft.isDirtyNow)
@@ -342,7 +342,7 @@ object ManufacturingFormView:
     )(
       draft.bind,
       draft.dialog,
-      RegistryPage.trackGone(deps.manufacturings, initial.editingId, _.id, gone)(() => draft.markClean()),
+      DraftGuard.trackGone(deps.manufacturings, initial.editingId, _.id, gone)(() => draft.markClean()),
       deps.manufacturings --> {
         case Some(Right(list)) =>
           val current = form.now()

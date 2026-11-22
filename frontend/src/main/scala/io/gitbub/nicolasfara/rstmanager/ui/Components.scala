@@ -57,10 +57,6 @@ object Components:
   def roleGated(required: Role)(el: => HtmlElement): Modifier[HtmlElement] =
     child.maybe <-- AuthService.hasRoleSignal(required).map(allowed => Option.when(allowed)(el))
 
-  /** Applies the multi-column grid classes only when the role-gated side panel (usually the edit form) is visible. */
-  def roleGatedGridCols(required: Role, cols: String): Modifier[HtmlElement] =
-    cls <-- AuthService.hasRoleSignal(required).map(allowed => if allowed then cols else "")
-
   def sectionTitle(text: String): HtmlElement =
     h2(cls := "text-base font-semibold text-slate-800", text)
 
@@ -75,34 +71,7 @@ object Components:
       div(cls := "break-words text-sm text-slate-800", valueNode),
     )
 
-  /**
-   * Marks the form card that "Modifica" fills in place. On mobile the form is stacked after a long list, so `revealAndFocus()` scrolls it into view
-   * when its top is off-screen or in the lower half of the viewport (barely visible near the bottom), then focuses its first field; `scroll-mt-20`
-   * keeps it clear of the sticky header.
-   */
-  final class FormAnchor:
-    private val element = Var(Option.empty[dom.Element])
-
-    val bind: Modifier[HtmlElement] = List(
-      cls := "scroll-mt-20",
-      onMountUnmountCallback(ctx => element.set(Some(ctx.thisNode.ref)), _ => element.set(None)),
-    )
-
-    def revealAndFocus(): Unit = element.now().foreach { el =>
-      val top = el.getBoundingClientRect().top
-      if top < 0 || top > dom.window.innerHeight / 2 then el.scrollIntoView(true)
-      // On the next frame, so a form whose content was just replaced is rendered first.
-      val _ = dom.window.requestAnimationFrame { _ =>
-        el.querySelector(formFirstFieldSelector) match
-          case field: dom.HTMLElement =>
-            field.focus(new dom.FocusOptions:
-              preventScroll = true)
-          case _ => ()
-      }
-    }
-  end FormAnchor
-
-  /** The first field of a form, which [[FormAnchor.revealAndFocus]] focuses. */
+  /** The first field of a form, which [[formPage]] focuses for [[PageFocus.FirstField]]. */
   private val formFirstFieldSelector = "input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled])"
 
   // ---- Form controls -----------------------------------------------------------------------------
@@ -487,8 +456,9 @@ object Components:
    * Variant of [[segmented]] with `groupMods` on the `radiogroup` element (e.g. a [[FieldSpec]] `bind`, or `aria.label`). Each option is a `button`
    * with `role=radio` and `aria-checked`, following the ARIA radio group pattern: the group is a single Tab stop (the checked option, or the first
    * when none is), Left/Up and Right/Down select the previous/next option (wrapping), Home/End the first/last, and the focus follows the selection.
-   * The options stay mounted when the value changes, so a caller rebuilding other content on a switch keeps the focus here. Options are 40px tall
-   * below `md` (touch target).
+   * The options stay mounted when the value changes, so a caller rebuilding other content on a switch keeps the focus here. When the group itself
+   * gets the focus (e.g. a page or [[FormFocus.focus]] focusing its DOM id), it hands it to the checked option, so the arrow keys work at once.
+   * Options are 40px tall below `md` (touch target).
    */
   def segmented(valueSignal: Signal[String], writer: Observer[String], opts: List[(String, String)], groupMods: Modifier[HtmlElement]): HtmlElement =
     val values = opts.map(_._1)
@@ -522,6 +492,14 @@ object Components:
       role := "radiogroup",
       cls := "inline-flex flex-wrap gap-1 rounded-md border border-slate-300 bg-slate-50 p-0.5",
       groupMods,
+      inContext { group =>
+        onFocus --> { event =>
+          if event.target.eq(group.ref) then
+            group.ref.querySelector("[aria-checked='true']") match
+              case option: dom.HTMLElement => option.focus()
+              case _ => ()
+        }
+      },
       options,
     )
   end segmented
@@ -714,11 +692,55 @@ object Components:
       ),
     )
 
+  /**
+   * The content of the fixed bottom bar of a [[summaryLayout]]: `leading` (live totals or changes, truncated), `extra` (e.g. an [[issueBadge]]), and
+   * the primary button, showing `busyLabel` while `busy` and disabled while `disabledSignal`.
+   */
+  def mobileSubmitBar(
+      leading: Modifier[HtmlElement],
+      extra: Modifier[HtmlElement],
+      primaryLabel: String,
+      busyLabel: String,
+      busy: Signal[Boolean],
+      disabledSignal: Signal[Boolean],
+      onPrimary: () => Unit,
+  ): HtmlElement =
+    div(
+      cls := "flex items-center gap-3",
+      div(cls := "min-w-0 flex-1 truncate text-sm tabular-nums text-slate-700", leading),
+      extra,
+      button(
+        tpe := "button",
+        cls := s"$btnPrimary min-h-10 shrink-0",
+        disabled <-- disabledSignal,
+        aria.busy <-- busy,
+        child.text <-- busy.map(isBusy => if isBusy then busyLabel else primaryLabel),
+        onClick --> (_ => onPrimary()),
+      ),
+    )
+
+  /** The "⚠ n" button of a [[mobileSubmitBar]] (nothing while `count` is 0), going to the first issue. */
+  def issueBadge(count: Signal[Int], onSelect: () => Unit): Modifier[HtmlElement] =
+    child.maybe <-- count.map { n =>
+      Option.when(n > 0)(
+        button(
+          tpe := "button",
+          cls := "min-h-10 shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100",
+          aria.label := s"$n elementi da completare: vai al primo",
+          s"⚠ $n",
+          onClick --> (_ => onSelect()),
+        ),
+      )
+    }
+
   /** Top scroll padding of the document while a [[summaryLayout]] is mounted (for the sticky header). */
   private val summaryTopScrollPaddingCls = "scroll-pt-24"
 
   /** Scroll padding of the document while a [[summaryLayout]] is mounted (literal Tailwind classes, so the scanner generates them). */
   private val summaryScrollPaddingCls = List("max-lg:scroll-pb-32", summaryTopScrollPaddingCls)
+
+  /** `text`, or "—" when it is blank (an empty value of a summary or read-only field). */
+  def orDash(text: String): String = if text.trim.nn.isEmpty then "—" else text
 
   /** One `label · value` line of a summary. */
   def summaryRow(labelText: String, value: Signal[String]): HtmlElement =
@@ -1083,6 +1105,13 @@ object Components:
   def showError(target: Var[Option[ApiError]], context: String)(err: ApiError): Unit =
     ErrorCenter.reportTo(target, context)(err)
 
+  /**
+   * Variant of [[showError]] for a refused list action (e.g. a delete) whose banner over the list is the only feedback: logged, without the global
+   * toast, so the user does not see the same error twice.
+   */
+  def showBannerError(target: Var[Option[ApiError]], context: String)(err: ApiError): Unit =
+    ErrorCenter.logTo(target, context)(err)
+
   /** Renders a possibly-loading, possibly-failed remote resource. */
   def renderResult[A](signal: Signal[Option[ApiClient.Result[A]]])(render: A => HtmlElement): HtmlElement =
     div(
@@ -1142,7 +1171,7 @@ object Components:
         if shown.isEmpty then div(cls := "p-4", emptyState(noMatch)) else render(shown)
     }
 
-  // ---- Modal -------------------------------------------------------------------------------------
+  // ---- Dialogs -----------------------------------------------------------------------------------
 
   /** `aria-modal`, which Laminar does not predefine. */
   private val ariaModal: HtmlAttr[String] = htmlAttr("aria-modal", StringAsIsCodec)
@@ -1313,72 +1342,6 @@ object Components:
       div(cls := "w-full max-w-sm", dialogCard),
     )
   end confirmDialog
-
-  def modal(isOpen: Var[Boolean], titleText: String)(content: HtmlElement): HtmlElement =
-    modal(isOpen, Signal.fromValue(titleText))(content)
-
-  def modal(isOpen: Var[Boolean], titleText: Signal[String])(content: HtmlElement): HtmlElement =
-    modal(isOpen.signal, titleText, "max-w-2xl", () => isOpen.set(false))(content)
-
-  /**
-   * Variant of [[modal]] driven by a `Signal` (typically derived from a `Var[Option[T]]` holding what the modal is about), with the card width as a
-   * Tailwind `max-w-*` class; `onClose` runs when the ✕ is clicked or Escape is pressed, and should flip the caller's state closed. An ARIA `dialog`
-   * labelled by its title: on opening the focus moves into the card, Tab cycles inside it, and on closing the focus returns where it was.
-   */
-  def modal(isOpen: Signal[Boolean], titleText: Signal[String], maxWidthCls: String, onClose: () => Unit)(content: HtmlElement): HtmlElement =
-    val titleId = nextDomId("dialog-title")
-    val dialogCard = card(
-      role := "dialog",
-      ariaModal := "true",
-      aria.labelledBy := titleId,
-      // Focusable only programmatically: the initial focus lands on the card itself, not on the first control (which may be a combobox).
-      tabIndex := -1,
-      cls := "focus:outline-none",
-      div(
-        cls := "flex items-center justify-between border-b border-slate-100 px-4 py-3",
-        h2(idAttr := titleId, cls := "text-sm font-semibold text-slate-800", child.text <-- titleText),
-        button(
-          tpe := "button",
-          // 40px touch target below `md`; the negative margins keep the header height unchanged.
-          cls := "-my-2.5 -mr-2 inline-flex size-10 shrink-0 items-center justify-center rounded-md text-slate-400 hover:text-slate-700 " +
-            "md:m-0 md:size-auto",
-          aria.label := "Chiudi",
-          title := "Chiudi",
-          "✕",
-          onClick --> (_ => onClose()),
-        ),
-      ),
-      div(cls := "p-4", content),
-    )
-    div(
-      cls := "fixed inset-0 z-40 items-start justify-center overflow-y-auto bg-slate-900/40 p-4",
-      cls <-- isOpen.map(open => if open then "flex" else "hidden"),
-      onKeyDown --> { event =>
-        event.key match
-          case "Escape" =>
-            event.stopPropagation()
-            onClose()
-          case "Tab" => trapTab(dialogCard.ref, event)
-          case _ => ()
-      },
-      dialogFocus(isOpen, () => Some(dialogCard.ref)),
-      // When the focused control was re-rendered away (e.g. after removing a row) the focus falls back to <body>, out of the handler above:
-      // Escape still closes and Tab re-enters the card.
-      documentEvents(_.onKeyDown).withCurrentValueOf(isOpen) --> { (event, open) =>
-        val focusLost = dom.document.activeElement match
-          case element: dom.HTMLElement => element eq dom.document.body
-          case _ => true
-        if open && focusLost then
-          event.key match
-            case "Escape" => onClose()
-            case "Tab" =>
-              event.preventDefault()
-              dialogCard.ref.focus()
-            case _ => ()
-      },
-      div(cls := s"mt-8 w-full $maxWidthCls", dialogCard),
-    )
-  end modal
 end Components
 
 /**

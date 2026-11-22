@@ -60,12 +60,12 @@ object ManufacturingsPage:
           Notifications.success(s"Lavorazione ${manufacturing.code} eliminata")
           AppBus.mutatedManufacturings()
         case Left(err) =>
-          showError(listError, "Eliminazione lavorazione")(err)
+          showBannerError(listError, "Eliminazione lavorazione")(err)
           FormFocus.focus(listErrorId)
       }
 
-    // ---- Confirmation modal ----------------------------------------------------------------------
-    val confirmDeleteModal =
+    // ---- Confirmation dialog ---------------------------------------------------------------------
+    val confirmDeleteDialog =
       confirmDialog(
         isOpen = pendingDelete.signal.map(_.isDefined),
         titleText = pendingDelete.signal.map(_.fold("")(m => s"Eliminare la lavorazione «${m.code} · ${m.name}»?")),
@@ -204,7 +204,7 @@ object ManufacturingsPage:
         ),
       ),
       view.page(target => ManufacturingFormView(target, formDeps, () => view.close())),
-      confirmDeleteModal,
+      confirmDeleteDialog,
     )
   end apply
 end ManufacturingsPage

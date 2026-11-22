@@ -50,6 +50,9 @@ final class SubView[A](using CanEqual[A, A]):
       }
     }
 
+  /** [[close]], but only while the page of `target` is still the open one (e.g. a save completing after the user moved to another page). */
+  def closeIfShowing(target: A): Unit = if current.now() == Some(target) then close()
+
   /** On the list wrapper: `hidden` while a page is open. */
   val listMods: Modifier[HtmlElement] = cls <-- isOpen.map(open => if open then "hidden" else "")
 

@@ -97,7 +97,7 @@ object OrdersPage:
         case Left(err) => showError(pageError, "Annullamento ordine")(err)
       }
 
-    /** Completing/delivering/cancelling changes the order lifecycle, so it goes through an acknowledgement modal first. */
+    /** Completing/delivering/cancelling changes the order lifecycle, so it goes through an acknowledgement dialog first. */
     def requestTransition(order: OrderResponse, action: String): Unit = action match
       case "complete" =>
         confirm.set(
@@ -149,8 +149,8 @@ object OrdersPage:
         button(tpe := "button", cls := btnSmall, label, onClick --> (_ => requestTransition(order, action)))
       }
 
-    // ---- Confirmation (ACK) modal ----------------------------------------------------------------
-    val confirmModal =
+    // ---- Confirmation (ACK) dialog ---------------------------------------------------------------
+    val ackDialog =
       confirmDialog(
         isOpen = confirm.signal.map(_.isDefined),
         titleText = confirm.signal.map(_.fold("")(_.title)),
@@ -341,7 +341,7 @@ object OrdersPage:
         ),
       ),
       view.page(target => OrderFormView(formDeps, target, () => view.close())),
-      confirmModal,
+      ackDialog,
     )
   end apply
 end OrdersPage

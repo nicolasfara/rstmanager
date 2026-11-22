@@ -5,7 +5,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import com.raquo.laminar.api.L.*
 import io.gitbub.nicolasfara.rstmanager.api.ApiClient
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.*
-import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, DirtyTracker, DraftGuard, FormFocus, FormTouch, NavigationGuard, Notifications }
+import io.gitbub.nicolasfara.rstmanager.ui.{ AppBus, DirtyTracker, DraftGuard, FormFocus, FormTouch, Notifications }
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.messageFor
 
@@ -39,10 +39,10 @@ object SupplierFormView:
     val form = Var(initial)
     val tracker = DirtyTracker(initial, form)
     val (leaveTitle, leaveMessage) = target match
-      case Target.New => ("Abbandonare il nuovo fornitore?", "Il fornitore non è stato creato: i dati inseriti andranno persi.")
-      case Target.Edit(supplier) => (DraftGuard.discardTitle(Some(supplier.name), ""), "Le modifiche non salvate andranno perse.")
+      case Target.New => (DraftGuard.discardTitle(None, "il nuovo fornitore"), "Il fornitore non è stato creato: i dati inseriti andranno persi.")
+      case Target.Edit(supplier) => (DraftGuard.discardTitle(Some(supplier.name), "il nuovo fornitore"), "Le modifiche non salvate andranno perse.")
     val draft = DraftGuard[SupplierForm.State](() => form.now(), _ => leaveTitle)
-    // Sticky for this opening: once a reload no longer listed the supplier, a later failed reload does not make it savable again.
+    // Sticky for this opening (see DraftGuard.trackGone).
     val isGone = Var(false)
     val leave: () => Unit = () => if isGone.now() then onExit() else draft.discardThen(onExit)
     val touch = FormTouch()
@@ -113,9 +113,9 @@ object SupplierFormView:
     val grid = "grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2"
 
     formPage(PageHeader("← Torna ai fornitori", leave, Signal.fromValue(titleText), contextTrail, notes = goneNote, initialFocus = focus))(
-      gone --> (removed => if removed then isGone.set(true)),
+      DraftGuard.trackGone(gone, isGone)(() => ()),
       // Leaving the page (top navigation, a tab switch, closing the tab) asks while dirty, except once the supplier cannot be saved anyway.
-      NavigationGuard.guard(leaveTitle, leaveMessage, () => draft.isDirtyNow && !isGone.now()),
+      draft.bind(leaveTitle, leaveMessage, () => isGone.now()),
       draft.dialog,
       formColumn(
         formSection("Dati fornitore", "Ragione sociale e dati fiscali.")(

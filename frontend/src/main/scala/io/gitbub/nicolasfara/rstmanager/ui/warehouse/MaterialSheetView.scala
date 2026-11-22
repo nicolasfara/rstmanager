@@ -24,7 +24,6 @@ import io.gitbub.nicolasfara.rstmanager.ui.{
 import io.gitbub.nicolasfara.rstmanager.ui.Components.*
 import io.gitbub.nicolasfara.rstmanager.ui.Sorting.{ Column, Direction, SortBy }
 import io.gitbub.nicolasfara.rstmanager.ui.warehouse.MovementForm.{ AdjustmentState, Draft, Field, PurchaseState, UnloadState }
-import org.scalajs.dom
 
 /** Which part of the material sheet an opening is about: the movement form ("Movimento") or the movements list ("Movimenti"). */
 enum SheetFocus derives CanEqual:
@@ -365,7 +364,7 @@ object MaterialSheetView:
             kind.map(_.key),
             Observer[String](switchKind),
             MovementKind.options,
-            List[Modifier[HtmlElement]](idAttr := kindSwitchId, aria.label := "Tipo di movimento", forwardFocusToChecked),
+            List[Modifier[HtmlElement]](idAttr := kindSwitchId, aria.label := "Tipo di movimento"),
           ),
         ),
         child <-- kind.map {
@@ -382,20 +381,6 @@ object MaterialSheetView:
       ),
     )
   end movementSection
-
-  /**
-   * On the kind switch: when the group itself gets the focus (the page focusing [[kindSwitchId]]), hands it to the checked option, so the arrow keys
-   * work at once.
-   */
-  private def forwardFocusToChecked: Modifier[HtmlElement] =
-    inContext { group =>
-      onFocus --> { event =>
-        if event.target.eq(group.ref) then
-          group.ref.querySelector("[aria-checked='true']") match
-            case option: dom.HTMLElement => option.focus()
-            case _ => ()
-      }
-    }
 
   // ---- Movements ---------------------------------------------------------------------------------
 

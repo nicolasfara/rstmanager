@@ -263,10 +263,13 @@ object MaterialFormView:
     )(
       draft.bind,
       editing.map(material =>
-        materials --> {
-          case Some(Right(list)) => gone.set(!list.exists(m => m.id == material.id && !m.archived))
-          case _ => ()
-        },
+        DraftGuard.trackGone(
+          materials.map {
+            case Some(Right(list)) => !list.exists(m => m.id == material.id && !m.archived)
+            case _ => false
+          },
+          gone,
+        )(() => ()),
       ),
       formColumn(
         identification,

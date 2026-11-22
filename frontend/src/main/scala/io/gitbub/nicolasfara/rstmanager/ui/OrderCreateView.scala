@@ -465,10 +465,10 @@ object OrderCreateView:
     // ---- Sidebar & mobile bar ----------------------------------------------------------------------
 
     val summary = OrderFormView.Summary(
-      header.signal.map(h => OrderFormView.orDash(h.number)),
+      header.signal.map(h => orDash(h.number)),
       OrderFormView.customerName(deps, header.signal.map(_.customerId)),
-      header.signal.map(h => OrderFormView.orDash(DayText.long(h.deliveryDate))),
-      header.signal.map(h => OrderFormView.orDash(DayText.long(h.workDeadline))),
+      header.signal.map(h => orDash(DayText.long(h.deliveryDate))),
+      header.signal.map(h => orDash(DayText.long(h.workDeadline))),
       header.signal.map(h => OrderFormView.priorityLabel(h.priority)),
       mfgs.signal.map(_.size),
       totals.map(_.minutes),
@@ -489,9 +489,9 @@ object OrderCreateView:
       )
 
     val mobileBar =
-      OrderFormView.mobileBar(
+      mobileSubmitBar(
         span(child.text <-- OrderFormView.mobileTotals(summary)),
-        OrderFormView.issueBadge(issues.map(_.size).distinct, () => currentIssues().headOption.foreach(reveal)),
+        issueBadge(issues.map(_.size).distinct, () => currentIssues().headOption.foreach(reveal)),
         "Crea ordine",
         "Creazione…",
         submitting.signal,

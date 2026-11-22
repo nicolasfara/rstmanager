@@ -49,7 +49,7 @@ object TasksPage:
           val shown =
             if err.code == "task-in-use" then err.copy(message = s"Impossibile eliminare il task «${task.name}»: è usato in queste lavorazioni")
             else err
-          showError(listError, "Eliminazione task")(shown)
+          showBannerError(listError, "Eliminazione task")(shown)
           FormFocus.focus(listErrorId)
       }
 
@@ -125,7 +125,7 @@ object TasksPage:
       )
 
     // Double-check before the destructive delete.
-    val confirmDeleteModal =
+    val confirmDeleteDialog =
       confirmDialog(
         isOpen = confirmDelete.signal.map(_.isDefined),
         titleText = confirmDelete.signal.map(_.fold("")(t => s"Eliminare il task «${t.name}»?")),
@@ -181,7 +181,7 @@ object TasksPage:
         ),
       ),
       view.page(target => TaskFormView(target, data, employeeOptions, () => view.close())),
-      confirmDeleteModal,
+      confirmDeleteDialog,
     )
   end apply
 end TasksPage

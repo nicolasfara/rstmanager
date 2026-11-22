@@ -51,8 +51,6 @@ object OrderFormView:
     case "urgent" => badge("Urgente", "bg-rose-50 text-rose-700 border-rose-200")
     case _ => badge("Normale", "bg-slate-50 text-slate-600 border-slate-200")
 
-  def orDash(text: String): String = if text.trim.nn.isEmpty then "—" else text
-
   /**
    * The "×N" badge of a manufacturing done `times` > 1 times (none for one). It stays outside the truncated label so a phone still shows it, and
    * reads "quantità N" to a screen reader.
@@ -171,44 +169,6 @@ object OrderFormView:
     summary.manufacturings.combineWith(summary.minutes, summary.materialsCost).map { (count, minutes, cost) =>
       s"$count lav. · ${OrderCreateModel.hoursText(minutes)} · ${WarehouseFormats.formatEuro(cost)}"
     }
-
-  /** The "⚠ n" button of the mobile bar (nothing while `count` is 0), going to the first issue. */
-  def issueBadge(count: Signal[Int], onSelect: () => Unit): Modifier[HtmlElement] =
-    child.maybe <-- count.map { n =>
-      Option.when(n > 0)(
-        button(
-          tpe := "button",
-          cls := "min-h-10 shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100",
-          aria.label := s"$n elementi da completare: vai al primo",
-          s"⚠ $n",
-          onClick --> (_ => onSelect()),
-        ),
-      )
-    }
-
-  /** The fixed bottom bar below `lg`: `leading` (live totals or changes), `extra`, and the primary button, disabled while `disabledSignal`. */
-  def mobileBar(
-      leading: Modifier[HtmlElement],
-      extra: Modifier[HtmlElement],
-      primaryLabel: String,
-      busyLabel: String,
-      busy: Signal[Boolean],
-      disabledSignal: Signal[Boolean],
-      onPrimary: () => Unit,
-  ): HtmlElement =
-    div(
-      cls := "flex items-center gap-3",
-      div(cls := "min-w-0 flex-1 truncate text-sm tabular-nums text-slate-700", leading),
-      extra,
-      button(
-        tpe := "button",
-        cls := s"$btnPrimary min-h-10 shrink-0",
-        disabled <-- disabledSignal,
-        aria.busy <-- busy,
-        child.text <-- busy.map(isBusy => if isBusy then busyLabel else primaryLabel),
-        onClick --> (_ => onPrimary()),
-      ),
-    )
 
   // ---- Recap -------------------------------------------------------------------------------------
 

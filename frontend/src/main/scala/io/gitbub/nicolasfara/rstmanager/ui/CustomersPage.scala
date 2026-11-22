@@ -53,11 +53,11 @@ object CustomersPage:
           Notifications.success(s"Cliente ${displayName(c)} eliminato")
           AppBus.mutatedCustomers()
         case Left(err) =>
-          showError(listError, "Eliminazione cliente")(err)
+          showBannerError(listError, "Eliminazione cliente")(err)
           FormFocus.focus(listErrorId)
       }
 
-    val confirmDeleteModal =
+    val confirmDeleteDialog =
       confirmDialog(
         isOpen = pendingDelete.signal.map(_.isDefined),
         titleText = pendingDelete.signal.map(_.fold("")(c => s"Eliminare il cliente «${displayName(c)}»?")),
@@ -167,7 +167,7 @@ object CustomersPage:
         ),
       ),
       view.page(target => CustomerFormView(target, data, () => view.close())),
-      confirmDeleteModal,
+      confirmDeleteDialog,
     )
   end apply
 end CustomersPage

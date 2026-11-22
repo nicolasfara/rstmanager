@@ -135,33 +135,53 @@ object OrderDtos:
       val currentByMaterial = current.map(material => material.materialId -> material).toMap
       val resolved =
         lines.zipWithIndex.traverse((line, index) => resolveLine(s"$path[$index]", line, currentByMaterial.get(MaterialId(line.materialId))))
-      val repeated =
-        lines.map(_.materialId).groupBy(identity).collect { case (id, occurrences) if occurrences.size > 1 => id }.toList.sortBy(_.toString)
-      val distinct = repeated.traverse_ { id =>
-        s"$path: il materiale ${label(MaterialId(id))} compare in più righe; indica la quantità totale in una sola riga".invalidNec[Unit]
+      resolved <* distinct(path, lines.map(_.materialId))
+
+    /**
+     * The per-unit material lines of a catalog manufacturing at `path`, as `(material, quantity)` pairs: the same checks as [[resolve]] without the
+     * price. A material in `kept` (already in the template) may stay archived or unknown; a new line must name an active material.
+     */
+    def resolveQuantities(path: String, lines: List[(UUID, String)], kept: Set[MaterialId]): ValidatedNec[String, List[(MaterialId, Quantity)]] =
+      val resolved = lines.zipWithIndex.traverse { case ((rawId, rawQuantity), index) =>
+        val linePath = s"$path[$index]"
+        val materialId = MaterialId(rawId)
+        (material(linePath, materialId, kept.contains(materialId)), quantity(linePath, rawQuantity)).tupled.andThen { (stored, used) =>
+          counted(linePath, materialId, stored, used).as(materialId -> used)
+        }
       }
-      resolved <* distinct
+      resolved <* distinct(path, lines.map(_._1))
 
     private def resolveLine(path: String, line: MaterialLineDto, kept: Option[ScheduledMaterial]): ValidatedNec[String, ScheduledMaterial] =
       val materialId = MaterialId(line.materialId)
-      (material(path, materialId, kept), quantity(path, line.quantity), price(path, line.unitPrice)).tupled.andThen { (stored, used, explicitPrice) =>
-        val counted = stored.forall(_.info.unit.allowsFractions) || used.isWhole
-        val unitPrice = explicitPrice.orElse(kept.map(_.unitPrice)).orElse(stored.map(_.info.customerPrice))
-        if !counted then
-          s"$path.quantity: il materiale ${label(materialId)} è gestito a unità intere (pezzi/confezioni), la quantità deve essere un numero intero".invalidNec
-        else
-          unitPrice
-            .toValidNec(s"$path.unitPrice: indica il prezzo unitario del materiale ${label(materialId)}")
-            .map(ScheduledMaterial(materialId, used, _))
+      (material(path, materialId, kept.isDefined), quantity(path, line.quantity), price(path, line.unitPrice)).tupled.andThen {
+        (stored, used, explicitPrice) =>
+          val unitPrice = explicitPrice.orElse(kept.map(_.unitPrice)).orElse(stored.map(_.info.customerPrice))
+          counted(path, materialId, stored, used).andThen { _ =>
+            unitPrice
+              .toValidNec(s"$path.unitPrice: indica il prezzo unitario del materiale ${label(materialId)}")
+              .map(ScheduledMaterial(materialId, used, _))
+          }
       }
 
-    /** The material of a line: it must exist and be active, unless the line is already in the manufacturing (which keeps archived materials). */
-    private def material(path: String, materialId: MaterialId, kept: Option[ScheduledMaterial]): ValidatedNec[String, Option[StoredMaterial]] =
+    /** Each material in one line only. */
+    private def distinct(path: String, ids: List[UUID]): ValidatedNec[String, Unit] =
+      ids.groupBy(identity).collect { case (id, occurrences) if occurrences.size > 1 => id }.toList.sortBy(_.toString).traverse_ { id =>
+        s"$path: il materiale ${label(MaterialId(id))} compare in più righe; indica la quantità totale in una sola riga".invalidNec[Unit]
+      }
+
+    /** A material counted in whole units (pieces, packs) takes a whole quantity. */
+    private def counted(path: String, materialId: MaterialId, stored: Option[StoredMaterial], used: Quantity): ValidatedNec[String, Unit] =
+      if stored.forall(_.info.unit.allowsFractions) || used.isWhole then ().validNec
+      else
+        s"$path.quantity: il materiale ${label(materialId)} è gestito a unità intere (pezzi/confezioni), la quantità deve essere un numero intero".invalidNec
+
+    /** The material of a line: it must exist and be active, unless the line is `kept` from the current materials (which keeps archived materials). */
+    private def material(path: String, materialId: MaterialId, kept: Boolean): ValidatedNec[String, Option[StoredMaterial]] =
       materials.get(materialId) match
-        case Some(stored) if stored.archived && kept.isEmpty =>
+        case Some(stored) if stored.archived && !kept =>
           s"$path.materialId: il materiale ${label(materialId)} è archiviato e non può essere aggiunto alla lavorazione".invalidNec
         case Some(stored) => Some(stored).validNec
-        case None if kept.isDefined => None.validNec
+        case None if kept => None.validNec
         case None => s"$path.materialId: il materiale ${materialId.value} non esiste".invalidNec
 
     private def quantity(path: String, raw: String): ValidatedNec[String, Quantity] =
@@ -207,6 +227,10 @@ object OrderDtos:
         material.lineCost.toDecimalString,
       )
 
+  /**
+   * A manufacturing of an order creation request, or one added to an existing order. `quantity` is the multiplier ×N (1 to 999, default 1): it is
+   * informative only, the task minutes and the material quantities must already be the totals for the N units (the service never scales them).
+   */
   final case class ManufacturingDto(
       code: String,
       completionDate: String,
@@ -220,6 +244,7 @@ object OrderDtos:
       description: Option[String] = None,
       preferredEmployeeId: Option[UUID] = None,
       materials: Option[List[MaterialLineDto]] = None,
+      quantity: Option[Int] = None,
   ):
     /** The warehouse materials named by the material lines. */
     def materialIds: List[MaterialId] = materials.getOrElse(Nil).map(line => MaterialId(line.materialId)).distinct
@@ -244,19 +269,27 @@ object OrderDtos:
 
       val taskPreferredEmployees = tasks.flatMap(task => task.preferredEmployeeId.map(ScheduledTaskId(task.id) -> EmployeeId(_))).toMap
       val materialLines = catalog.resolve(s"$path.materials", materials.getOrElse(Nil), Nil)
-      val info = (manufacturingCode(code), parseDate(completionDate, s"$path.completionDate"), taskList, validatedDependencies, materialLines).mapN {
-        (code, expectedCompletionDate, scheduledTasks, taskDependencies, scheduledMaterials) =>
-          ScheduledManufacturingInfo(
-            ScheduledManufacturingId(id),
-            code,
-            expectedCompletionDate,
-            scheduledTasks,
-            taskDependencies,
-            description.map(_.trim.nn).filter(_.nonEmpty),
-            preferredEmployeeId.map(EmployeeId(_)),
-            taskPreferredEmployees,
-            scheduledMaterials,
-          )
+      val multiplier = quantity.getOrElse(1).refineValidatedNec[ManufacturingQuantity].leftMap(_.map(message => s"$path.quantity: $message"))
+      val info = (
+        manufacturingCode(code),
+        parseDate(completionDate, s"$path.completionDate"),
+        taskList,
+        validatedDependencies,
+        materialLines,
+        multiplier,
+      ).mapN { (code, expectedCompletionDate, scheduledTasks, taskDependencies, scheduledMaterials, times) =>
+        ScheduledManufacturingInfo(
+          ScheduledManufacturingId(id),
+          code,
+          expectedCompletionDate,
+          scheduledTasks,
+          taskDependencies,
+          description.map(_.trim.nn).filter(_.nonEmpty),
+          preferredEmployeeId.map(EmployeeId(_)),
+          taskPreferredEmployees,
+          scheduledMaterials,
+          times,
+        )
       }
 
       info.andThen { manufacturingInfo =>
@@ -306,6 +339,7 @@ object OrderDtos:
         Some("Serramenti in alluminio per la commessa"),
         None,
         Some(List(MaterialLineDto.example)),
+        Some(1),
       )
 
     def fromDomain(manufacturing: ScheduledManufacturing, materials: Map[MaterialId, StoredMaterial]): ManufacturingResponse =
@@ -329,6 +363,7 @@ object OrderDtos:
         info.preferredEmployeeId.map(_.value),
         info.materials.map(MaterialLineResponse.fromDomain(_, materials)),
         info.materialsCost.toDecimalString,
+        info.quantity,
       )
     end fromDomain
   end ManufacturingDto
@@ -560,6 +595,7 @@ object OrderDtos:
       preferredEmployeeId: Option[UUID],
       materials: List[MaterialLineResponse],
       materialsCost: String,
+      quantity: Int,
   )
 
   final case class SetPreferredEmployeeRequest(employeeId: Option[UUID]):

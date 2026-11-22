@@ -315,4 +315,24 @@ class ScheduledManufacturingTest extends AnyFlatSpecLike, ScalaCheckPropertyChec
     info.materials.map(_.lineCost) shouldEqual List(Amount(4625L), Amount(3L))
     info.materialsCost shouldEqual Amount(4628L)
     info.copy(materials = Nil).materialsCost shouldEqual Amount.zero
+
+  "The manufacturing quantity (×N)" should "default to 1 and accept only 1 to 999" in:
+    val info = ScheduledManufacturingInfo(
+      ScheduledManufacturingId(UUID.fromString("00000000-0000-0000-0000-000000000601").nn),
+      "MFG-1".refineUnsafe[ManufacturingCode],
+      at,
+      NonEmptyList.one(
+        PendingTask(
+          ScheduledTaskId(UUID.fromString("00000000-0000-0000-0000-000000000401").nn),
+          TaskId(UUID.fromString("00000000-0000-0000-0000-000000000301").nn),
+          TaskDuration(60),
+        ),
+      ),
+      ManufacturingDependencies(),
+    )
+    (info.quantity: Int) shouldEqual 1
+    List(0, 1, 999, 1000, -3).map(_.refineEither[ManufacturingQuantity].isRight) shouldEqual List(false, true, true, false, false)
+    forAll(Gen.chooseNum(1, 999)) { n =>
+      n.refineEither[ManufacturingQuantity].map(quantity => info.copy(quantity = quantity).quantity: Int) shouldEqual Right(n)
+    }
 end ScheduledManufacturingTest

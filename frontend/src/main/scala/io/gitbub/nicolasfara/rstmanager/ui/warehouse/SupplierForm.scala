@@ -2,6 +2,7 @@ package io.gitbub.nicolasfara.rstmanager.ui.warehouse
 
 import java.util.UUID
 
+import io.gitbub.nicolasfara.rstmanager.Equality.given
 import io.gitbub.nicolasfara.rstmanager.api.Dtos.{ SupplierRequest, SupplierResponse }
 import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messages, FieldIssue }
 
@@ -56,6 +57,9 @@ object SupplierForm:
       s.address.getOrElse(""),
       s.notes.getOrElse(""),
     )
+
+  /** True when a successful reload of the registry (`loaded`) no longer lists the supplier `id` (e.g. deleted by another user). */
+  def isGone(id: UUID, loaded: List[SupplierResponse]): Boolean = !loaded.exists(_.id == id)
 
   /** Trims free text and collapses blank strings to `None`. */
   private[warehouse] def opt(value: String): Option[String] = Some(value.trim.nn).filter(_.nonEmpty)

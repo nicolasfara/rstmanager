@@ -606,7 +606,18 @@ object OrdersPage:
           cls := "rounded-lg border border-slate-200 p-3",
           div(
             cls := "mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2",
-            div(cls := "font-medium text-slate-800", m.code),
+            div(
+              cls := "flex items-center gap-2",
+              span(cls := "font-medium text-slate-800", m.code),
+              Option.when(m.quantity > 1)(
+                span(
+                  cls := "rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-slate-600",
+                  title := s"Quantità: la lavorazione si esegue ${m.quantity} volte (durate e materiali sono già i totali)",
+                  aria.label := s"Quantità ${m.quantity}",
+                  s"×${m.quantity}",
+                ),
+              ),
+            ),
             div(
               cls := "flex items-center gap-2",
               span(cls := "text-xs text-slate-400", Formats.date(m.completionDate)),

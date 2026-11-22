@@ -46,6 +46,7 @@ private[ui] object OrderCreateModel:
   def mfgFieldId(key: Int, field: MfgField): String = field match
     case MfgField.Catalog => s"oc-mfg-$key-catalog"
     case MfgField.Code => s"oc-mfg-$key-code"
+    case MfgField.Quantity => s"oc-mfg-$key-quantity"
     case MfgField.Tasks => s"oc-mfg-$key-tasks"
     case MfgField.Materials => s"oc-mfg-$key-materials"
 
@@ -213,6 +214,49 @@ object OrderCreateView:
       },
     )
 
+  /**
+   * The per-unit materials of the selected template: what is prefilled into the draft (× N), and a warning for the archived or unknown ones, which
+   * are not prefilled. Hidden while no template (or one without materials) is selected.
+   */
+  private def catalogMaterialsNote(catalogIdSignal: Signal[String], catalogs: Signal[List[ManufacturingCatalogResponse]]): HtmlElement =
+    def lineText(line: CatalogMaterialResponse): String =
+      val code = line.internalCode.getOrElse(Formats.shortId(line.materialId))
+      val quantity =
+        line.unit.fold(WarehouseFormats.formatDecimal(line.quantity, 0, MaterialDrafts.quantityScale))(WarehouseFormats.formatQty(line.quantity, _))
+      s"$code ($quantity)"
+    div(
+      child <-- catalogIdSignal.combineWith(catalogs).map { (rawId, list) =>
+        catalogLookup(list)(rawId).filter(_.materials.nonEmpty) match
+          case None => emptyNode
+          case Some(template) =>
+            val unavailable = OrderDrafts.unavailableCatalogMaterials(template)
+            div(
+              cls := "space-y-1 text-xs",
+              div(cls := "text-slate-500", s"Materiali per unità: ${template.materials.map(lineText).mkString(", ")} — precompilati × quantità."),
+              Option.when(unavailable.nonEmpty)(
+                div(
+                  cls := "rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800",
+                  role := "status",
+                  s"Non precompilati perché archiviati o non più in magazzino: ${unavailable.map(lineText).mkString(", ")}.",
+                ),
+              ),
+            )
+      },
+    )
+  end catalogMaterialsNote
+
+  /** The stock warnings of the whole draft (non-blocking): one amber line per material the draft needs more of than is available. */
+  private def stockWarningsBox(warnings: List[OrderDrafts.StockWarning]): com.raquo.laminar.nodes.ChildNode.Base =
+    if warnings.isEmpty then emptyNode
+    else
+      div(
+        cls := "space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800",
+        role := "status",
+        div(cls := "font-semibold", s"Materiali da ordinare (${warnings.size})"),
+        ul(cls := "space-y-0.5", warnings.map(w => li(span(cls := "font-medium", w.internalCode), s": ${OrderDrafts.stockWarningText(w)}"))),
+        div(cls := "text-amber-700", "Avviso non bloccante: l'ordine si può creare comunque."),
+      )
+
   // ---- Page --------------------------------------------------------------------------------------
 
   /** The page; `onExit` goes back to the orders list (after a creation or a confirmed abandon). */
@@ -281,6 +325,21 @@ object OrderCreateView:
         .map((list, templates, context) => OrderDrafts.orderTotals(list, catalogLookup(templates), context))
         .distinct
 
+    // Stock of the materials the draft uses, loaded once a material line exists and refreshed on order and warehouse changes.
+    val hasMaterials = snapshots.map(_.exists(_.materials.exists(row => !MaterialDrafts.isBlank(row)))).distinct
+    val requirements: Signal[List[MaterialRequirementResponse]] =
+      hasMaterials.flatMapSwitch { any =>
+        if any then
+          loadable(AppBus.ordersTicks.combineWith(AppBus.warehouseTicks))(() => ApiClient.materialRequirements(None)).map {
+            case Some(Right(response)) => response.materials
+            case _ => Nil
+          }
+        else Signal.fromValue(Nil)
+      }
+    val stockWarnings: Signal[Map[UUID, OrderDrafts.StockWarning]] =
+      snapshots.combineWith(requirements).map((list, reqs) => OrderDrafts.stockWarnings(list.flatMap(_.materials), reqs)).distinct
+    val stockWarningList: Signal[List[OrderDrafts.StockWarning]] = stockWarnings.map(_.values.toList.sortBy(_.internalCode))
+
     def isDirty(): Boolean = !OrderDrafts.isPristine(header.now(), today, mfgs.now().map(snapshotOf))
 
     /** The inline message of the issue at `target` (the signal lets a task row follow its current index). */
@@ -313,7 +372,7 @@ object OrderCreateView:
       FormFocus.focus(domId(issue.target, taskKeyAt))
 
     def cardFieldIds(m: MfgDraft): List[String] =
-      List(MfgField.Catalog, MfgField.Code, MfgField.Tasks).map(mfgFieldId(m.key, _)) ++
+      List(MfgField.Catalog, MfgField.Code, MfgField.Quantity, MfgField.Tasks).map(mfgFieldId(m.key, _)) ++
         m.tasks.now().flatMap(row => List(TaskField.Task, TaskField.Duration).map(taskFieldId(m.key, row.key, _)))
 
     /** "Fatto ✓": the card collapses and every one of its errors becomes visible. */
@@ -529,7 +588,9 @@ object OrderCreateView:
             taskId = next,
             dependsOn = ts.dependsOn - next,
             employeeId = picked.flatMap(_.defaultEmployeeId).fold("")(_.toString),
-            hours = if t.durationEdited.now() then ts.hours else picked.fold(ts.hours)(task => Formats.duration(task.requiredMinutes)),
+            hours =
+              if t.durationEdited.now() then ts.hours
+              else picked.fold(ts.hours)(task => Formats.duration(task.requiredMinutes * OrderDrafts.quantityOf(m.state.now()))),
           )
         }
 
@@ -593,11 +654,15 @@ object OrderCreateView:
           searchableSelect(
             catalogIdSignal,
             // Selecting a template also prefills the per-task employees from the catalog defaults.
+            // Selecting a template also prefills its per-unit materials × N (the lines added or edited by hand stay).
             Observer[String] { v =>
-              val defaults = catalogById(v).fold(Map.empty[String, String])(
-                _.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap,
-              )
-              m.state.update(_.copy(catalogId = v, taskEmployees = defaults))
+              if v != m.state.now().catalogId then
+                val template = catalogById(v)
+                val defaults = template.fold(Map.empty[String, String])(
+                  _.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap,
+                )
+                m.state.update(_.copy(catalogId = v, taskEmployees = defaults))
+                m.materials.update(rows => OrderDrafts.withCatalogMaterials(rows, template, OrderDrafts.quantityOf(m.state.now()), () => nextKey()))
             },
             catalogOptions,
             "Cerca per codice o nome…",
@@ -606,6 +671,7 @@ object OrderCreateView:
           )
         },
         catalogPreview(catalogIdSignal, catalogs.signal),
+        catalogMaterialsNote(catalogIdSignal, catalogs.signal),
         catalogTaskEmployeeOverrides(
           catalogIdSignal,
           catalogs.signal,
@@ -657,8 +723,20 @@ object OrderCreateView:
       )
     end customBody
 
+    /** A new multiplier: the material lines and the custom task durations that were not edited by hand follow it. */
+    def setQuantity(m: MfgDraft, text: String): Unit =
+      m.state.update(_.copy(quantity = text))
+      OrderDrafts.parseQuantity(text).foreach { times =>
+        m.materials.update(MaterialDrafts.rescale(_, times))
+        m.tasks.now().foreach { row =>
+          val minutes = tasksById.now().get(row.state.now().taskId).map(_.requiredMinutes)
+          row.state.update(OrderDrafts.followTask(_, row.durationEdited.now(), minutes, times))
+        }
+      }
+
     def commonFields(m: MfgDraft): HtmlElement =
       val k = m.key
+      val cardTouch = touchOf(k)
       val dependencyChoices: Signal[List[(String, String)]] =
         snapshots.combineWith(catalogs.signal).map { (list, templates) =>
           list.zipWithIndex.filter(_._1.key != k).map { (other, index) =>
@@ -670,6 +748,18 @@ object OrderCreateView:
         cls := "space-y-3",
         div(
           cls := "grid grid-cols-1 gap-4 sm:grid-cols-2",
+          field(
+            cardTouch.spec(
+              "Quantità (×N)",
+              mfgFieldId(k, MfgField.Quantity),
+              true,
+              "Quante volte si esegue la lavorazione: durate e materiali non modificati a mano si moltiplicano",
+              rawFor(IssueTarget.Manufacturing(k, MfgField.Quantity)),
+            ),
+          )(bind =>
+            textInput(m.state.signal.map(_.quantity), Observer[String](v => setQuantity(m, v)), "1")
+              .amend(bind, inputMode := "numeric", maxLength := 3),
+          ),
           div(
             field(FieldSpec("Completamento lavorazione", s"oc-mfg-$k-completion"))(bind =>
               textInput(m.state.signal.map(_.completionDate), Observer[String](v => m.state.update(_.copy(completionDate = v))), "", "date")
@@ -706,7 +796,10 @@ object OrderCreateView:
       val cardTotals = snapshot
         .combineWith(catalogs.signal, materialsContext.signal)
         .map((s, templates, context) => OrderDrafts.mfgTotals(s, catalogLookup(templates), context))
-      val titleText = m.state.signal.combineWith(catalogs.signal).map((core, templates) => mfgLabel(core, catalogLookup(templates)))
+      val titleText = m.state.signal.combineWith(catalogs.signal).map { (core, templates) =>
+        val label = mfgLabel(core, catalogLookup(templates))
+        if label.isEmpty then label else label + OrderDrafts.quantitySuffix(OrderDrafts.quantityOf(core))
+      }
       val completion = m.state.signal.map(_.completionDate).combineWith(header.signal.map(_.workDeadline)).map { (own, deadline) =>
         if own.trim.nn.nonEmpty then own else deadline
       }
@@ -752,7 +845,7 @@ object OrderCreateView:
             case _ => customBody(m)
           },
           commonFields(m),
-          MaterialsEditor.draftEditor(m.materials, () => nextKey(), materialsContext.writer, mfgFieldId(k, MfgField.Materials)),
+          MaterialsEditor.draftEditor(m.materials, () => nextKey(), materialsContext.writer, mfgFieldId(k, MfgField.Materials), stockWarnings),
           div(
             cls := "flex justify-end border-t border-slate-100 pt-3",
             button(tpe := "button", cls := btnGhost, "Fatto ✓", onClick --> (_ => done(m))),
@@ -795,7 +888,8 @@ object OrderCreateView:
                 cls := "divide-y divide-slate-100 rounded-md border border-slate-200",
                 list.zipWithIndex.map { (s, index) =>
                   val lookup = catalogLookup(templates)
-                  val label = mfgLabel(s.core, lookup)
+                  val label =
+                    Some(mfgLabel(s.core, lookup)).filter(_.nonEmpty).fold("")(_ + OrderDrafts.quantitySuffix(OrderDrafts.quantityOf(s.core)))
                   val day = DayText.short(if s.core.completionDate.trim.nn.nonEmpty then s.core.completionDate else deadline)
                   li(
                     cls := "flex flex-col gap-0.5 px-3 py-2 text-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-3",
@@ -820,7 +914,12 @@ object OrderCreateView:
           span(cls := "text-slate-500", "Totale ordine"),
           span(cls := "font-semibold tabular-nums text-slate-800", child.text <-- totals.map(totalsText)),
         ),
+        div(cls := "mt-3", child <-- stockWarningList.map(stockWarningsBox)),
       )
+
+    val sidebarWarnings = div(
+      child <-- stockWarningList.map(list => if list.isEmpty then emptyNode else div(cls := "border-t border-slate-100 pt-3", stockWarningsBox(list))),
+    )
 
     val confirmSection =
       formSection(3, "Riepilogo e conferma", "Controlla i dati e crea l'ordine.", allStatus)(
@@ -858,6 +957,7 @@ object OrderCreateView:
           summaryRow("Ore totali", totals.map(t => hoursText(t.minutes))),
           summaryRow("Costo materiali", totals.map(t => WarehouseFormats.formatEuro(t.materialsCost))),
         ),
+        sidebarWarnings,
         div(
           cls := "space-y-2 border-t border-slate-100 pt-3",
           div(cls := subheadingCls, child.text <-- issues.map(list => if list.isEmpty then "Da completare" else s"Da completare (${list.size})")),

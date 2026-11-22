@@ -384,4 +384,102 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
     )
     OrderDrafts.orderTotals(snapshots, _ => Some(template), materialsContext) shouldBe MfgTotals(2, 180, "27.75")
 
+  // ---- multiplier ×N -----------------------------------------------------------------------------
+
+  private val screwId = uuid("00000000-0000-0000-0000-000000000f02")
+  private val archivedId = uuid("00000000-0000-0000-0000-000000000f03")
+
+  private val templateWithMaterials: ManufacturingCatalogResponse =
+    catalogWith(List(taskResponse(taskA, 60), taskResponse(taskB, 30))).copy(
+      materials = List(
+        CatalogMaterialResponse(materialId, Some("TES-001"), Some("Tessuto"), Some("linear_meters"), false, "2.500"),
+        CatalogMaterialResponse(screwId, Some("VIT-1"), Some("Vite"), Some("pieces"), false, "3.000"),
+        CatalogMaterialResponse(archivedId, Some("OLD-1"), Some("Vecchio"), Some("pieces"), true, "1.000"),
+      ),
+    )
+
+  private def keys(): () => Int =
+    val counter = Iterator.from(100)
+    () => counter.next()
+
+  test("the multiplier is a whole number from 1 to 999, blocking otherwise"):
+    OrderDrafts.parseQuantity(" 4 ") shouldBe Some(4)
+    List("0", "1000", "2,5", "", "x").map(OrderDrafts.parseQuantity) shouldBe List(None, None, None, None, None)
+    OrderDrafts.quantityOf(baseCore.copy(quantity = "abc")) shouldBe 1
+    val issues = mfgIssues(validCustom.copy(core = baseCore.copy(quantity = "0")))
+    issues shouldBe List(
+      Issue(IssueTarget.Manufacturing(7, MfgField.Quantity), "Lavorazione 1: quantità non valida: indica un numero intero da 1 a 999"),
+    )
+    mfgIssues(validCustom.copy(core = baseCore.copy(quantity = "999"))) shouldBe Nil
+
+  test("picking a template prefills its active materials × N, keeping the lines edited by hand and skipping archived ones"):
+    val manual = MaterialDrafts.Row(1, screwId.toString, "7", "")
+    val fromPrevious = MaterialDrafts.Row(2, uuid("00000000-0000-0000-0000-000000000f09").toString, "1", "", Some("1.000"))
+    val rows = OrderDrafts.withCatalogMaterials(List(manual, fromPrevious, MaterialDrafts.Row.empty(3)), Some(templateWithMaterials), 4, keys())
+    rows shouldBe List(manual, MaterialDrafts.Row(100, materialId.toString, "10", "", Some("2.500")))
+    OrderDrafts.unavailableCatalogMaterials(templateWithMaterials).map(_.materialId) shouldBe List(archivedId)
+    OrderDrafts.withCatalogMaterials(List(fromPrevious), None, 4, keys()) shouldBe Nil
+
+  test("changing N rescales only the material lines and task durations not edited by hand"):
+    val prefilled = OrderDrafts.withCatalogMaterials(Nil, Some(templateWithMaterials), 2, keys())
+    prefilled.map(_.quantity) shouldBe List("5", "6")
+    val edited = prefilled.map(row => if row.materialId == screwId.toString then row.withQuantity("8") else row)
+    MaterialDrafts.rescale(edited, 3).map(row => (row.quantity, row.perUnit)) shouldBe List(("7,5", Some("2.500")), ("8", None))
+    val task = TaskState(taskA.toString, "1:00", Set.empty, "")
+    OrderDrafts.followTask(task, false, Some(60), 3).hours shouldBe "3:00"
+    OrderDrafts.followTask(task, true, Some(60), 3) shouldBe task
+    OrderDrafts.followTask(task, false, None, 3) shouldBe task
+
+  test("collectManufacturings sends the quantity with the task minutes and materials already scaled"):
+    val catalogDraft = MfgSnapshot(
+      1,
+      baseCore.copy(mode = "catalog", catalogId = "known", quantity = "4"),
+      Nil,
+      OrderDrafts.withCatalogMaterials(Nil, Some(templateWithMaterials), 4, keys()),
+    )
+    val customDraft = MfgSnapshot(2, baseCore.copy(quantity = "2"), List(TaskState(taskA.toString, "3:00", Set.empty, "")))
+    val context = MaterialDrafts.Context(
+      List(
+        MaterialDrafts.Material(materialId, "TES-001", "Tessuto", "linear_meters", Some("18.5000"), false),
+        MaterialDrafts.Material(screwId, "VIT-1", "Vite", "pieces", Some("0.1000"), false),
+      ),
+      Map.empty,
+    )
+    val result = OrderDrafts.collectManufacturings(List(catalogDraft, customDraft), "2026-09-15", _ => Some(templateWithMaterials), context, seqIds())
+    result.map(_.map(_.quantity)) shouldBe Right(List(Some(4), Some(2)))
+    result.map(_.map(_.tasks.map(_.expectedMinutes))) shouldBe Right(List(List(240, 120), List(180)))
+    result.map(_.head.materials) shouldBe Right(Some(List(MaterialLineDto(materialId, "10.000", None), MaterialLineDto(screwId, "12.000", None))))
+    OrderDrafts.fromCatalog(templateWithMaterials, "2026-08-01", "", Map.empty, seqIds()).quantity shouldBe Some(1)
+
+  test("mfgTotals of a catalog manufacturing multiplies the durations by N"):
+    val snapshot = MfgSnapshot(1, baseCore.copy(mode = "catalog", catalogId = "known", quantity = "3"), Nil)
+    OrderDrafts.mfgTotals(snapshot, _ => Some(templateWithMaterials), MaterialDrafts.Context.empty) shouldBe MfgTotals(2, 270, "0.00")
+    OrderDrafts.quantitySuffix(3) shouldBe " ×3"
+    OrderDrafts.quantitySuffix(1) shouldBe ""
+
+  // ---- stock warnings ----------------------------------------------------------------------------
+
+  private def requirement(id: UUID, code: String, unit: String, available: String): MaterialRequirementResponse =
+    MaterialRequirementResponse(id, code, code, unit, "10.000", "0.000", available)
+
+  test("stockWarnings sums the lines of every manufacturing per material and compares them with what is available"):
+    val rows = List(
+      MaterialDrafts.Row(1, materialId.toString, "8", ""),
+      MaterialDrafts.Row(2, screwId.toString, "3", ""),
+      MaterialDrafts.Row(3, materialId.toString, "4,5", ""), // same material in another manufacturing
+      MaterialDrafts.Row(4, materialId.toString, "bad", ""), // unreadable: not counted
+      MaterialDrafts.Row.empty(5),
+    )
+    val requirements = List(requirement(materialId, "TES-001", "linear_meters", "10.000"), requirement(screwId, "VIT-1", "pieces", "3.000"))
+    val warnings = OrderDrafts.stockWarnings(rows, requirements)
+    warnings.keySet shouldBe Set(materialId) // 3 screws are exactly available
+    warnings(materialId) shouldBe OrderDrafts.StockWarning(materialId, "TES-001", "linear_meters", "10.000", "12.500", "2.500")
+    OrderDrafts.stockWarningText(warnings(materialId)) shouldBe "Disponibili 10 m, richiesti 12,5 m: mancano 2,5 m — da ordinare"
+
+  test("with a negative availability the whole demand is missing; unknown materials get no warning"):
+    val rows = List(MaterialDrafts.Row(1, screwId.toString, "4", ""), MaterialDrafts.Row(2, archivedId.toString, "1", ""))
+    val warnings = OrderDrafts.stockWarnings(rows, List(requirement(screwId, "VIT-1", "pieces", "-2.000")))
+    warnings.values.toList shouldBe List(OrderDrafts.StockWarning(screwId, "VIT-1", "pieces", "-2.000", "4.000", "4.000"))
+    OrderDrafts.stockWarnings(rows, Nil).isEmpty shouldBe true
+
 end OrderDraftsSpec

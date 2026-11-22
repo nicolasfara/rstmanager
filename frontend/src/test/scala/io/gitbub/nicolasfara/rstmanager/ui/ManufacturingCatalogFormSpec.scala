@@ -51,7 +51,7 @@ final class ManufacturingCatalogFormSpec extends AnyFunSuite with Matchers:
         TaskRow(2, sew, Set(cut, "00000000-0000-0000-0000-000000000999"), "", "0:45"),
       ),
     )
-    state.request(Map(cut -> 60, sew -> 30)) shouldBe ManufacturingCatalogRequest(
+    state.request(Map(cut -> 60, sew -> 30), MaterialDrafts.Context.empty) shouldBe ManufacturingCatalogRequest(
       "MFG-1",
       "Tendalino",
       None,
@@ -84,4 +84,59 @@ final class ManufacturingCatalogFormSpec extends AnyFunSuite with Matchers:
     (state.code, state.name, state.description) shouldBe ("MFG-7", "Capottina", "Su misura")
     state.taskRows shouldBe List(TaskRow(11, cut, Set.empty, employee, "1:30"), TaskRow(12, sew, Set(cut), "", "2:30"))
     state.errors shouldBe Nil
+    state.materials shouldBe Nil
+
+  // ---- per-unit materials ------------------------------------------------------------------------
+
+  private given CanEqual[CatalogMaterialDto, CatalogMaterialDto] = CanEqual.derived
+
+  private val fabric = uuid("00000000-0000-0000-0000-000000000901")
+  private val oldScrew = uuid("00000000-0000-0000-0000-000000000902")
+
+  private val fabricMaterial: MaterialResponse =
+    MaterialResponse(
+      fabric,
+      "TES-001",
+      "Tessuto",
+      None,
+      None,
+      "linear_meters",
+      "18.5000",
+      Nil,
+      Nil,
+      "2026-10-01",
+      false,
+      None,
+      StockDto("10.000", None, None, "0.00", false),
+    )
+
+  private val storedLines = List(
+    CatalogMaterialResponse(fabric, Some("TES-001"), Some("Tessuto"), Some("linear_meters"), false, "2.500"),
+    CatalogMaterialResponse(oldScrew, Some("VIT-9"), Some("Vite"), Some("pieces"), true, "4.000"),
+  )
+
+  test("fromResponse loads the per-unit materials as price-less rows, and an archived stored line stays valid"):
+    val response = ManufacturingCatalogResponse(uuid("00000000-0000-0000-0000-000000000801"), "MFG-7", "Capottina", None, Nil, Nil, Nil, 0)
+      .copy(materials = storedLines)
+    var key = 0
+    val state = ManufacturingCatalogForm.fromResponse(
+      response,
+      () =>
+        key += 1; key,
+    )
+    state.materials shouldBe List(MaterialDrafts.Row(1, fabric.toString, "2,5", ""), MaterialDrafts.Row(2, oldScrew.toString, "4", ""))
+    val context = MaterialDrafts.Context.ofCatalog(List(fabricMaterial), storedLines)
+    context.material(oldScrew).map(_.archived) shouldBe Some(true)
+    state.materialIssues(context) shouldBe Nil
+    state.request(Map.empty, context).materials shouldBe
+      Some(List(CatalogMaterialDto(fabric, "2.500"), CatalogMaterialDto(oldScrew, "4.000")))
+
+  test("materials are validated without a price, blank rows are not sent, and none means no materials"):
+    val context = MaterialDrafts.Context.ofCatalog(List(fabricMaterial), Nil)
+    val withRows = base.copy(materials = List(MaterialDrafts.Row(1, fabric.toString, "0", "")))
+    withRows.materialIssues(context) shouldBe List(FieldIssue(Field.Materials, "Materiali — Riga 1: la quantità deve essere maggiore di zero"))
+    withRows.materialIssues(MaterialDrafts.Context.empty) shouldBe Nil // not loaded yet
+    base.copy(materials = List(MaterialDrafts.Row.empty(1))).request(Map.empty, context).materials shouldBe None
+    base.copy(materials = List(MaterialDrafts.Row(1, fabric.toString, "1,25", "99"))).request(Map.empty, context).materials shouldBe
+      Some(List(CatalogMaterialDto(fabric, "1.250")))
 end ManufacturingCatalogFormSpec

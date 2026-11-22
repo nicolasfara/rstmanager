@@ -57,6 +57,16 @@ object ManufacturingsPage:
       ManufacturingCatalogForm.fresh(GeneratedCodes.next("MFG", manufacturingsSnapshot.now().map(_.code)), nextKey())
 
     val form = Var(freshForm())
+    // The per-unit material rows of the form, and the stored lines of the template being edited (archived/unknown materials may stay on them).
+    val materialRows: Var[List[MaterialDrafts.Row]] = form.zoomLazy(_.materials)((state, rows) => state.copy(materials = rows))
+    val editingMaterials = Var(List.empty[CatalogMaterialResponse])
+    val warehouseMaterials = MaterialsEditor.activeMaterials()
+    val materialsContext: Signal[MaterialDrafts.Context] = warehouseMaterials.combineWith(editingMaterials.signal).map {
+      case (Some(Right(list)), current) => MaterialDrafts.Context.ofCatalog(list, current)
+      case (_, current) => MaterialDrafts.Context.ofCatalog(Nil, current)
+    }
+    // Synchronous mirror of the context, read on submit.
+    val currentMaterialsContext = Var(MaterialDrafts.Context.empty)
     val draft = DraftGuard[ManufacturingCatalogForm.State](
       () => form.now(),
       s => DraftGuard.discardTitle(Option.when(s.editingId.isDefined)(s"${s.code} · ${s.name}"), "la nuova lavorazione"),
@@ -76,6 +86,7 @@ object ManufacturingsPage:
 
     def resetForm(): Unit =
       form.set(freshForm())
+      editingMaterials.set(Nil)
       formError.set(None)
       touch.reset()
       draft.markClean()
@@ -86,6 +97,7 @@ object ManufacturingsPage:
     def edit(manufacturing: ManufacturingCatalogResponse): Unit =
       draft.discardThen { () =>
         formAnchor.revealAndFocus()
+        editingMaterials.set(manufacturing.materials)
         form.set(ManufacturingCatalogForm.fromResponse(manufacturing, () => nextKey()))
         formError.set(None)
         touch.reset()
@@ -103,19 +115,20 @@ object ManufacturingsPage:
     /** Where to move the focus for `field`: the "no task" issue points at the first row's task select. */
     def focusTarget(field: Field): String = field match
       case Field.Tasks => form.now().taskRows.headOption.fold(ManufacturingCatalogForm.tasksId)(row => ManufacturingCatalogForm.rowTaskId(row.key))
+      case Field.Materials => ManufacturingCatalogForm.materialsId
       case other => ManufacturingCatalogForm.fieldId(other)
 
     // Always clickable: an invalid form reveals every error and focuses the first one instead of sending; re-entrant clicks are ignored.
     def submit(): Unit =
       val current = form.now()
       if !submitting.now() then
-        current.issues.headOption match
+        (current.issues ++ current.materialIssues(currentMaterialsContext.now())).headOption match
           case Some(first) =>
             touch.attemptSubmit()
             FormFocus.focus(focusTarget(first.field))
           case None =>
             submitting.set(true)
-            val request = current.request(tasksSnapshot.now().view.mapValues(_.requiredMinutes).toMap)
+            val request = current.request(tasksSnapshot.now().view.mapValues(_.requiredMinutes).toMap, currentMaterialsContext.now())
             val effect = current.editingId match
               case Some(id) => ApiClient.updateManufacturingCatalog(id, request)
               case None => ApiClient.createManufacturingCatalog(request)
@@ -165,6 +178,15 @@ object ManufacturingsPage:
         }.mkString(", ")
       }
 
+    /** "CODE 2,5 m, …" of the per-unit materials (archived ones marked); empty without materials. */
+    def materialsSummary(manufacturing: ManufacturingCatalogResponse): String =
+      manufacturing.materials.map { line =>
+        val code = line.internalCode.getOrElse(Formats.shortId(line.materialId))
+        val quantity =
+          line.unit.fold(WarehouseFormats.formatDecimal(line.quantity, 0, MaterialDrafts.quantityScale))(WarehouseFormats.formatQty(line.quantity, _))
+        s"$code $quantity${if line.archived then " (archiviato)" else ""}"
+      }.mkString(", ")
+
     def actionButtons(manufacturing: ManufacturingCatalogResponse): List[HtmlElement] =
       List(
         button(tpe := "button", cls := btnSmall, "Modifica", onClick --> (_ => edit(manufacturing))),
@@ -180,7 +202,13 @@ object ManufacturingsPage:
           div(cls := "font-medium text-slate-700", manufacturing.name),
           manufacturing.description.map(d => div(cls := "text-xs text-slate-400", d)).getOrElse(emptyNode),
         ),
-        td(cls := "px-4 py-2 text-slate-500", child.text <-- tasksSummary(manufacturing)),
+        td(
+          cls := "px-4 py-2 text-slate-500",
+          div(child.text <-- tasksSummary(manufacturing)),
+          Option.when(manufacturing.materials.nonEmpty)(
+            div(cls := "mt-0.5 text-xs text-slate-400", s"Materiali per unità: ${materialsSummary(manufacturing)}"),
+          ),
+        ),
         td(cls := "px-4 py-2 tabular-nums", s"${Formats.duration(manufacturing.totalRequiredMinutes)}h"),
         td(
           cls := "px-4 py-2 text-right",
@@ -209,6 +237,13 @@ object ManufacturingsPage:
           cls := "text-sm text-slate-600",
           div(cls := "text-xs font-medium text-slate-500", "Task"),
           div(cls := "break-words", child.text <-- tasksSummary(manufacturing)),
+        ),
+        Option.when(manufacturing.materials.nonEmpty)(
+          div(
+            cls := "text-sm text-slate-600",
+            div(cls := "text-xs font-medium text-slate-500", "Materiali per unità"),
+            div(cls := "break-words", materialsSummary(manufacturing)),
+          ),
         ),
         roleGated(Role.Admin)(div(cls := cardActionsCls, actionButtons(manufacturing))),
       )
@@ -366,6 +401,30 @@ object ManufacturingsPage:
             ),
           ),
         ),
+      ),
+      div(
+        idAttr := ManufacturingCatalogForm.materialsId,
+        tabIndex := -1,
+        cls := "mt-5 space-y-2",
+        materialsContext --> currentMaterialsContext.writer,
+        subheading("Materiali per unità"),
+        hint("Quanto consuma una unità della lavorazione: negli ordini le quantità si moltiplicano per ×N."),
+        child <-- materialRows.signal.map(_.isEmpty).distinct.map { empty =>
+          if empty then
+            div(
+              button(
+                tpe := "button",
+                cls := btnSmall,
+                "+ Materiale",
+                onClick --> (_ => materialRows.set(List(MaterialDrafts.Row.empty(nextKey())))),
+              ),
+            )
+          else
+            div(
+              MaterialsEditor.materialsStatus(warehouseMaterials),
+              MaterialsEditor.quantitiesEditor(materialRows, materialsContext, () => nextKey()),
+            )
+        },
       ),
       child.maybe <-- formError.signal.map(_.map(e => div(cls := "mt-3", errorBanner(e)))),
       div(

@@ -10,6 +10,7 @@ import io.gitbub.nicolasfara.rstmanager.ui.FormValidation.{ messages, FieldIssue
 /**
  * Pure (DOM-free) state of the manufacturing-catalog create/edit form: loading a stored template, request building, the live total duration and
  * field-addressed validation. Task rows are identified by a stable `key` (injected by the caller), so their issues and DOM ids survive reordering.
+ * The per-unit materials ("Materiali per unità") reuse the rows and checks of [[MaterialDrafts]] without the price.
  */
 object ManufacturingCatalogForm:
 
@@ -23,6 +24,7 @@ object ManufacturingCatalogForm:
     case Tasks
     case RowTask(key: Int)
     case RowDuration(key: Int)
+    case Materials
 
   /** DOM id of the task select of row `key`. */
   def rowTaskId(key: Int): String = s"mfg-row-$key-task"
@@ -33,6 +35,9 @@ object ManufacturingCatalogForm:
   /** DOM id of the task block (its inline error and touch tracking). */
   val tasksId = "mfg-tasks"
 
+  /** DOM id of the materials block (target of a material issue). */
+  val materialsId = "mfg-materials"
+
   /** DOM id of the control of `field` (label `for`, inline error anchor). */
   def fieldId(field: Field): String = field match
     case Field.Code => "mfg-code"
@@ -40,6 +45,7 @@ object ManufacturingCatalogForm:
     case Field.Tasks => tasksId
     case Field.RowTask(key) => rowTaskId(key)
     case Field.RowDuration(key) => rowDurationId(key)
+    case Field.Materials => materialsId
 
   private def parseUuid(value: String): Option[UUID] = Try(UUID.fromString(value).nn).toOption
 
@@ -50,6 +56,7 @@ object ManufacturingCatalogForm:
       name: String,
       description: String,
       taskRows: List[TaskRow],
+      materials: List[MaterialDrafts.Row] = Nil,
   ) derives CanEqual:
     /**
      * The issues in form order: code, name, then the task block. With no task picked at all there is a single "pick a task" issue; otherwise each row
@@ -83,14 +90,23 @@ object ManufacturingCatalogForm:
 
     def errors: List[String] = issues.messages
 
+    /**
+     * The issues of the per-unit materials checked against `context` (see [[MaterialDrafts.quantityRequest]]), suppressed while the context is still
+     * empty (materials not loaded yet) although lines were entered.
+     */
+    def materialIssues(context: MaterialDrafts.Context): List[FieldIssue[Field]] =
+      val loading = context.materials.isEmpty && materials.exists(row => !MaterialDrafts.isBlank(row))
+      if loading then Nil else MaterialDrafts.quantityErrors(materials, context).map(message => FieldIssue(Field.Materials, s"Materiali — $message"))
+
     /** Sum of the valid durations of the rows with a task (a malformed duration counts as 0 until fixed). */
     def totalMinutes: Int = taskRows.filter(_.taskId.nonEmpty).flatMap(row => Formats.parseDuration(row.hours)).sum
 
     /**
      * The request for the current state. `catalogMinutes` (task id -> catalog duration) decides the overrides: a duration is sent only when it
-     * differs from the catalog task's, so untouched tasks keep following the catalog.
+     * differs from the catalog task's, so untouched tasks keep following the catalog. The valid per-unit materials are sent (none without lines); the
+     * caller blocks the submit while [[materialIssues]] is not empty.
      */
-    def request(catalogMinutes: Map[String, Int]): ManufacturingCatalogRequest =
+    def request(catalogMinutes: Map[String, Int], context: MaterialDrafts.Context): ManufacturingCatalogRequest =
       val selectedIds = taskRows.flatMap(row => parseUuid(row.taskId))
       val selectedStrings = selectedIds.map(_.toString).toSet
       val dependencies = taskRows.flatMap { row =>
@@ -120,6 +136,7 @@ object ManufacturingCatalogForm:
         dependencies,
         Some(defaultEmployees),
         Some(taskDurations),
+        if materials.forall(MaterialDrafts.isBlank) then None else MaterialDrafts.quantityRequest(materials, context).toOption,
       )
     end request
   end State
@@ -129,7 +146,9 @@ object ManufacturingCatalogForm:
 
   def emptyRow(key: Int): TaskRow = TaskRow(key, "", Set.empty, "", "")
 
-  /** Loads a stored template: one row per task (keys from `newKey`), its duration being the override or else the catalog task's. */
+  /**
+   * Loads a stored template: one row per task (keys from `newKey`), its duration being the override or else the catalog task's, and its materials.
+   */
   def fromResponse(manufacturing: ManufacturingCatalogResponse, newKey: () => Int): State =
     val dependencyMap = manufacturing.dependencies.map(d => d.taskId.toString -> d.dependsOn.map(_.toString).toSet).toMap
     val defaultEmployeeMap = manufacturing.defaultEmployees.map(d => d.taskId.toString -> d.employeeId.toString).toMap
@@ -146,6 +165,7 @@ object ManufacturingCatalogForm:
         val minutes = overrideMinutesMap.getOrElse(key, catalogMinutesMap.getOrElse(key, 0))
         TaskRow(newKey(), key, dependencyMap.getOrElse(key, Set.empty), defaultEmployeeMap.getOrElse(key, ""), Formats.duration(minutes))
       },
+      MaterialDrafts.rowsOfCatalog(manufacturing.materials, newKey),
     )
   end fromResponse
 end ManufacturingCatalogForm

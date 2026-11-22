@@ -381,6 +381,13 @@ object ApiClient:
   def supplierSpend(from: String, to: String): Future[Result[SupplierSpendReportResponse]] =
     sendJson(dom.HttpMethod.GET, s"/warehouse/supplier-spend${queryString(List("from" -> Some(from), "to" -> Some(to)))}", None)
 
+  /**
+   * Stock, commitment of the open orders and availability per material, plus the manufacturings short of material. `excludeOrder` leaves an order out
+   * of the demand (the form editing it counts its own lines).
+   */
+  def materialRequirements(excludeOrder: Option[UUID]): Future[Result[MaterialRequirementsResponse]] =
+    sendJson(dom.HttpMethod.GET, s"/warehouse/material-requirements${queryString(List("excludeOrder" -> excludeOrder.map(_.toString)))}", None)
+
   /** `?a=1&b=2` from the present, non-blank parameters (values URI-encoded); empty when none is left. */
   private def queryString(params: List[(String, Option[String])]): String =
     val present = params.collect { case (name, Some(value)) if value.trim.nn.nonEmpty => s"$name=${js.URIUtils.encodeURIComponent(value.trim.nn)}" }

@@ -846,7 +846,12 @@ object OrderCreateView:
             segmented(
               m.state.signal.map(_.mode),
               Observer[String] { v =>
-                m.state.update(_.copy(mode = v))
+                val core = m.state.now()
+                if v != core.mode then
+                  m.state.update(_.copy(mode = v))
+                  m.materials.update(rows =>
+                    OrderDrafts.materialsForMode(rows, v, catalogById(core.catalogId), OrderDrafts.quantityOf(core), () => nextKey()),
+                  )
                 if v == "custom" && m.tasks.now().isEmpty then m.tasks.set(List(newTask()))
               },
               modeOptions,

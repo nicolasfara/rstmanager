@@ -480,4 +480,26 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
     warnings.values.toList shouldBe List(OrderDrafts.StockWarning(screwId, "VIT-1", "pieces", "-2.000", "4.000", "4.000"))
     OrderDrafts.stockWarnings(rows, Nil).isEmpty shouldBe true
 
+  test("a price typed on a prefilled line survives ×N changes, and the line is kept when the template changes"):
+    val prefilled = OrderDrafts.withCatalogMaterials(Nil, Some(templateWithMaterials), 2, keys())
+    val priced = prefilled.map(row => if row.materialId == materialId.toString then row.copy(unitPrice = "20") else row)
+    priced.find(_.materialId == materialId.toString).map(_.isUntouchedPrefill) shouldBe Some(false)
+    val rescaled = MaterialDrafts.rescale(priced, 4)
+    rescaled.map(row => (row.materialId, row.quantity, row.unitPrice)) shouldBe
+      List((materialId.toString, "10", "20"), (screwId.toString, "12", ""))
+    // Another template without materials: the untouched screw line goes, the priced fabric line stays (and keeps following ×N).
+    val switched = OrderDrafts.withCatalogMaterials(rescaled, Some(baseCatalog), 4, keys())
+    switched.map(row => (row.materialId, row.quantity, row.unitPrice, row.perUnit)) shouldBe List((materialId.toString, "10", "20", Some("2.500")))
+
+  test("leaving catalog mode drops the untouched prefilled lines, returning to it re-applies the template"):
+    val manual = MaterialDrafts.Row(1, archivedId.toString, "1", "")
+    val prefilled = OrderDrafts.withCatalogMaterials(List(manual), Some(templateWithMaterials), 3, keys())
+    prefilled.size shouldBe 3
+    val custom = OrderDrafts.materialsForMode(prefilled, "custom", Some(templateWithMaterials), 3, keys())
+    custom shouldBe List(manual)
+    val back = OrderDrafts.materialsForMode(custom, "catalog", Some(templateWithMaterials), 3, keys())
+    back.map(row => (row.materialId, row.quantity)) shouldBe
+      List((archivedId.toString, "1"), (materialId.toString, "7,5"), (screwId.toString, "9"))
+    OrderDrafts.materialsForMode(custom, "catalog", None, 3, keys()) shouldBe List(manual)
+
 end OrderDraftsSpec

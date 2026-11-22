@@ -34,7 +34,9 @@ object MaterialDrafts:
   /**
    * One editable material line: `key` keeps the row identity across edits, `materialId` the selected material (`""` = none yet), `quantity` and
    * `unitPrice` the typed text (a blank price = not overridden). `perUnit` is the canonical per-unit quantity of a line prefilled from a catalog
-   * manufacturing: while it is set the quantity follows the multiplier ×N (see [[rescale]]); any edit of the material or quantity clears it.
+   * manufacturing: while it is set the quantity follows the multiplier ×N (see [[rescale]]); any edit of the material or quantity clears it. A typed
+   * price does not stop the quantity from following ×N, but makes the line the user's: it is no longer replaced when the template changes (see
+   * [[isUntouchedPrefill]]).
    */
   final case class Row(key: Int, materialId: String, quantity: String, unitPrice: String, perUnit: Option[String] = None) derives CanEqual:
     /** The material picked by the user: the line no longer follows the catalog (unchanged when the value is the same). */
@@ -42,6 +44,9 @@ object MaterialDrafts:
 
     /** The quantity typed by the user: the line no longer follows the multiplier (unchanged when the value is the same). */
     def withQuantity(value: String): Row = if value == quantity then this else copy(quantity = value, perUnit = None)
+
+    /** A line prefilled from a catalog template the user has not touched at all (material, quantity, price): a template change may replace it. */
+    def isUntouchedPrefill: Boolean = perUnit.isDefined && unitPrice.trim.nn.isEmpty
 
   object Row:
     def empty(key: Int): Row = Row(key, "", "", "")
@@ -123,9 +128,12 @@ object MaterialDrafts:
   def scaledRow(key: Int, materialId: String, perUnit: String, times: Int): Row =
     Row(key, materialId, scaled(perUnit, times).fold(perUnit)(WarehouseFormats.decimalInputText(_, 0, quantityScale)), "", Some(perUnit))
 
-  /** The rows with the quantities that still follow the catalog recomputed for the multiplier `times`; the edited ones are kept as typed. */
+  /**
+   * The rows with the quantities that still follow the catalog recomputed for the multiplier `times` (only the quantity changes: a typed price is
+   * kept); the edited quantities are kept as typed.
+   */
   def rescale(rows: List[Row], times: Int): List[Row] =
-    rows.map(row => row.perUnit.fold(row)(base => scaledRow(row.key, row.materialId, base, times)))
+    rows.map(row => row.perUnit.fold(row)(base => row.copy(quantity = scaledRow(row.key, row.materialId, base, times).quantity)))
 
   /** The material selected in `row`, when the context knows it. */
   def materialOf(row: Row, context: Context): Option[Material] = parseUuid(row.materialId).flatMap(context.material)

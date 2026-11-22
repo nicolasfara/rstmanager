@@ -57,10 +57,10 @@ object OrderDrafts:
   def quantityOf(core: MfgCoreState): Int = parseQuantity(core.quantity).getOrElse(1)
 
   /**
-   * The material rows of a draft once the catalog template `template` is picked with multiplier `times`: the lines the user added or edited stay, the
-   * ones prefilled from a previous template go, and each per-unit material of the template not already in a kept row is added as `quantity × times`
-   * (without price: the current customer price is frozen on save). Archived or unknown materials of the template are not prefilled (see
-   * [[unavailableCatalogMaterials]]).
+   * The material rows of a draft once the catalog template `template` is picked with multiplier `times` (`None`: the draft leaves catalog mode): the
+   * lines the user added or touched (material, quantity or price) stay, the untouched ones prefilled from a previous template go, and each per-unit
+   * material of the template not already in a kept row is added as `quantity × times` (without price: the current customer price is frozen on save).
+   * Archived or unknown materials of the template are not prefilled (see [[unavailableCatalogMaterials]]).
    */
   def withCatalogMaterials(
       rows: List[MaterialDrafts.Row],
@@ -68,12 +68,25 @@ object OrderDrafts:
       times: Int,
       newKey: () => Int,
   ): List[MaterialDrafts.Row] =
-    val kept = rows.filter(row => row.perUnit.isEmpty && !MaterialDrafts.isBlank(row))
+    val kept = rows.filter(row => !row.isUntouchedPrefill && !MaterialDrafts.isBlank(row))
     val keptIds = kept.map(_.materialId.trim.nn).toSet
     val prefilled = template.toList.flatMap(_.materials).filter(line => isPrefillable(line) && !keptIds.contains(line.materialId.toString)).map {
       line => MaterialDrafts.scaledRow(newKey(), line.materialId.toString, line.quantity, times)
     }
     kept ++ prefilled
+
+  /**
+   * The material rows of a draft switched to `mode`: leaving catalog mode drops the untouched lines prefilled from the template; entering it
+   * (re)applies the selected `template` × `times` (see [[withCatalogMaterials]]).
+   */
+  def materialsForMode(
+      rows: List[MaterialDrafts.Row],
+      mode: String,
+      template: Option[ManufacturingCatalogResponse],
+      times: Int,
+      newKey: () => Int,
+  ): List[MaterialDrafts.Row] =
+    withCatalogMaterials(rows, if mode == "catalog" then template else None, times, newKey)
 
   private def isPrefillable(line: CatalogMaterialResponse): Boolean = !line.archived && line.internalCode.isDefined
 

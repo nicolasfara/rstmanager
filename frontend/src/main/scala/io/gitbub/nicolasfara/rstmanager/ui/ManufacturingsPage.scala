@@ -65,8 +65,9 @@ object ManufacturingsPage:
       case (Some(Right(list)), current) => MaterialDrafts.Context.ofCatalog(list, current)
       case (_, current) => MaterialDrafts.Context.ofCatalog(Nil, current)
     }
-    // Synchronous mirror of the context, read on submit.
+    // Synchronous mirrors of the context and of whether the warehouse materials are loaded, read on submit.
     val currentMaterialsContext = Var(MaterialDrafts.Context.empty)
+    val materialsLoaded = Var(false)
     val draft = DraftGuard[ManufacturingCatalogForm.State](
       () => form.now(),
       s => DraftGuard.discardTitle(Option.when(s.editingId.isDefined)(s"${s.code} · ${s.name}"), "la nuova lavorazione"),
@@ -122,13 +123,17 @@ object ManufacturingsPage:
     def submit(): Unit =
       val current = form.now()
       if !submitting.now() then
-        (current.issues ++ current.materialIssues(currentMaterialsContext.now())).headOption match
-          case Some(first) =>
+        val built = current.request(tasksSnapshot.now().view.mapValues(_.requiredMinutes).toMap, currentMaterialsContext.now())
+        ((current.issues ++ current.materialIssues(currentMaterialsContext.now(), materialsLoaded.now())).headOption, built) match
+          case (Some(first), _) =>
             touch.attemptSubmit()
             FormFocus.focus(focusTarget(first.field))
-          case None =>
+          case (None, Left(_)) =>
+            // Not reachable: invalid lines are issues. Kept so a failed check can never send the template without its materials.
+            touch.attemptSubmit()
+            FormFocus.focus(ManufacturingCatalogForm.materialsId)
+          case (None, Right(request)) =>
             submitting.set(true)
-            val request = current.request(tasksSnapshot.now().view.mapValues(_.requiredMinutes).toMap, currentMaterialsContext.now())
             val effect = current.editingId match
               case Some(id) => ApiClient.updateManufacturingCatalog(id, request)
               case None => ApiClient.createManufacturingCatalog(request)
@@ -141,6 +146,7 @@ object ManufacturingsPage:
                   AppBus.mutatedManufacturings()
                 case Left(err) => showError(formError, "Salvataggio lavorazione")(err)
             }
+        end match
       end if
     end submit
 
@@ -407,6 +413,17 @@ object ManufacturingsPage:
         tabIndex := -1,
         cls := "mt-5 space-y-2",
         materialsContext --> currentMaterialsContext.writer,
+        warehouseMaterials.map {
+          case Some(Right(_)) => true
+          case _ => false
+        } --> materialsLoaded.writer,
+        // The "not loaded" issue has no line to sit under: shown here once a submit was attempted.
+        child.maybe <-- touch.submittedSignal.combineWith(form.signal, materialsContext, materialsLoaded.signal).map {
+          (attempted, state, ctx, loaded) =>
+            Option.when(attempted && !loaded)(state.materialIssues(ctx, loaded).headOption).flatten.map { issue =>
+              div(cls := "text-xs font-medium text-rose-600", role := "alert", issue.message)
+            }
+        },
         subheading("Materiali per unità"),
         hint("Quanto consuma una unità della lavorazione: negli ordini le quantità si moltiplicano per ×N."),
         child <-- materialRows.signal.map(_.isEmpty).distinct.map { empty =>

@@ -91,22 +91,26 @@ object ManufacturingCatalogForm:
     def errors: List[String] = issues.messages
 
     /**
-     * The issues of the per-unit materials checked against `context` (see [[MaterialDrafts.quantityRequest]]), suppressed while the context is still
-     * empty (materials not loaded yet) although lines were entered.
+     * The issues of the per-unit materials checked against `context` (see [[MaterialDrafts.quantityRequest]]); they always block the submit. While
+     * the warehouse materials are not `loaded` (loading, or the load failed) a line that cannot be checked is preceded by an issue saying so; the
+     * stored lines of the template stay valid, since `context` knows them.
      */
-    def materialIssues(context: MaterialDrafts.Context): List[FieldIssue[Field]] =
-      val loading = context.materials.isEmpty && materials.exists(row => !MaterialDrafts.isBlank(row))
-      if loading then Nil else MaterialDrafts.quantityErrors(materials, context).map(message => FieldIssue(Field.Materials, s"Materiali — $message"))
+    def materialIssues(context: MaterialDrafts.Context, loaded: Boolean): List[FieldIssue[Field]] =
+      val lines = MaterialDrafts.quantityErrors(materials, context).map(message => FieldIssue(Field.Materials, s"Materiali — $message"))
+      val notLoaded = Option.when(!loaded && lines.nonEmpty)(
+        FieldIssue(Field.Materials, "Materiali — elenco del magazzino non disponibile: attendi il caricamento o ricarica la pagina prima di salvare"),
+      )
+      notLoaded.toList ++ lines
 
     /** Sum of the valid durations of the rows with a task (a malformed duration counts as 0 until fixed). */
     def totalMinutes: Int = taskRows.filter(_.taskId.nonEmpty).flatMap(row => Formats.parseDuration(row.hours)).sum
 
     /**
      * The request for the current state. `catalogMinutes` (task id -> catalog duration) decides the overrides: a duration is sent only when it
-     * differs from the catalog task's, so untouched tasks keep following the catalog. The valid per-unit materials are sent (none without lines); the
-     * caller blocks the submit while [[materialIssues]] is not empty.
+     * differs from the catalog task's, so untouched tasks keep following the catalog. The per-unit materials are always sent explicitly (an empty
+     * list when every line was removed: an absent list keeps the stored ones on update); invalid lines give their messages instead of a request.
      */
-    def request(catalogMinutes: Map[String, Int], context: MaterialDrafts.Context): ManufacturingCatalogRequest =
+    def request(catalogMinutes: Map[String, Int], context: MaterialDrafts.Context): Either[List[String], ManufacturingCatalogRequest] =
       val selectedIds = taskRows.flatMap(row => parseUuid(row.taskId))
       val selectedStrings = selectedIds.map(_.toString).toSet
       val dependencies = taskRows.flatMap { row =>
@@ -128,16 +132,18 @@ object ManufacturingCatalogForm:
           if catalogMinutes.get(row.taskId).forall(_ != minutes)
         yield TaskDurationOverrideDto(taskId, minutes)
       }
-      ManufacturingCatalogRequest(
-        code.trim.nn,
-        name.trim.nn,
-        Some(description.trim.nn).filter(_.nonEmpty),
-        selectedIds,
-        dependencies,
-        Some(defaultEmployees),
-        Some(taskDurations),
-        if materials.forall(MaterialDrafts.isBlank) then None else MaterialDrafts.quantityRequest(materials, context).toOption,
-      )
+      MaterialDrafts.quantityRequest(materials, context).map { lines =>
+        ManufacturingCatalogRequest(
+          code.trim.nn,
+          name.trim.nn,
+          Some(description.trim.nn).filter(_.nonEmpty),
+          selectedIds,
+          dependencies,
+          Some(defaultEmployees),
+          Some(taskDurations),
+          Some(lines),
+        )
+      }
     end request
   end State
 

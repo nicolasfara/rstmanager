@@ -1,6 +1,11 @@
 {
   "realm": "rstmanager",
+  "displayName": "RST Manager",
   "enabled": true,
+  "loginTheme": "rstmanager",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["it"],
+  "defaultLocale": "it",
   "sslRequired": "external",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,

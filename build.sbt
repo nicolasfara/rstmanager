@@ -8,7 +8,7 @@ lazy val slf4jVersion = "2.0.20"
 lazy val logbackVersion = "1.6.8"
 lazy val tapirVersion = "1.14.1"
 lazy val log4catsVersion = "2.8.0"
-lazy val fastexcelVersion = "0.20.2"
+lazy val fastexcelVersion = "0.20.3"
 lazy val projectScalacOptions = Seq(
   "-encoding",
   "utf-8",

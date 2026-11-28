@@ -294,6 +294,8 @@ object ApiClient:
     sendJson(dom.HttpMethod.POST, "/planning/attempts", jsonBody(request))
   def simulateOrder(request: OrderSimulationRequest): Future[Result[OrderSimulationResponse]] =
     sendJson(dom.HttpMethod.POST, "/planning/simulate", jsonBody(request))
+  def checkOrder(request: OrderRequest): Future[Result[OrderFeasibilityResponse]] =
+    sendJson(dom.HttpMethod.POST, "/planning/orders/check", jsonBody(request))
 
   // ---- Warehouse ---------------------------------------------------------------------------------
   // Every warehouse endpoint lives under `/warehouse`, so any warehouse mutation evicts all cached warehouse reads (see `rawSend`).

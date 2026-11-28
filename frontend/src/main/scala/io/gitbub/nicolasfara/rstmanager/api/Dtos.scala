@@ -403,6 +403,24 @@ object Dtos:
       reasons: List[UnplannedReasonDto],
   )
 
+  /** An existing order that would become late (or unplannable, `plannedCompletion` absent) only because the checked order is inserted. */
+  final case class InducedDelayDto(orderId: UUID, number: String, deadline: String, plannedCompletion: Option[String])
+
+  /** A manufacturing of the checked order that would finish after its own completion date. */
+  final case class LateManufacturingDto(code: String, completionDate: String, plannedCompletion: String)
+
+  /** `POST /planning/orders/check`: whether an order about to be created fits the plan with its work deadline. */
+  final case class OrderFeasibilityResponse(
+      plannedCompletion: Option[String],
+      deadline: String,
+      late: Boolean,
+      hasDelay: Boolean,
+      lateManufacturings: List[LateManufacturingDto],
+      inducedDelays: List[InducedDelayDto],
+      suggestedDeadline: Option[String],
+      reasons: List[UnplannedReasonDto],
+  )
+
   // ---- Warehouse ---------------------------------------------------------------------------------
 
   /** Supplier registry entry (create/replace payload). Blank optional values are sent as absent; the server trims and normalizes them. */
@@ -763,6 +781,9 @@ object Dtos:
   given Codec[PlanningAttemptResponse] = deriveCodec
   given Codec[OrderSimulationRequest] = deriveCodec
   given Codec[OrderSimulationResponse] = deriveCodec
+  given Codec[InducedDelayDto] = deriveCodec
+  given Codec[LateManufacturingDto] = deriveCodec
+  given Codec[OrderFeasibilityResponse] = deriveCodec
 
   given Codec[SupplierRequest] = deriveCodec
   given Codec[SupplierResponse] = deriveCodec

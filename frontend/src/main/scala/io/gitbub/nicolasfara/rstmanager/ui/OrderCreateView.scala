@@ -245,6 +245,81 @@ object OrderCreateView:
 
     // ---- Submit ------------------------------------------------------------------------------------
 
+    /** The request of the form as it is: `None` while it has issues, an error when the customer or a manufacturing cannot be read. */
+    def buildRequest(): Option[Either[ApiError, OrderRequest]] =
+      Option.when(currentIssues().isEmpty) {
+        val h = header.now()
+        val drafts = mfgs.now().map(OrderMfgDraftCard.snapshotOf)
+        val manufacturings = OrderDrafts.collectManufacturings(drafts, h.workDeadline, catalogById, materialsContext.now(), () => randomUuid())
+        (parseUuid(h.customerId.trim.nn), manufacturings) match
+          case (None, _) => Left(ApiError("invalid-form", "Seleziona un cliente valido.", Nil))
+          case (_, Left(err)) => Left(err)
+          case (Some(customerId), Right(list)) =>
+            Right(
+              OrderRequest(
+                h.number.trim.nn,
+                customerId,
+                Formats.toIso(h.creationDate),
+                Formats.toIso(h.deliveryDate),
+                Formats.toIso(h.workDeadline),
+                h.priority,
+                list,
+                normalizeStr(h.description),
+                OrderDrafts.collectDependencies(drafts),
+              ),
+            )
+      }
+
+    // ---- Delay check against the production plan --------------------------------------------------
+
+    val feasibility = Var[FeasibilityState](FeasibilityState.Idle)
+    // Bumped on every form change, so a preview answering after a newer change is dropped.
+    var previewSeq = 0
+    // The order waiting for "Crea comunque", with the check that found its delays (or failed).
+    val delayPrompt = Var(Option.empty[(OrderRequest, FeasibilityState)])
+
+    def toState(result: ApiClient.Result[OrderFeasibilityResponse]): FeasibilityState =
+      result.fold(_ => FeasibilityState.Failed, FeasibilityState.Ready(_))
+
+    /** A form change: the shown check is stale until the debounced [[previewCheck]] answers. */
+    def invalidatePreview(): Unit =
+      previewSeq += 1
+      feasibility.set(if currentIssues().isEmpty then FeasibilityState.Checking else FeasibilityState.Idle)
+
+    def previewCheck(): Unit =
+      previewSeq += 1
+      val seq = previewSeq
+      buildRequest() match
+        case Some(Right(request)) =>
+          feasibility.set(FeasibilityState.Checking)
+          ApiClient.checkOrder(request).foreach(result => if seq == previewSeq then feasibility.set(toState(result)))
+        case _ => feasibility.set(FeasibilityState.Idle)
+
+    /** "Usa data proposta": the suggested work deadline (and a delivery date following it); the preview runs again on the change. */
+    def applySuggestion(day: String): Unit =
+      header.update(_.withSuggestedDeadline(day))
+      FormFocus.focus(headerId(HeaderField.WorkDeadline))
+
+    val checkInputs = header.signal.combineWith(snapshots, catalogs.signal, materialsContext.signal).distinct
+
+    // ---- Submit ------------------------------------------------------------------------------------
+
+    def create(request: OrderRequest): Unit =
+      submitting.set(true)
+      submitError.set(None)
+      ApiClient.createOrder(request).foreach { result =>
+        submitting.set(false)
+        result match
+          case Right(_) =>
+            Notifications.success(s"Ordine ${request.number} creato")
+            AppBus.mutatedOrders()
+            onExit()
+          case Left(err) =>
+            showError(submitError, "Creazione ordine")(err)
+            FormFocus.focus(submitErrorId)
+      }
+
+    /** Checks the order against the plan right before creating it: with delays (or when the check fails) the user decides in [[delayDialog]]. */
     def submit(): Unit =
       if !submitting.now() then
         currentIssues() match
@@ -253,43 +328,23 @@ object OrderCreateView:
             fresh.set(Set.empty)
             reveal(first)
           case Nil =>
-            val h = header.now()
-            val drafts = mfgs.now().map(OrderMfgDraftCard.snapshotOf)
-            val manufacturings = OrderDrafts.collectManufacturings(drafts, h.workDeadline, catalogById, materialsContext.now(), () => randomUuid())
-            (parseUuid(h.customerId.trim.nn), manufacturings) match
-              case (None, _) =>
-                showError(submitError, "Creazione ordine")(ApiError("invalid-form", "Seleziona un cliente valido.", Nil))
-                FormFocus.focus(submitErrorId)
-              case (_, Left(err)) =>
+            buildRequest() match
+              case Some(Left(err)) =>
                 showError(submitError, "Creazione ordine")(err)
                 FormFocus.focus(submitErrorId)
-              case (Some(customerId), Right(list)) =>
-                val number = h.number.trim.nn
-                val request = OrderRequest(
-                  number,
-                  customerId,
-                  Formats.toIso(h.creationDate),
-                  Formats.toIso(h.deliveryDate),
-                  Formats.toIso(h.workDeadline),
-                  h.priority,
-                  list,
-                  normalizeStr(h.description),
-                  OrderDrafts.collectDependencies(drafts),
-                )
+              case Some(Right(request)) =>
                 submitting.set(true)
                 submitError.set(None)
-                ApiClient.createOrder(request).foreach { result =>
-                  submitting.set(false)
-                  result match
-                    case Right(_) =>
-                      Notifications.success(s"Ordine $number creato")
-                      AppBus.mutatedOrders()
-                      onExit()
-                    case Left(err) =>
-                      showError(submitError, "Creazione ordine")(err)
-                      FormFocus.focus(submitErrorId)
+                ApiClient.checkOrder(request).foreach { result =>
+                  val state = toState(result)
+                  feasibility.set(state)
+                  state match
+                    case FeasibilityState.Ready(response) if !response.hasDelay => create(request)
+                    case other =>
+                      submitting.set(false)
+                      delayPrompt.set(Some(request -> other))
                 }
-            end match
+              case None => ()
     end submit
 
     // ---- Derived display ---------------------------------------------------------------------------
@@ -444,6 +499,7 @@ object OrderCreateView:
         },
         OrderFormView.recapTotal(totals.map(totalsText)),
         child.maybe <-- stockWarningList.map(list => OrderFormView.stockWarningsBox(list, stockFootnote).map(box => div(cls := "mt-3", box))),
+        child.maybe <-- feasibility.signal.map(state => OrderFeasibility.box(state, applySuggestion).map(box => div(cls := "mt-3", box))),
       )
 
     val confirmSection =
@@ -477,6 +533,9 @@ object OrderCreateView:
 
     val sidebar =
       OrderFormView.sidebar(summary)(
+        child.maybe <-- feasibility.signal.map(state =>
+          OrderFeasibility.box(state, applySuggestion).map(box => div(cls := "border-t border-slate-100 pt-3", box)),
+        ),
         child.maybe <-- stockWarningList.map(list =>
           OrderFormView.stockWarningsBox(list, stockFootnote).map(box => div(cls := "border-t border-slate-100 pt-3", box)),
         ),
@@ -533,14 +592,50 @@ object OrderCreateView:
           pending.foreach(removeMfg),
       )
 
+    val delayDialog =
+      confirmDialog(
+        delayPrompt.signal.map(_.isDefined),
+        delayPrompt.signal.map {
+          case Some((_, FeasibilityState.Ready(response))) => OrderFeasibility.headline(response)
+          case _ => "Impossibile verificare la pianificazione"
+        },
+        delayPrompt.signal.map {
+          case Some((_, FeasibilityState.Ready(_))) => "Puoi creare l'ordine comunque, usare la data proposta o tornare a modificarlo."
+          case _ => "Non è stato possibile controllare se l'ordine genera ritardi. Puoi crearlo comunque o riprovare."
+        },
+        "Crea comunque",
+        DialogTone.Neutral,
+        child.maybe <-- delayPrompt.signal.map {
+          case Some((_, state @ FeasibilityState.Ready(_))) =>
+            OrderFeasibility
+              .box(
+                state,
+                day =>
+                  delayPrompt.set(None)
+                  applySuggestion(day),
+              )
+              .map(box => div(cls := "mt-4", box))
+          case _ => None
+        },
+        Signal.fromValue(true),
+        () => delayPrompt.set(None),
+        () =>
+          val pending = delayPrompt.now()
+          delayPrompt.set(None)
+          pending.foreach((request, _) => create(request)),
+      )
+
     formPage(PageHeader(OrderFormView.backLabel, () => requestLeave(), Signal.fromValue("Nuovo ordine"), initialFocus = PageFocus.FirstField))(
       NavigationGuard.guard("Abbandonare il nuovo ordine?", "L'ordine non è stato creato: i dati inseriti andranno persi.", () => isDirty()),
       deps.catalogs --> catalogs.writer,
       deps.tasks --> (list => tasksById.set(list.map(task => task.id.toString -> task).toMap)),
       deps.existingOrderNumbers --> (numbers => header.update(_.withGeneratedNumber(GeneratedCodes.next("ORD", numbers)))),
       summaryLayout(div(cls := "space-y-6", headerSection, mfgsSection, confirmSection), sidebar, mobileBar),
+      checkInputs.changes --> (_ => invalidatePreview()),
+      checkInputs.changes.debounce(800) --> (_ => previewCheck()),
       leaveDialog,
       removeDialog,
+      delayDialog,
     )
   end apply
 end OrderCreateView

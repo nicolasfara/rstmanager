@@ -2,16 +2,20 @@ package io.github.nicolasfara.rstmanager.planning.service
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.planning.{ OrderSimulationService, PlanningError }
+import io.github.nicolasfara.rstmanager.planning.{ OrderFeasibilityService, OrderSimulationService, PlanningError }
 import io.github.nicolasfara.rstmanager.planning.OrderSimulationService.SimulationDemand
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.*
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.given
 import io.github.nicolasfara.rstmanager.service.auth.Role
 import io.github.nicolasfara.rstmanager.service.http.{ ApiError, ApiSecurity, Secured }
 import io.github.nicolasfara.rstmanager.service.http.ApiError.ApiFailure
+import io.github.nicolasfara.rstmanager.warehouse.service.MaterialApp
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.ManufacturingId
+import io.github.nicolasfara.rstmanager.work.domain.order.Order.InProgressOrder
 import io.github.nicolasfara.rstmanager.work.domain.task.TaskDuration
 import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, TaskApp }
+import io.github.nicolasfara.rstmanager.work.service.OrderDtos.{ MaterialCatalog, OrderRequest }
+import io.github.nicolasfara.rstmanager.work.service.OrderDtos.given
 
 import cats.data.{ NonEmptyChain, NonEmptyList }
 import cats.effect.IO
@@ -53,7 +57,15 @@ object PlanningEndpoints:
       .in(jsonBody[OrderSimulationRequest].example(OrderSimulationRequest.example))
       .out(jsonBody[OrderSimulationResponse])
 
-  def all: List[AnyEndpoint] = List(health, createPlanningAttempt, currentPlanningAttempt, simulateOrder)
+  val checkOrder: Secured.SecuredEndpoint[OrderRequest, OrderFeasibilityResponse] =
+    Secured.base.post
+      .in("planning" / "orders" / "check")
+      .tag("Planning")
+      .summary("Check whether an order about to be created would be late, or delay existing orders, without persisting anything")
+      .in(jsonBody[OrderRequest].example(OrderRequest.example))
+      .out(jsonBody[OrderFeasibilityResponse])
+
+  def all: List[AnyEndpoint] = List(health, createPlanningAttempt, currentPlanningAttempt, simulateOrder, checkOrder)
 end PlanningEndpoints
 
 /** HTTP server logic for the planning API. */
@@ -65,6 +77,7 @@ object PlanningRoutes:
       clock: PlanningClock,
       manufacturings: ManufacturingApp.Store,
       tasks: TaskApp.Store,
+      materials: MaterialApp.Store,
       security: ApiSecurity,
   ): List[ServerEndpoint[Any, IO]] = List(
     PlanningEndpoints.health.serverLogicSuccess[IO](_ => IO.pure(HealthResponse("ok", "rstmanager-planning", "/docs"))),
@@ -74,6 +87,7 @@ object PlanningRoutes:
       freshness.ensureFresh("board read") >> currentPlanningAttempt(backend),
     ),
     security.secure(PlanningEndpoints.simulateOrder, Role.Viewer)(simulateOrder(gateway, clock, manufacturings, tasks)),
+    security.secure(PlanningEndpoints.checkOrder, Role.Operator)(checkOrder(gateway, clock, materials)),
   )
 
   private def createPlanningAttempt(
@@ -123,6 +137,27 @@ object PlanningRoutes:
                 .asRight
             }
         }
+    }
+
+  /** Plans the order of the request with the open ones, as if it were created now; the material catalog is only needed to read the request. */
+  private def checkOrder(
+      gateway: PlanningEntityGateway,
+      clock: PlanningClock,
+      materials: MaterialApp.Store,
+  )(request: OrderRequest): IO[Either[ApiFailure, OrderFeasibilityResponse]] =
+    MaterialApp.findMany(materials, request.materialIds).flatMap { found =>
+      request.toDomain(OrderFeasibilityService.candidateId.value, MaterialCatalog(found)).toEither match
+        case Left(errors) => IO.pure(ApiError.validation(errors).asLeft)
+        case Right((data, deadline)) =>
+          gateway.snapshot(None, None).flatMap {
+            case Left(error) => IO.pure(entityLoadFailure(error).asLeft)
+            case Right(snapshot) =>
+              clock.now.map { now =>
+                val candidate: InProgressOrder = InProgressOrder(data, deadline)
+                val result = OrderFeasibilityService.check(now, snapshot.orders, snapshot.employees, snapshot.calendar, candidate)
+                OrderFeasibilityResponse.fromDomain(deadline, result).asRight
+              }
+          }
     }
 
   /** Turns the request into a simulation demand, enforcing that exactly one of the two input modes is used. */

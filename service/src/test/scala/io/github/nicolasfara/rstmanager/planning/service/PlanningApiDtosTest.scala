@@ -2,7 +2,8 @@ package io.github.nicolasfara.rstmanager.planning.service
 
 import java.util.UUID
 
-import io.github.nicolasfara.rstmanager.planning.PlanningTrigger
+import io.github.nicolasfara.rstmanager.planning.{ OrderFeasibilityService, PlanningTrigger }
+import io.github.nicolasfara.rstmanager.planning.OrderFeasibilityService.{ FeasibilityResult, InducedDelay }
 import io.github.nicolasfara.rstmanager.planning.service.PlanningApiDtos.*
 import io.github.nicolasfara.rstmanager.work.domain.order.OrderId
 
@@ -54,4 +55,26 @@ class PlanningApiDtosTest extends AnyFlatSpecLike:
     input.orderIds shouldEqual Some(List(orderId))
     input.employeeIds shouldEqual Some(List(employeeId))
     input.toPlanningRequest(List(OrderId(orderId))).trigger shouldEqual PlanningTrigger.WorkforceCapacityChanged
+
+  "OrderFeasibilityResponse" should "expose the delays and the suggested deadline of a feasibility check" in:
+    val tuesday = now.plusDays(1).nn
+    val wednesday = now.plusDays(2).nn
+    val result = FeasibilityResult(
+      Some(wednesday),
+      late = true,
+      Nil,
+      List(InducedDelay(OrderId(orderId), "ORD-1", now, None)),
+      Some(wednesday),
+      Nil,
+    )
+
+    val response = OrderFeasibilityResponse.fromDomain(tuesday, result)
+
+    response.late shouldBe true
+    response.hasDelay shouldBe true
+    response.deadline shouldEqual tuesday.toString
+    response.plannedCompletion shouldEqual Some(wednesday.toString)
+    response.suggestedDeadline shouldEqual Some(wednesday.toString)
+    response.inducedDelays.map(delay => (delay.orderId, delay.number, delay.plannedCompletion)) shouldEqual List((orderId, "ORD-1", None))
+    OrderFeasibilityService.candidateId.value should not equal orderId
 end PlanningApiDtosTest

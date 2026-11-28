@@ -301,6 +301,15 @@ class SchedulingServiceTest extends AnyFlatSpecLike:
 
     outcome.slices.map(_.day) shouldEqual List(friday, nextMonday)
 
+  it should "move work left from Friday to Monday when re-planned on Saturday" in:
+    val task = pendingTask(TaskId(UUID.randomUUID().nn), 16)
+    val saturday = friday.plusDays(1).nn
+    val nextMonday = monday.plusDays(7).nn
+    val theOrder = order(orderId, nextMonday, NonEmptyList.one(manufacturing(manufacturingId, nextMonday, NonEmptyList.one(task))))
+    val outcome = scheduleOrFail(request(saturday, List(orderId)), List(theOrder), List(employee(employeeA)))
+
+    outcome.slices.map(_.day) shouldEqual List(nextMonday, nextMonday.plusDays(1).nn)
+
   it should "skip employee vacation days" in:
     val task = pendingTask(TaskId(UUID.randomUUID().nn), 8)
     val vacation = VacationOverride.createVacationOverride(monday.toLocalDate, monday.toLocalDate).toOption.getOrElse(fail("invalid vacation"))

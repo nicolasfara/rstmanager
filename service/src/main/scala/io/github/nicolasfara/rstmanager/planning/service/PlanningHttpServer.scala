@@ -118,14 +118,18 @@ object PlanningHttpServer:
       materials <- MaterialApp.build(pool)
       deliveryNotes <- DeliveryNoteApp.build(pool)
       planningGateway = PlanningEntityGateway.fromStores(orders, employees, calendar)
-      planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway)
+      planningClock = PlanningClock.business
+      planningRecalculator = PlanningRecalculationService(planningBackend, planningGateway, planningClock)
+      planningFreshness = PlanningFreshnessGuard(planningBackend.current, planningRecalculator, planningClock)
       consumptionReconciler <- Resource.eval(WarehouseConsumptionReconciler.live(orders, materials))
       deliveryNoteReconciler <- Resource.eval(WarehouseDeliveryNoteReconciler.live(deliveryNotes, materials))
       _ <- PlanningDependencyConsumer.resource(orders, employees, calendar, planningRecalculator, consumptionReconciler)
-      _ <- PlanningDailyScheduler.resource(planningRecalculator, config.dailyRecalculationHour)
+      _ <- PlanningDailyScheduler.resource(planningRecalculator, planningFreshness, planningClock, config.dailyRecalculationHour)
       _ <- WarehouseDailyReconciler.resource(consumptionReconciler, deliveryNoteReconciler, config.dailyConsumptionReconcileHour)
       routes = ApiServer.routes(
         planningBackend,
+        planningFreshness,
+        planningClock,
         employees,
         calendar,
         customers,

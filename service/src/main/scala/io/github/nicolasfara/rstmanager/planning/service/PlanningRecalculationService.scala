@@ -10,7 +10,6 @@ import io.github.nicolasfara.rstmanager.work.domain.order.Order
 
 import cats.data.NonEmptyChain
 import cats.effect.IO
-import com.github.nscala_time.time.Imports.DateTime
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 trait PlanningRecalculator:
@@ -40,15 +39,20 @@ object PlanningRecalculationService:
 
   type ComputePlan = (String, PlanningRequest, List[Order], List[Employee], CompanyCalendar) => IO[Either[NonEmptyChain[PlanningError], String]]
 
-  def apply(backend: PlanningApp.PlanningBackend, gateway: PlanningEntityGateway): PlanningRecalculator =
-    fromCompute(gateway) { (commandId, request, orders, employees, calendar) =>
+  def apply(backend: PlanningApp.PlanningBackend, gateway: PlanningEntityGateway, clock: PlanningClock): PlanningRecalculator =
+    withClock(gateway, clock) { (commandId, request, orders, employees, calendar) =>
       PlanningApp.computePlanWithCommandId(backend, commandId, request, orders, employees, calendar)
     }
 
   def fromCompute(gateway: PlanningEntityGateway)(compute: ComputePlan): PlanningRecalculator =
-    DefaultPlanningRecalculator(gateway, compute)
+    withClock(gateway, PlanningClock.business)(compute)
 
-  private final class DefaultPlanningRecalculator(gateway: PlanningEntityGateway, compute: ComputePlan) extends PlanningRecalculator:
+  /** A recalculator reading the time from `clock`: every request starts on the clock's business day. */
+  def withClock(gateway: PlanningEntityGateway, clock: PlanningClock)(compute: ComputePlan): PlanningRecalculator =
+    DefaultPlanningRecalculator(gateway, clock, compute)
+
+  private final class DefaultPlanningRecalculator(gateway: PlanningEntityGateway, clock: PlanningClock, compute: ComputePlan)
+      extends PlanningRecalculator:
     override def recalculate(trigger: PlanningTrigger): IO[PlanningRecalculationResult] =
       recalculate(PlanningRecalculationCause.manual(trigger))
 
@@ -84,7 +88,7 @@ object PlanningRecalculationService:
     private def buildRequest(cause: PlanningRecalculationCause, snapshot: PlanningEntityGateway.Snapshot): IO[PlanningRequest] =
       for
         requestId <- IO(cause.requestId.getOrElse(UUID.randomUUID().nn))
-        requestedOn <- IO(DateTime.now())
+        requestedOn <- clock.now
       yield PlanningRequest(
         PlanningRequestId(requestId),
         requestedOn.withTimeAtStartOfDay().nn,

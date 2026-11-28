@@ -16,7 +16,6 @@ import io.github.nicolasfara.rstmanager.work.service.{ ManufacturingApp, TaskApp
 import cats.data.{ NonEmptyChain, NonEmptyList }
 import cats.effect.IO
 import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.DateTime
 import sttp.model.StatusCode
 import sttp.tapir.*
 import sttp.tapir.json.circe.*
@@ -62,23 +61,30 @@ object PlanningRoutes:
   def serverEndpoints(
       backend: PlanningApp.PlanningBackend,
       gateway: PlanningEntityGateway,
+      freshness: PlanningFreshnessGuard,
+      clock: PlanningClock,
       manufacturings: ManufacturingApp.Store,
       tasks: TaskApp.Store,
       security: ApiSecurity,
   ): List[ServerEndpoint[Any, IO]] = List(
     PlanningEndpoints.health.serverLogicSuccess[IO](_ => IO.pure(HealthResponse("ok", "rstmanager-planning", "/docs"))),
-    security.secure(PlanningEndpoints.createPlanningAttempt, Role.Operator)(createPlanningAttempt(backend, gateway)),
-    security.secure(PlanningEndpoints.currentPlanningAttempt, Role.Viewer)(_ => currentPlanningAttempt(backend)),
-    security.secure(PlanningEndpoints.simulateOrder, Role.Viewer)(simulateOrder(gateway, manufacturings, tasks)),
+    security.secure(PlanningEndpoints.createPlanningAttempt, Role.Operator)(createPlanningAttempt(backend, gateway, clock)),
+    // A plan computed on a previous day is re-anchored to today before it is shown (at most one daily attempt per day).
+    security.secure(PlanningEndpoints.currentPlanningAttempt, Role.Viewer)(_ =>
+      freshness.ensureFresh("board read") >> currentPlanningAttempt(backend),
+    ),
+    security.secure(PlanningEndpoints.simulateOrder, Role.Viewer)(simulateOrder(gateway, clock, manufacturings, tasks)),
   )
 
   private def createPlanningAttempt(
       backend: PlanningApp.PlanningBackend,
       gateway: PlanningEntityGateway,
+      clock: PlanningClock,
   )(request: PlanningAttemptRequest): IO[Either[ApiFailure, PlanningAttemptResponse]] =
     for
-      nowAndRequestId <- IO((DateTime.now(), UUID.randomUUID().nn))
-      response <- request.toDomain(nowAndRequestId._1, nowAndRequestId._2).toEither match
+      now <- clock.now
+      requestId <- IO(UUID.randomUUID().nn)
+      response <- request.toDomain(now, requestId).toEither match
         case Left(errors) => IO.pure(validationFailure(errors).asLeft)
         case Right(input) => dispatchPlanningCommand(backend, gateway, input)
     yield response
@@ -101,6 +107,7 @@ object PlanningRoutes:
 
   private def simulateOrder(
       gateway: PlanningEntityGateway,
+      clock: PlanningClock,
       manufacturings: ManufacturingApp.Store,
       tasks: TaskApp.Store,
   )(request: OrderSimulationRequest): IO[Either[ApiFailure, OrderSimulationResponse]] =
@@ -110,7 +117,7 @@ object PlanningRoutes:
         gateway.snapshot(None, None).flatMap {
           case Left(error) => IO.pure(entityLoadFailure(error).asLeft)
           case Right(snapshot) =>
-            IO(DateTime.now()).map { now =>
+            clock.now.map { now =>
               OrderSimulationResponse
                 .fromDomain(OrderSimulationService.simulate(now, snapshot.orders, snapshot.employees, snapshot.calendar, demand))
                 .asRight

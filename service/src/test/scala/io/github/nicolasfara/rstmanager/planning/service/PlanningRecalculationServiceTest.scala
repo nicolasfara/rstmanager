@@ -6,6 +6,7 @@ import io.github.nicolasfara.rstmanager.customer.domain.CustomerId
 import io.github.nicolasfara.rstmanager.hr.domain.*
 import io.github.nicolasfara.rstmanager.hr.domain.calendar.{ ClosureId, CompanyCalendar, CompanyClosure }
 import io.github.nicolasfara.rstmanager.planning.{ PlanningRequest, PlanningTrigger }
+import io.github.nicolasfara.rstmanager.warehouse.domain.BusinessCalendar
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.{ ManufacturingCode, ManufacturingDependencies }
 import io.github.nicolasfara.rstmanager.work.domain.manufacturing.scheduled.{
   ScheduledManufacturing,
@@ -22,7 +23,7 @@ import cats.data.NonEmptyList
 import cats.effect.{ IO, Ref }
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
-import com.github.nscala_time.time.Imports.DateTime
+import com.github.nscala_time.time.Imports.{ DateTime, LocalDate }
 import io.github.iltotore.iron.*
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers.*
@@ -60,6 +61,30 @@ class PlanningRecalculationServiceTest extends AnyFlatSpecLike:
     capturedValue.orders shouldEqual List(order)
     capturedValue.employees shouldEqual List(worker)
     capturedValue.calendar shouldEqual calendar
+
+  it should "start every request on the business day of the clock, at the Italian midnight" in:
+    val gateway = RecordingGateway(
+      List(openOrder(orderId)),
+      List(employee(employeeId)),
+      CompanyCalendar.empty,
+      Ref.of[IO, Option[List[UUID]]](None).unsafeRunSync(),
+      Ref.of[IO, Option[List[UUID]]](None).unsafeRunSync(),
+    )
+    val seen = Ref.of[IO, Option[(String, PlanningRequest)]](None).unsafeRunSync()
+    // 00:30 in Rome on Saturday is still Friday in UTC.
+    val clock = PlanningClock.fixed(DateTime.parse("2026-11-27T23:30:00Z").withZone(BusinessCalendar.zone).nn)
+    val recalculator = PlanningRecalculationService.withClock(gateway, clock) { (commandId, request, _, _, _) =>
+      seen.set(Some(commandId -> request)).as(Right(commandId))
+    }
+    val saturday = new LocalDate(2026, 11, 28)
+
+    recalculator.recalculate(PlanningFreshness.dailyCause(saturday)).unsafeRunSync()
+    val (commandId, request) = seen.get.unsafeRunSync().getOrElse(fail("Expected planning compute to be invoked."))
+
+    commandId shouldEqual "planning-daily-2026-11-28"
+    request.trigger shouldEqual PlanningTrigger.DailyPlanning
+    request.startOn.getMillis shouldEqual saturday.toDateTimeAtStartOfDay(BusinessCalendar.zone).nn.getMillis
+    BusinessCalendar.day(request.startOn) shouldEqual saturday
 
   private final class RecordingGateway(
       orders: List[InProgressOrder],

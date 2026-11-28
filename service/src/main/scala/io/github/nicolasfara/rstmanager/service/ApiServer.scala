@@ -2,7 +2,7 @@ package io.github.nicolasfara.rstmanager.service
 
 import io.github.nicolasfara.rstmanager.customer.service.{ CustomerApp, CustomerHttpApi }
 import io.github.nicolasfara.rstmanager.hr.service.{ CompanyCalendarApp, CompanyCalendarHttpApi, EmployeeApp, EmployeeHttpApi }
-import io.github.nicolasfara.rstmanager.planning.service.{ PlanningApp, PlanningEntityGateway, PlanningRoutes }
+import io.github.nicolasfara.rstmanager.planning.service.{ PlanningApp, PlanningClock, PlanningEntityGateway, PlanningFreshnessGuard, PlanningRoutes }
 import io.github.nicolasfara.rstmanager.service.http.ApiSecurity
 import io.github.nicolasfara.rstmanager.warehouse.service.{
   DeliveryNoteApp,
@@ -28,6 +28,8 @@ import sttp.tapir.swagger.bundle.SwaggerInterpreter
 object ApiServer:
   def routes(
       planningBackend: PlanningApp.PlanningBackend,
+      planningFreshness: PlanningFreshnessGuard,
+      planningClock: PlanningClock,
       employees: EmployeeApp.Store,
       calendar: CompanyCalendarApp.Store,
       customers: CustomerApp.Store,
@@ -54,7 +56,7 @@ object ApiServer:
         WarehouseReportsHttpApi.routes(materials, suppliers, orders, security) ++
         MaterialRequirementsHttpApi.routes(orders, materials, security) ++
         DeliveryNoteHttpApi.routes(deliveryNotes, materials, suppliers, deliveryNoteReconciler, security) ++
-        PlanningRoutes.serverEndpoints(planningBackend, planningGateway, manufacturings, tasks, security)
+        PlanningRoutes.serverEndpoints(planningBackend, planningGateway, planningFreshness, planningClock, manufacturings, tasks, security)
 
     val documentationEndpoints = SwaggerInterpreter().fromServerEndpoints[IO](apiEndpoints, "RST Manager API", "0.1.0")
 

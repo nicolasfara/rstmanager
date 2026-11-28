@@ -72,6 +72,16 @@ enum Planning derives CanEqual:
     case _ => Decision.reject(PlanningMustBeInProgress)
   }.validate(_.mustBeConcluded)
 
+  /**
+   * First production day the current plan was computed from (`PlanningRequest.startOn` of the latest attempt), or `None` before any attempt. A plan
+   * anchored to a day before today still assigns work to past days and must be recomputed.
+   */
+  def plannedFrom: Option[DateTime] = this match
+    case NewPlanning => None
+    case InProgressPlanning(request, _, _, _, _, _) => Some(request.startOn)
+    case CompletedPlanning(request, _, _) => Some(request.startOn)
+    case RejectedPlanning(request, _, _) => Some(request.startOn)
+
   private def mustBeInProgress: ValidatedNec[PlanningError, InProgressPlanning] = this match
     case planning: InProgressPlanning => planning.validNec
     case _ => PlanningMustBeInProgress.invalidNec

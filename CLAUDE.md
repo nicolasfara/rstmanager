@@ -72,8 +72,13 @@ Build con `-Werror -Wunused:all -Yexplicit-nulls -Wsafe-init
 
 - Il package del frontend è `io.gitbub.nicolasfara.rstmanager` (grafia `gitbub`
   intenzionale — non "correggere").
-- Policy di recalcolo planning: event-driven + un consolidamento giornaliero;
-  mai polling periodico lato backend.
+- Policy di recalcolo planning: event-driven + un consolidamento giornaliero
+  (05:00 ora `Europe/Rome`, `PlanningDailyScheduler`) + recupero se il piano
+  è ancorato a un giorno passato (all'avvio e prima di servire la board,
+  `PlanningFreshnessGuard`); il ricalcolo giornaliero ha un command id per
+  giorno, quindi al più uno al giorno. Mai polling periodico di ricalcolo.
+  L'ora del planning si legge solo da `PlanningClock` (fuso aziendale), mai
+  `DateTime.now()` nel fuso del server.
 - Gli eventi persistiti e i codec JSON sono schema append-only: preserva la
   decodifica retro-compatibile quando evolvi eventi/DTO.
 - Il dominio non legge mai orologio né RNG (`DateTime.now`, `randomUUID`):

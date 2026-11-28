@@ -223,6 +223,14 @@ final class OrderDraftsSpec extends AnyFunSuite with Matchers:
   private val validHeader: HeaderState =
     HeaderState.initial("ORD-1", "2026-07-01").copy(customerId = customerId.toString).withDelivery("2026-09-10")
 
+  test("withSuggestedDeadline sets the deadline and moves the delivery 5 days after it, never earlier"):
+    val header = HeaderState.initial("ORD-1", "2026-07-01").withDelivery("2026-09-10")
+    val moved = header.withSuggestedDeadline("2026-09-28")
+    moved.workDeadline shouldBe "2026-09-28"
+    moved.workDeadlineManuallyEdited shouldBe true
+    moved.deliveryDate shouldBe "2026-10-03"
+    header.withSuggestedDeadline("2026-09-01").deliveryDate shouldBe "2026-09-10"
+
   test("withDelivery proposes the work deadline 5 days earlier, across month and year boundaries"):
     val header = HeaderState.initial("ORD-1", "2026-07-01")
     header.withDelivery("2026-09-10").workDeadline shouldBe "2026-09-05"

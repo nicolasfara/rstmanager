@@ -305,6 +305,14 @@ object OrderDrafts:
 
     /** Back to the proposed work deadline ("↺ Usa proposta"), which follows the delivery date again. */
     def withProposedDeadline: HeaderState = copy(workDeadline = proposedDeadline(deliveryDate), workDeadlineManuallyEdited = false)
+
+    /**
+     * The work deadline the planner suggests to avoid delays ("Usa data proposta"): kept as typed by hand, with the customer delivery moved to
+     * [[deadlineLeadDays]] days after it unless it is already later.
+     */
+    def withSuggestedDeadline(day: String): HeaderState =
+      val delivery = shiftDay(day, deadlineLeadDays).filter(_ > deliveryDate.trim.nn).getOrElse(deliveryDate)
+      copy(workDeadline = day, workDeadlineManuallyEdited = true, deliveryDate = delivery)
   end HeaderState
 
   object HeaderState:

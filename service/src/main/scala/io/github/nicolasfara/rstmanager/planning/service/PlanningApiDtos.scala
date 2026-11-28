@@ -359,6 +359,44 @@ object PlanningApiDtos:
         result.unplannedReasons.map(UnplannedReasonDto.fromDomain),
       )
 
+  /** An existing order that would become late (or unplannable, `plannedCompletion` absent) only because the checked order is inserted. */
+  final case class InducedDelayDto(orderId: UUID, number: String, deadline: String, plannedCompletion: Option[String])
+
+  /** A manufacturing of the checked order that would finish after its own completion date. */
+  final case class LateManufacturingDto(code: String, completionDate: String, plannedCompletion: String)
+
+  /**
+   * Whether an order about to be created fits the current plan with its work deadline (`promisedDeliveryDate`).
+   *
+   * `plannedCompletion` is absent when the order cannot be planned (see `reasons`); `suggestedDeadline` is the earliest work deadline without
+   * avoidable delays, present only when there is one.
+   */
+  final case class OrderFeasibilityResponse(
+      plannedCompletion: Option[String],
+      deadline: String,
+      late: Boolean,
+      hasDelay: Boolean,
+      lateManufacturings: List[LateManufacturingDto],
+      inducedDelays: List[InducedDelayDto],
+      suggestedDeadline: Option[String],
+      reasons: List[UnplannedReasonDto],
+  )
+
+  object OrderFeasibilityResponse:
+    def fromDomain(deadline: DateTime, result: OrderFeasibilityService.FeasibilityResult): OrderFeasibilityResponse =
+      OrderFeasibilityResponse(
+        result.plannedCompletion.map(formatDate),
+        formatDate(deadline),
+        result.late,
+        result.hasDelay,
+        result.lateManufacturings.map(late => LateManufacturingDto(late.code, formatDate(late.completionDate), formatDate(late.plannedCompletion))),
+        result.inducedDelays.map(delay =>
+          InducedDelayDto(delay.orderId.value, delay.number, formatDate(delay.deadline), delay.plannedCompletion.map(formatDate)),
+        ),
+        result.suggestedDeadline.map(formatDate),
+        result.unplannedReasons.map(UnplannedReasonDto.fromDomain),
+      )
+
   final case class PlanningDomainErrorDto(code: String, message: String)
 
   object PlanningDomainErrorDto:
@@ -443,6 +481,9 @@ object PlanningApiDtos:
   given CirceCodec[PlanningDomainErrorDto] = deriveCodec
   given CirceCodec[OrderSimulationRequest] = deriveCodec
   given CirceCodec[OrderSimulationResponse] = deriveCodec
+  given CirceCodec[InducedDelayDto] = deriveCodec
+  given CirceCodec[LateManufacturingDto] = deriveCodec
+  given CirceCodec[OrderFeasibilityResponse] = deriveCodec
 
   given Schema[HealthResponse] = Schema.derived
   given Schema[PlanningTriggerDto] = Schema.derived
@@ -457,6 +498,9 @@ object PlanningApiDtos:
   given Schema[PlanningWarningDto] = Schema.derived
   given Schema[OrderSimulationRequest] = Schema.derived
   given Schema[OrderSimulationResponse] = Schema.derived
+  given Schema[InducedDelayDto] = Schema.derived
+  given Schema[LateManufacturingDto] = Schema.derived
+  given Schema[OrderFeasibilityResponse] = Schema.derived
   given Schema[PlanningResultDto] = Schema.derived
   given Schema[DailyScheduleDto] = Schema.derived
   given Schema[PlanningDomainErrorDto] = Schema.derived

@@ -109,7 +109,7 @@ object OrderSimulationService:
    * Horizon pushing the synthetic order past every real one in [[PlanningPriorityPolicy]], so the simulation never steals capacity from current
    * commitments.
    */
-  private def horizon(now: DateTime): DateTime = now.plusYears(50).nn
+  private[planning] def horizon(now: DateTime): DateTime = now.plusYears(50).nn
 
   private def syntheticOrder(now: DateTime, demand: SimulationDemand): InProgressOrder =
     val deadline = horizon(now)
@@ -168,6 +168,6 @@ object OrderSimulationService:
    * Name-based (version 3) UUIDs keep the simulation a pure function, are unique per label within one run, and cannot collide with the random
    * (version 4) ids of real entities. Nothing synthetic is ever persisted.
    */
-  private def syntheticId(label: String): UUID =
+  private[planning] def syntheticId(label: String): UUID =
     UUID.nameUUIDFromBytes(s"rstmanager/simulation/$label".getBytes(StandardCharsets.UTF_8))
 end OrderSimulationService
